@@ -415,10 +415,30 @@ func TestSSLStore_AddKeepsUnparsablePEM(t *testing.T) {
 	if !bytes.Contains(written, rawSkip) {
 		t.Fatal("Add rewrite dropped the unparsable PEM block")
 	}
-	got, err := certutil.FromFile(path)
+	result, err := certutil.FromFileResult(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Fixture order: certs[0], rawSkip, certs[1:]...; Add appends extra after all of that.
+	wantAfter := append(append([]*x509.Certificate{}, certs[1:]...), extra...)
+	if len(result.Entries) != len(wantAfter)+2 {
+		t.Fatalf("entries=%d, want %d", len(result.Entries), len(wantAfter)+2)
+	}
+	checkCert := func(i int, want *x509.Certificate) {
+		t.Helper()
+		if result.Entries[i].Cert == nil ||
+			certutil.GetHexSHA256Fingerprint(*result.Entries[i].Cert) != certutil.GetHexSHA256Fingerprint(*want) {
+			t.Fatalf("entry %d has the wrong certificate", i)
+		}
+	}
+	checkCert(0, certs[0])
+	if !bytes.Equal(result.Entries[1].Raw, rawSkip) {
+		t.Fatal("unparsable PEM block moved")
+	}
+	for i, want := range wantAfter {
+		checkCert(i+2, want)
+	}
+	got := result.Certs
 	if len(got) != len(certs)+len(extra) {
 		t.Fatalf("after add len=%d want %d", len(got), len(certs)+len(extra))
 	}
