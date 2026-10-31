@@ -1,3 +1,8 @@
+---
+layout: default
+title: Basics
+---
+
 ## Add
 
 `trustprune` can add certificates into a given trust store with the `add` sub command.
@@ -56,14 +61,14 @@ Certificate
 ...
 ```
 
-Note: You can specify `-format table` to output all details of each certificate, but the result won't be in a table layout.
+`-format table` prints an aligned table. Columns are Subject, Issuer, KEY, DAYS, SHA256 Fingerprint (16-character preview), Not Before, and Not After. Pass `-v` for the full fingerprint, serial, and store path.
 
 ```
-$ trustprune list -app firefox -format table
-Subject                                             Issuer                                                       Public Key Algorithm SHA256 Fingerprint Not Before Not After
-AlphaSSL CA - SHA256 - G2                           GlobalSign Root CA                                           RSA                  ee793643199474ed   2014-02-20 2024-02-20
-Amazon                                              Amazon Root CA 1                                             RSA                  f55f9ffcb83c7345   2015-10-22 2025-10-19
-Amazon Root CA 1                                    Starfield Services Root Certificate Authority - G2           RSA                  87dcd4dc74640a32   2015-05-25 2037-12-31
+$ trustprune list -format table
+Subject                                                                 Issuer                                                                  KEY       DAYS SHA256 Fingerprint Not Before Not After
+AC RAIZ FNMT-RCM SERVIDORES SEGUROS                                     AC RAIZ FNMT-RCM SERVIDORES SEGUROS                                     ECDSA-384 6258 554153b13d2cf9dd   2018-12-20 2043-12-20
+ACCVRAIZ1                                                               ACCVRAIZ1                                                               RSA-4096  1521 9a6ec012e1a7da9d   2011-05-05 2030-12-31
+Actalis Authentication Root CA                                          Actalis Authentication Root CA                                          RSA-4096  1421 55926084ec963a64   2011-09-22 2030-09-22
 ...
 ```
 
@@ -133,7 +138,7 @@ Certificate
 ...
 ```
 
-### TLS obsvervatory
+### TLS observatory
 
 `trustprune` supports `-format observatory` which outputs certificates in a format supported by [nabla-c0d3/trust_stores_observatory](https://github.com/nabla-c0d3/trust_stores_observatory).
 
