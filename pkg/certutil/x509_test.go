@@ -64,7 +64,8 @@ func verify(path, algo, fp string, t *testing.T) {
 		t.Error(err)
 	}
 	resp := strings.TrimSpace(string(out))
-	if resp != fp {
+	// OpenSSL 3 on some macOS images prints SHA1/SHA256; older builds use sha1/sha256.
+	if !strings.EqualFold(resp, fp) {
 		t.Errorf("bad fingerprint match with openssl:\n  openssl=%s\n  expected=%s", resp, fp)
 	}
 }
