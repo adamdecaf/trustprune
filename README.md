@@ -116,7 +116,7 @@ go install github.com/adamdecaf/trustprune@master
 ```bash
 # Platform store
 trustprune list
-trustprune list -format table       # short (default), table, openssl, observatory
+trustprune list -format table       # short (default), table, json, openssl, observatory
 trustprune list -format openssl
 trustprune list -ui web             # cli (default) or web
 
@@ -227,7 +227,7 @@ Vendors and browsers react after the fact. `trustprune` is for putting that cont
 
 ## Related reading
 
-- [SSL and the Future of Authenticity](https://moxie.org/blog/ssl-and-the-future-of-authenticity/)
+- [SSL and the Future of Authenticity](https://moxie.org/2011/04/11/ssl-and-the-future-of-authenticity.html)
 - [Mozilla Certificate Policy](https://www.mozilla.org/en-US/about/governance/policies/security-group/certs/policy/)
 - [Mozilla CA Incident Dashboard](https://wiki.mozilla.org/CA/Incident_Dashboard)
 - [mozilla.dev.security.policy](https://groups.google.com/forum/#!forum/mozilla.dev.security.policy)
