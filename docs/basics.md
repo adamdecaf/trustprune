@@ -61,7 +61,7 @@ Certificate
 ...
 ```
 
-`-format table` prints an aligned table. Columns are Subject, Issuer, KEY, DAYS, SHA256 Fingerprint (16-character preview), Not Before, and Not After. Pass `-v` for the full fingerprint, serial, and store path.
+`-format table` prints an aligned table. Columns are Subject, Issuer, KEY, DAYS, SHA256 Fingerprint (16-character preview), Not Before, and Not After. Pass `-v` for the full fingerprint, serial, and source or store path (`-` for URLs).
 
 ```
 $ trustprune list -format table

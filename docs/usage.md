@@ -53,7 +53,7 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 | `-url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `-count` | Print only the number of certificates |
 | `-format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
-| `-v` | In `table` output, show the full fingerprint, serial, and store path |
+| `-v` | In `table` output, show the full fingerprint, serial, and source or store path (`-` for URLs) |
 | `-ui <type>` | Presentation: `cli` (default) or `web` (local page) |
 
 ## backup
