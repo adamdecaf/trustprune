@@ -45,7 +45,7 @@ func testPEMBundleWithNegativeSerial(t *testing.T) (blob []byte, wantFingerprint
 		t.Fatal("negative-serial.pem: no PEM block")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path (check GODEBUG)")
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise the skip path on this toolchain")
 	} else if !strings.Contains(err.Error(), "negative serial") {
 		t.Fatalf("expected negative serial parse error, got %v", err)
 	}
@@ -234,7 +234,7 @@ func TestParsePEM_negativeSerialOnly(t *testing.T) {
 		t.Fatal("negative-serial.pem: no PEM block")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path (check GODEBUG)")
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise the skip path on this toolchain")
 	}
 
 	var warn bytes.Buffer
