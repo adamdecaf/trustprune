@@ -99,6 +99,25 @@ func reportDryRunCerts(prefix string, certs []*x509.Certificate) []string {
 	return out
 }
 
+func reportKeptRawPEM(entries []certutil.PEMEntry) []string {
+	return reportKeptRawPEMIn("", entries)
+}
+
+func reportKeptRawPEMIn(path string, entries []certutil.PEMEntry) []string {
+	var out []string
+	for _, e := range entries {
+		if e.Cert != nil || len(e.Raw) == 0 {
+			continue
+		}
+		line := fmt.Sprintf("keep unparsable PEM block (%d bytes)", len(e.Raw))
+		if path != "" {
+			line = fmt.Sprintf("%s in %s", line, path)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
 // listDirBasenames returns basenames of regular files under dir (non-recursive).
 // Missing directories yield an empty list and no error.
 func listDirBasenames(dir string) ([]string, error) {

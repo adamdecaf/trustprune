@@ -26,22 +26,50 @@ import (
 // ToFile overwrites file at `path` with the certificates encoded in
 // PEM format.
 func ToFile(path string, certs []*x509.Certificate) error {
+	entries := make([]PEMEntry, 0, len(certs))
+	for i := range certs {
+		entries = append(entries, PEMEntry{Cert: certs[i]})
+	}
+	return ToFileEntries(path, entries)
+}
+
+// ToFileEntries overwrites path with parseable certificates re-encoded as PEM
+// and unparsable CERTIFICATE blocks written as their original PEM bytes.
+func ToFileEntries(path string, entries []PEMEntry) error {
 	var perms os.FileMode = file.TempFilePermissions
 	stat, err := os.Stat(path)
 	if err == nil {
 		perms = stat.Mode()
 	}
+	body, err := EncodePEMEntries(entries)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, body, perms)
+}
 
-	// write the cert(s)
+// EncodePEMEntries writes entries in order: parsed certificates via pem.Encode,
+// unparsable blocks as the stored raw PEM (BEGIN..END).
+func EncodePEMEntries(entries []PEMEntry) ([]byte, error) {
 	var buf bytes.Buffer
-	for i := range certs {
-		b := &pem.Block{
-			Type:  "CERTIFICATE",
-			Bytes: certs[i].Raw,
+	for i := range entries {
+		if entries[i].Cert != nil {
+			b := &pem.Block{
+				Type:  "CERTIFICATE",
+				Bytes: entries[i].Cert.Raw,
+			}
+			if err := pem.Encode(&buf, b); err != nil {
+				return nil, err
+			}
+			continue
 		}
-		if err := pem.Encode(&buf, b); err != nil {
-			return err
+		if len(entries[i].Raw) == 0 {
+			continue
+		}
+		buf.Write(entries[i].Raw)
+		if entries[i].Raw[len(entries[i].Raw)-1] != '\n' {
+			buf.WriteByte('\n')
 		}
 	}
-	return os.WriteFile(path, buf.Bytes(), perms)
+	return buf.Bytes(), nil
 }

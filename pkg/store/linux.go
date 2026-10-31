@@ -212,14 +212,11 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 			if err != nil {
 				return err
 			}
-			if parsed.Skipped > 0 {
-				return fmt.Errorf("linux: refusing to rewrite %s: skipped %d unparsable certificate(s); backup or fix the file before allowlisting so those certificates are not deleted", path, parsed.Skipped)
+			kept, removed := parsed.KeepMatching(al.Matches)
+			for i := range removed {
+				details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(removed[i]), path))
 			}
-			for i := range parsed.Certs {
-				if !al.Matches(parsed.Certs[i]) {
-					details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(parsed.Certs[i]), path))
-				}
-			}
+			details = append(details, reportKeptRawPEMIn(path, kept.Entries)...)
 			return nil
 		})
 		if err != nil {
@@ -237,33 +234,12 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 			return nil
 		}
 
-		// read the cert(s) contained at the file and only keep those
-		// that aren't removable
 		parsed, err := certutil.FromFileResult(path)
 		if err != nil {
 			return err
 		}
-		if parsed.Skipped > 0 {
-			return fmt.Errorf("linux: refusing to rewrite %s: skipped %d unparsable certificate(s); backup or fix the file before allowlisting so those certificates are not deleted", path, parsed.Skipped)
-		}
-		read := parsed.Certs
-		for i := 0; i < len(read); i++ {
-			// Remove the cert if we don't match
-			if !al.Matches(read[i]) {
-				read = append(read[:i], read[i+1:]...)
-				if len(read) == 0 {
-					break
-				}
-			}
-		}
-
-		// otherwise, write kept certs from `read` back
-		err = certutil.ToFile(path, read)
-		if err != nil {
-			return err
-		}
-
-		return nil
+		kept, _ := parsed.KeepMatching(al.Matches)
+		return certutil.ToFileEntries(path, kept.Entries)
 	}
 
 	// Walk the fs and deactivate each cert

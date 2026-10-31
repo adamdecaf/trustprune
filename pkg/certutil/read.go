@@ -33,7 +33,8 @@ func FromFile(path string) ([]*x509.Certificate, error) {
 	return parsed.Certs, nil
 }
 
-// FromFileResult is FromFile plus a count of skipped CERTIFICATE blocks.
+// FromFileResult is FromFile plus ordered entries (parseable certs and raw
+// unparsable CERTIFICATE blocks) for rewrite callers.
 func FromFileResult(path string) (PEMResult, error) {
 	if !file.Exists(path) {
 		return PEMResult{}, fmt.Errorf("%s does not exist", path)
