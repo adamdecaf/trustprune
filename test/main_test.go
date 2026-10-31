@@ -93,7 +93,6 @@ func TestCertManage_help(t *testing.T) {
 		}
 	}
 
-
 	out, err = run(t, "list", "-h")
 	if err != nil && !strings.Contains(err.Error(), "exit status 1") {
 		t.Errorf("list -h err=%v", err)
@@ -135,7 +134,6 @@ func TestCertManage_help(t *testing.T) {
 		}
 	}
 }
-
 
 func extractFlagLine(out, flag string) string {
 	for _, line := range strings.Split(out, "\n") {
