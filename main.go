@@ -99,6 +99,7 @@ FLAGS
   -file <path>     Local file path
   -from <type(s)>  Which sources to capture urls from. Comma separated list. (Options: browser, browsers, chrome, firefox, safari, file)
   -help            Show this help dialog
+  -out <path>      Output file path, used by gen-allowlist
   -ui <type>       Method of adjusting certificates to be removed/untrusted. (default: %s, options: %s)
   -url <where>     Remote URL to download and use in a command
 

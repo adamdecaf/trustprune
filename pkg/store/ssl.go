@@ -415,11 +415,11 @@ func sslInstallFile(src, dst string) error {
 		return sslSudoInstallAtomic(src, dst)
 	}
 	if err := os.RemoveAll(tmpDir); err != nil {
-		fmt.Printf("store/ssl: warning: could not remove %s after restore: %v\n", tmpDir, err)
+		fmt.Fprintf(os.Stderr, "store/ssl: warning: could not remove %s after restore: %v\n", tmpDir, err)
 	}
 	if liveExists {
 		if err := sslRemove(aside); err != nil {
-			fmt.Printf("store/ssl: warning: could not remove %s after restore: %v\n", aside, err)
+			fmt.Fprintf(os.Stderr, "store/ssl: warning: could not remove %s after restore: %v\n", aside, err)
 		}
 	}
 	return nil
