@@ -852,16 +852,16 @@ func TestSSLStore_AsideCleanupFailureWarns(t *testing.T) {
 	t.Cleanup(func() { sslRemove = orig })
 
 	var buf bytes.Buffer
-	stdout := os.Stdout
+	stderr := os.Stderr
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
 	}
-	os.Stdout = w
+	os.Stderr = w
 	SetDryRun(false)
 	err = sslInstallFile(src, path)
 	_ = w.Close()
-	os.Stdout = stdout
+	os.Stderr = stderr
 	_, _ = buf.ReadFrom(r)
 	_ = r.Close()
 	if err != nil {

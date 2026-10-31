@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -37,12 +38,13 @@ func DefaultUI() string {
 	return cliFormat
 }
 
-// GetUIs returns all output mediums
+// GetUIs returns all output mediums, sorted.
 func GetUIs() []string {
-	var out []string
+	out := make([]string, 0, len(uiOptions))
 	for k := range uiOptions {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 

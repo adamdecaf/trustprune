@@ -36,6 +36,12 @@ func TestCertManage_help(t *testing.T) {
 	if strings.Contains(out, "whitelist") {
 		t.Error("top-level help should not list whitelist aliases")
 	}
+	if !strings.Contains(out, "-out <path>") {
+		t.Error("expected -out in top-level FLAGS")
+	}
+	if !strings.Contains(out, "options: cli, web") {
+		t.Errorf("expected stable -ui options order in top-level help, got snippet around -ui: %q", extractFlagLine(out, "-ui"))
+	}
 
 	// bad argument, fs.Usage()
 	out, err = run(t, "bad-arg")
@@ -87,6 +93,15 @@ func TestCertManage_help(t *testing.T) {
 		}
 	}
 
+
+	out, err = run(t, "list", "-h")
+	if err != nil && !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("list -h err=%v", err)
+	}
+	if !strings.Contains(out, "Options: cli, web") {
+		t.Errorf("list help should list UI options as cli, web; got %q", extractFlagLine(out, "Options:"))
+	}
+
 	// hidden aliases still invoke the same commands and share allowlist help
 	aliases := []struct {
 		name string
@@ -119,6 +134,16 @@ func TestCertManage_help(t *testing.T) {
 			}
 		}
 	}
+}
+
+
+func extractFlagLine(out, flag string) string {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, flag) {
+			return strings.TrimSpace(line)
+		}
+	}
+	return ""
 }
 
 // accepts arguments to trustprune and then returns the
