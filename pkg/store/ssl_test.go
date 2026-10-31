@@ -17,6 +17,7 @@ package store
 import (
 	"bytes"
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -250,6 +251,93 @@ func TestSSLStore_DetectsOSUpdateDrift(t *testing.T) {
 	}
 	if !strings.Contains(msg, "restore -app ssl") {
 		t.Fatalf("warning should tell user what to do next: %q", msg)
+	}
+}
+
+func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	good, err := os.ReadFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	neg, err := os.ReadFile(filepath.Join("..", "..", "testdata", "negative-serial.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(neg)
+	if block == nil {
+		t.Fatal("negative-serial.pem: no PEM block")
+	}
+	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cert.pem")
+	if err := os.WriteFile(path, append(append([]byte{}, good...), neg...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refuseIfSystemSSL(t, path)
+	return sslStoreAt(path), path
+}
+
+func TestSSLStore_RewriteRefusesSkippedCerts(t *testing.T) {
+	s, path := sslEnvWithNegativeSerial(t)
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := s.List(nil)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("List len=%d want 1 (negative serial skipped)", len(listed))
+	}
+
+	extra, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil || len(extra) == 0 {
+		t.Fatalf("example.crt: %v", err)
+	}
+
+	assertRefused := func(t *testing.T, err error, op string) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s should refuse when the bundle has unparsable certs", op)
+		}
+		msg := err.Error()
+		if !strings.Contains(msg, "skipped 1") {
+			t.Fatalf("%s error should include skipped count, got %v", op, err)
+		}
+		if !strings.Contains(msg, "backup") {
+			t.Fatalf("%s error should tell the user to backup, got %v", op, err)
+		}
+		if !strings.Contains(msg, "restore") {
+			t.Fatalf("%s error should mention restore, got %v", op, err)
+		}
+	}
+
+	SetDryRun(false)
+	assertRefused(t, s.Add(extra), "Add")
+	assertRefused(t, s.Remove(allowlist.FromCertificates(listed)), "Remove")
+	assertRefused(t, s.replaceBundle(listed), "replaceBundle")
+
+	SetDryRun(true)
+	defer SetDryRun(false)
+	assertRefused(t, s.Add(extra), "dry-run Add")
+	assertRefused(t, s.Remove(allowlist.FromCertificates(listed)), "dry-run Remove")
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("refused rewrite mutated the PEM")
 	}
 }
 

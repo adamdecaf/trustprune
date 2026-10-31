@@ -208,13 +208,16 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 			if (err != nil && !errors.Is(err, filepath.SkipDir)) || info.IsDir() {
 				return nil
 			}
-			read, err := certutil.FromFile(path)
+			parsed, err := certutil.FromFileResult(path)
 			if err != nil {
 				return err
 			}
-			for i := range read {
-				if !al.Matches(read[i]) {
-					details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(read[i]), path))
+			if parsed.Skipped > 0 {
+				return fmt.Errorf("linux: refusing to rewrite %s: skipped %d unparsable certificate(s); backup or fix the file before allowlisting so those certificates are not deleted", path, parsed.Skipped)
+			}
+			for i := range parsed.Certs {
+				if !al.Matches(parsed.Certs[i]) {
+					details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(parsed.Certs[i]), path))
 				}
 			}
 			return nil
@@ -236,10 +239,14 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 
 		// read the cert(s) contained at the file and only keep those
 		// that aren't removable
-		read, err := certutil.FromFile(path)
+		parsed, err := certutil.FromFileResult(path)
 		if err != nil {
 			return err
 		}
+		if parsed.Skipped > 0 {
+			return fmt.Errorf("linux: refusing to rewrite %s: skipped %d unparsable certificate(s); backup or fix the file before allowlisting so those certificates are not deleted", path, parsed.Skipped)
+		}
+		read := parsed.Certs
 		for i := 0; i < len(read); i++ {
 			// Remove the cert if we don't match
 			if !al.Matches(read[i]) {

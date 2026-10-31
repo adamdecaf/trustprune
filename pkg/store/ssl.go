@@ -111,9 +111,9 @@ func (s sslStore) Add(certs []*x509.Certificate) error {
 	if !file.Exists(path) {
 		return fmt.Errorf("ssl bundle not found at %s; create or restore it before adding certificates", path)
 	}
-	existing, err := certutil.FromFile(path)
+	existing, err := s.certsForRewrite(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return err
 	}
 	if DryRun() {
 		details := reportDryRunCerts("add", certs)
@@ -183,9 +183,9 @@ func (s sslStore) Remove(al allowlist.Allowlist) error {
 	if !file.Exists(path) {
 		return fmt.Errorf("ssl bundle not found at %s; nothing to allowlist", path)
 	}
-	certs, err := certutil.FromFile(path)
+	certs, err := s.certsForRewrite(path)
 	if err != nil {
-		return fmt.Errorf("read %s: %w", path, err)
+		return err
 	}
 
 	var kept, removed []*x509.Certificate
@@ -246,12 +246,28 @@ func (s sslStore) Restore(where string) error {
 	return s.recordLastAppliedFromFile(srcFile)
 }
 
+// certsForRewrite reads the live PEM and refuses if any CERTIFICATE block
+// was skipped. Rewriting from the parsed slice would drop those certificates.
+func (s sslStore) certsForRewrite(path string) ([]*x509.Certificate, error) {
+	parsed, err := certutil.FromFileResult(path)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if parsed.Skipped > 0 {
+		return nil, fmt.Errorf("ssl: refusing to rewrite %s: skipped %d unparsable certificate(s); backup first (trustprune backup -app ssl) or restore before rewriting so those certificates are not deleted", path, parsed.Skipped)
+	}
+	return parsed.Certs, nil
+}
+
 // replaceBundle writes certs to a staging PEM then installs via a sibling
 // temp directory + rename swap. The live file is left untouched until the
 // swap succeeds.
 func (s sslStore) replaceBundle(certs []*x509.Certificate) error {
 	path, err := s.certPath()
 	if err != nil {
+		return err
+	}
+	if _, err := s.certsForRewrite(path); err != nil {
 		return err
 	}
 	if len(certs) == 0 {

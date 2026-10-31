@@ -15,39 +15,44 @@
 package certutil
 
 import (
-	"io"
 	"crypto/x509"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
-// FromFile reads a series of PEM encoded blocks from the given file
+// FromFile reads a series of PEM encoded blocks from the given file.
+// Unparsable CERTIFICATE blocks are skipped (see ParsePEM).
 func FromFile(path string) ([]*x509.Certificate, error) {
+	parsed, err := FromFileResult(path)
+	if err != nil {
+		return nil, err
+	}
+	return parsed.Certs, nil
+}
+
+// FromFileResult is FromFile plus a count of skipped CERTIFICATE blocks.
+func FromFileResult(path string) (PEMResult, error) {
 	if !file.Exists(path) {
-		return nil, fmt.Errorf("%s does not exist", path)
+		return PEMResult{}, fmt.Errorf("%s does not exist", path)
 	}
 
 	r, err := os.Open(path)
+	if err != nil {
+		return PEMResult{}, fmt.Errorf("error opening file, err=%w", err)
+	}
 	defer func() {
 		e := r.Close()
 		if e != nil {
 			fmt.Printf("error closing test pem file - %s\n", e)
 		}
 	}()
-	if err != nil {
-		return nil, fmt.Errorf("error opening file, err=%w", err)
-	}
 
 	body, err := io.ReadAll(r)
 	if err != nil {
-		return nil, fmt.Errorf("error reading file, err=%w", err)
+		return PEMResult{}, fmt.Errorf("error reading file, err=%w", err)
 	}
-
-	certificates, err := ParsePEM(body)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing certs, err=%w", err)
-	}
-	return certificates, nil
+	return ParsePEMResult(body), nil
 }

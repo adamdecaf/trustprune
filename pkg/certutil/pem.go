@@ -17,24 +17,51 @@ package certutil
 import (
 	"crypto/x509"
 	"encoding/pem"
+	"fmt"
+	"io"
+	"os"
 )
 
-// ParsePEM will extract the slice of certificates encoded in PEM format
+// pemParseWarn is where ParsePEM writes skip warnings. Tests may replace it.
+var pemParseWarn io.Writer = os.Stderr
+
+// PEMResult is the outcome of parsing a PEM certificate bundle.
+type PEMResult struct {
+	Certs   []*x509.Certificate
+	Skipped int // CERTIFICATE blocks that failed to parse
+}
+
+// ParsePEM extracts certificates from a PEM bundle. Each CERTIFICATE block is
+// parsed independently. Unparsable blocks (for example those with a negative
+// serial number) are skipped with a warning to stderr so one bad entry cannot
+// abort the rest of the bundle. Non-CERTIFICATE PEM types are ignored.
 func ParsePEM(blob []byte) ([]*x509.Certificate, error) {
-	var certs []*x509.Certificate
+	return ParsePEMResult(blob).Certs, nil
+}
+
+// ParsePEMResult is ParsePEM plus a count of skipped CERTIFICATE blocks.
+// List/read callers use Certs; rewrite callers should refuse when Skipped > 0
+// so unparsable certificates are not silently dropped from a written bundle.
+func ParsePEMResult(blob []byte) PEMResult {
+	var out PEMResult
 	var block *pem.Block
+	n := 0
 	for {
 		block, blob = pem.Decode(blob)
 		if block == nil {
 			break
 		}
-		if block.Type == "CERTIFICATE" {
-			cert, err := x509.ParseCertificate(block.Bytes)
-			if err != nil {
-				return nil, err
-			}
-			certs = append(certs, cert)
+		if block.Type != "CERTIFICATE" {
+			continue
 		}
+		n++
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			fmt.Fprintf(pemParseWarn, "certutil: skipping PEM block %d: %v\n", n, err)
+			out.Skipped++
+			continue
+		}
+		out.Certs = append(out.Certs, cert)
 	}
-	return certs, nil
+	return out
 }
