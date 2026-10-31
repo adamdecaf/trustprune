@@ -254,7 +254,7 @@ func TestSSLStore_DetectsOSUpdateDrift(t *testing.T) {
 	}
 }
 
-func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string) {
+func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string, []*x509.Certificate, []byte) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -268,6 +268,10 @@ func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	lots, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	block, _ := pem.Decode(neg)
 	if block == nil {
 		t.Fatal("negative-serial.pem: no PEM block")
@@ -275,18 +279,53 @@ func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string) {
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
 		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path")
 	}
+	rawSkip := certificatePEMBlock(t, neg)
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cert.pem")
-	if err := os.WriteFile(path, append(append([]byte{}, good...), neg...), 0o600); err != nil {
+	var blob bytes.Buffer
+	blob.Write(good)
+	blob.Write(neg)
+	blob.Write(lots)
+	if err := os.WriteFile(path, blob.Bytes(), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	refuseIfSystemSSL(t, path)
-	return sslStoreAt(path), path
+	certs, err := certutil.FromFile(path)
+	if err != nil || len(certs) < 2 {
+		t.Fatalf("parseable certs: len=%d err=%v", len(certs), err)
+	}
+	return sslStoreAt(path), path, certs, rawSkip
 }
 
-func TestSSLStore_RewriteRefusesSkippedCerts(t *testing.T) {
-	s, path := sslEnvWithNegativeSerial(t)
+func certificatePEMBlock(t *testing.T, blob []byte) []byte {
+	t.Helper()
+	begin := []byte("-----BEGIN CERTIFICATE-----")
+	endMark := []byte("-----END CERTIFICATE-----")
+	start := bytes.Index(blob, begin)
+	if start < 0 {
+		t.Fatal("no BEGIN CERTIFICATE")
+	}
+	rel := bytes.Index(blob[start:], endMark)
+	if rel < 0 {
+		t.Fatal("no END CERTIFICATE")
+	}
+	end := start + rel + len(endMark)
+	if end < len(blob) && blob[end] == '\r' {
+		end++
+	}
+	if end < len(blob) && blob[end] == '\n' {
+		end++
+	}
+	return blob[start:end]
+}
+
+func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
+	s, path, certs, rawSkip := sslEnvWithNegativeSerial(t)
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
+	removeFP := certutil.GetHexSHA256Fingerprint(*certs[len(certs)-1])
+
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -296,48 +335,112 @@ func TestSSLStore_RewriteRefusesSkippedCerts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List: %v", err)
 	}
-	if len(listed) != 1 {
-		t.Fatalf("List len=%d want 1 (negative serial skipped)", len(listed))
+	if len(listed) != len(certs) {
+		t.Fatalf("List len=%d want %d parseable certs (negative serial skipped)", len(listed), len(certs))
 	}
 
+	var buf bytes.Buffer
+	SetDryRunOutput(&buf)
+	SetDryRun(true)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetDryRunOutput(nil)
+	})
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove dry-run: %v", err)
+	}
+	afterDry, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, afterDry) {
+		t.Fatal("dry-run Remove mutated the PEM")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "keep unparsable PEM block") {
+		t.Fatalf("dry-run should report the kept unparsable block, got %q", out)
+	}
+	if !strings.Contains(out, fmt.Sprintf("%d bytes", len(rawSkip))) {
+		t.Fatalf("dry-run should include kept block size %d, got %q", len(rawSkip), out)
+	}
+	if !strings.Contains(out, removeFP) {
+		t.Fatalf("dry-run should report a removed certificate, got %q", out)
+	}
+
+	SetDryRun(false)
+	SetDryRunOutput(nil)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(written, rawSkip) {
+		t.Fatal("allowlist rewrite dropped the unparsable PEM block")
+	}
+
+	got, err := certutil.FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after allowlist len=%d want 1", len(got))
+	}
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != keepFP {
+		t.Fatal("kept unexpected certificate")
+	}
+}
+
+func TestSSLStore_AddKeepsUnparsablePEM(t *testing.T) {
+	s, path, certs, rawSkip := sslEnvWithNegativeSerial(t)
 	extra, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "example.crt"))
 	if err != nil || len(extra) == 0 {
 		t.Fatalf("example.crt: %v", err)
 	}
-
-	assertRefused := func(t *testing.T, err error, op string) {
-		t.Helper()
-		if err == nil {
-			t.Fatalf("%s should refuse when the bundle has unparsable certs", op)
-		}
-		msg := err.Error()
-		if !strings.Contains(msg, "skipped 1") {
-			t.Fatalf("%s error should include skipped count, got %v", op, err)
-		}
-		if !strings.Contains(msg, "backup") {
-			t.Fatalf("%s error should tell the user to backup, got %v", op, err)
-		}
-		if !strings.Contains(msg, "restore") {
-			t.Fatalf("%s error should mention restore, got %v", op, err)
-		}
-	}
-
 	SetDryRun(false)
-	assertRefused(t, s.Add(extra), "Add")
-	assertRefused(t, s.Remove(allowlist.FromCertificates(listed)), "Remove")
-	assertRefused(t, s.replaceBundle(listed), "replaceBundle")
-
-	SetDryRun(true)
-	defer SetDryRun(false)
-	assertRefused(t, s.Add(extra), "dry-run Add")
-	assertRefused(t, s.Remove(allowlist.FromCertificates(listed)), "dry-run Remove")
-
-	after, err := os.ReadFile(path)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(extra); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	written, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Equal(before, after) {
-		t.Fatal("refused rewrite mutated the PEM")
+	if !bytes.Contains(written, rawSkip) {
+		t.Fatal("Add rewrite dropped the unparsable PEM block")
+	}
+	result, err := certutil.FromFileResult(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Fixture order: certs[0], rawSkip, certs[1:]...; Add appends extra after all of that.
+	wantAfter := append(append([]*x509.Certificate{}, certs[1:]...), extra...)
+	if len(result.Entries) != len(wantAfter)+2 {
+		t.Fatalf("entries=%d, want %d", len(result.Entries), len(wantAfter)+2)
+	}
+	checkCert := func(i int, want *x509.Certificate) {
+		t.Helper()
+		if result.Entries[i].Cert == nil ||
+			certutil.GetHexSHA256Fingerprint(*result.Entries[i].Cert) != certutil.GetHexSHA256Fingerprint(*want) {
+			t.Fatalf("entry %d has the wrong certificate", i)
+		}
+	}
+	checkCert(0, certs[0])
+	if !bytes.Equal(result.Entries[1].Raw, rawSkip) {
+		t.Fatal("unparsable PEM block moved")
+	}
+	for i, want := range wantAfter {
+		checkCert(i+2, want)
+	}
+	got := result.Certs
+	if len(got) != len(certs)+len(extra) {
+		t.Fatalf("after add len=%d want %d", len(got), len(certs)+len(extra))
 	}
 }
 

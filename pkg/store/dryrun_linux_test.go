@@ -20,7 +20,9 @@ package store
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -197,4 +199,84 @@ func TestLinuxDryRun_RestoreWithoutFlagDoesMutate(t *testing.T) {
 		t.Fatal("Restore without dry-run did not change the mutated store")
 	}
 	assertDirSnapshotEqual(t, s.ca.dir, want)
+}
+
+func TestLinuxRemove_KeepsUnparsablePEM(t *testing.T) {
+	s := linuxTestStore(t)
+	if err := os.Remove(filepath.Join(s.ca.dir, "extra.crt")); err != nil {
+		t.Fatal(err)
+	}
+
+	good, err := os.ReadFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	neg, err := os.ReadFile(filepath.Join("..", "..", "testdata", "negative-serial.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lots, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(neg)
+	if block == nil {
+		t.Fatal("negative-serial.pem: no PEM block")
+	}
+	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path")
+	}
+	rawSkip := certificatePEMBlock(t, neg)
+
+	mixed := filepath.Join(s.ca.dir, "mixed.crt")
+	var blob bytes.Buffer
+	blob.Write(good)
+	blob.Write(neg)
+	blob.Write(lots)
+	if err := os.WriteFile(mixed, blob.Bytes(), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	certs, err := certutil.FromFile(mixed)
+	if err != nil || len(certs) < 2 {
+		t.Fatalf("mixed.crt parseable: len=%d err=%v", len(certs), err)
+	}
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
+
+	before := mustRead(t, mixed)
+	buf := enableDryRunCapture(t)
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove dry-run: %v", err)
+	}
+	if !bytes.Equal(before, mustRead(t, mixed)) {
+		t.Fatal("dry-run Remove mutated mixed.crt")
+	}
+	out := buf.String()
+	if !strings.Contains(out, "keep unparsable PEM block") {
+		t.Fatalf("dry-run should report the kept unparsable block, got %q", out)
+	}
+	if !strings.Contains(out, mixed) {
+		t.Fatalf("dry-run should name %s, got %q", mixed, out)
+	}
+
+	SetDryRun(false)
+	SetDryRunOutput(nil)
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	written := mustRead(t, mixed)
+	if !bytes.Contains(written, rawSkip) {
+		t.Fatal("linux Remove dropped the unparsable PEM block")
+	}
+	got, err := certutil.FromFile(mixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after allowlist mixed.crt len=%d want 1", len(got))
+	}
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != keepFP {
+		t.Fatal("kept unexpected certificate in mixed.crt")
+	}
 }

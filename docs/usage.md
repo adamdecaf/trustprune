@@ -108,7 +108,7 @@ trustprune restore -app ssl -file ~/Library/trustprune/ssl/<timestamp>/cert.pem
 
 Writes stage a temp PEM then install it (sudo when needed). An empty allowlist result is refused. After a successful write, trustprune records a content hash; if a later macOS update restores Apple's copy, `list -app ssl` prints a one-line warning. Re-apply with `backup -app ssl` then `allowlist -app ssl -file …`, or `restore -app ssl` to put back your pruned backup.
 
-PEM parsing skips individual unparsable certificates (Apple's bundle can include negative serial numbers that Go rejects) and prints a warning to stderr naming the PEM block, then continues with the rest of the file. `list` still returns the parseable certificates. `add` and `allowlist` refuse to rewrite the live bundle if any certificate was skipped, so those entries are not deleted; backup or restore first.
+PEM parsing skips individual unparsable certificates (Apple's bundle can include negative serial numbers that Go rejects) and prints a warning to stderr naming the PEM block, then continues with the rest of the file. `list` still returns the parseable certificates. `add` and `allowlist` rewrite the parseable certificates and write unparsable PEM blocks back unchanged, in their original order, so those entries are not deleted.
 
 
 ## allowlist

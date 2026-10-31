@@ -111,18 +111,17 @@ func (s sslStore) Add(certs []*x509.Certificate) error {
 	if !file.Exists(path) {
 		return fmt.Errorf("ssl bundle not found at %s; create or restore it before adding certificates", path)
 	}
-	existing, err := s.certsForRewrite(path)
+	existing, err := certutil.FromFileResult(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 	if DryRun() {
 		details := reportDryRunCerts("add", certs)
+		details = append(details, reportKeptRawPEM(existing.Entries)...)
 		reportDryRun("add certificates to", "ssl", path, details...)
 		return nil
 	}
-	merged := append([]*x509.Certificate{}, existing...)
-	merged = append(merged, certs...)
-	return s.replaceBundle(merged)
+	return s.replaceBundle(existing.AppendCerts(certs))
 }
 
 func (s sslStore) Backup() error {
@@ -183,25 +182,18 @@ func (s sslStore) Remove(al allowlist.Allowlist) error {
 	if !file.Exists(path) {
 		return fmt.Errorf("ssl bundle not found at %s; nothing to allowlist", path)
 	}
-	certs, err := s.certsForRewrite(path)
+	parsed, err := certutil.FromFileResult(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 
-	var kept, removed []*x509.Certificate
-	for i := range certs {
-		if al.Matches(certs[i]) {
-			kept = append(kept, certs[i])
-		} else {
-			removed = append(removed, certs[i])
-		}
-	}
-
-	if len(kept) == 0 {
+	kept, removed := parsed.KeepMatching(al.Matches)
+	if len(kept.Certs) == 0 {
 		return fmt.Errorf("allowlist would leave %s empty; refusing to write an empty bundle. Adjust the allowlist or restore from backup", path)
 	}
 	if DryRun() {
 		details := reportDryRunCerts("remove", removed)
+		details = append(details, reportKeptRawPEM(kept.Entries)...)
 		reportDryRun("remove certificates from", "ssl", path, details...)
 		return nil
 	}
@@ -246,31 +238,16 @@ func (s sslStore) Restore(where string) error {
 	return s.recordLastAppliedFromFile(srcFile)
 }
 
-// certsForRewrite reads the live PEM and refuses if any CERTIFICATE block
-// was skipped. Rewriting from the parsed slice would drop those certificates.
-func (s sslStore) certsForRewrite(path string) ([]*x509.Certificate, error) {
-	parsed, err := certutil.FromFileResult(path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	if parsed.Skipped > 0 {
-		return nil, fmt.Errorf("ssl: refusing to rewrite %s: skipped %d unparsable certificate(s); backup first (trustprune backup -app ssl) or restore before rewriting so those certificates are not deleted", path, parsed.Skipped)
-	}
-	return parsed.Certs, nil
-}
-
-// replaceBundle writes certs to a staging PEM then installs via a sibling
-// temp directory + rename swap. The live file is left untouched until the
-// swap succeeds.
-func (s sslStore) replaceBundle(certs []*x509.Certificate) error {
+// replaceBundle writes bundle entries (parseable certs plus preserved
+// unparsable PEM blocks) to a staging PEM then installs via a sibling temp
+// directory + rename swap. The live file is left untouched until the swap
+// succeeds.
+func (s sslStore) replaceBundle(bundle certutil.PEMResult) error {
 	path, err := s.certPath()
 	if err != nil {
 		return err
 	}
-	if _, err := s.certsForRewrite(path); err != nil {
-		return err
-	}
-	if len(certs) == 0 {
+	if len(bundle.Certs) == 0 {
 		return fmt.Errorf("refusing to write an empty bundle to %s", path)
 	}
 	tmp, err := os.CreateTemp("", "trustprune-ssl-*.pem")
@@ -281,7 +258,7 @@ func (s sslStore) replaceBundle(certs []*x509.Certificate) error {
 	_ = tmp.Close()
 	defer func() { _ = os.Remove(tmpName) }()
 
-	if err := certutil.ToFile(tmpName, certs); err != nil {
+	if err := certutil.ToFileEntries(tmpName, bundle.Entries); err != nil {
 		return fmt.Errorf("stage ssl bundle: %w", err)
 	}
 	if err := sslInstallFile(tmpName, path); err != nil {

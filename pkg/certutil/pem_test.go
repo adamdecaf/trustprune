@@ -45,7 +45,7 @@ func testPEMBundleWithNegativeSerial(t *testing.T) (blob []byte, wantFingerprint
 		t.Fatal("negative-serial.pem: no PEM block")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path (check GODEBUG)")
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise the skip path on this toolchain")
 	} else if !strings.Contains(err.Error(), "negative serial") {
 		t.Fatalf("expected negative serial parse error, got %v", err)
 	}
@@ -98,6 +98,93 @@ func TestParsePEM_skipsNegativeSerial(t *testing.T) {
 	if !strings.Contains(msg, "negative serial") {
 		t.Errorf("warning should mention negative serial, got %q", msg)
 	}
+
+	if len(parsed.Entries) != len(want)+1 {
+		t.Fatalf("Entries=%d, want %d (good certs + 1 skip)", len(parsed.Entries), len(want)+1)
+	}
+	if parsed.Entries[0].Cert == nil || parsed.Entries[1].Cert != nil || parsed.Entries[2].Cert == nil {
+		t.Fatalf("entry kinds: want Cert, RawSkip, Cert...; got cert=%v/%v/%v",
+			parsed.Entries[0].Cert != nil, parsed.Entries[1].Cert != nil, parsed.Entries[2].Cert != nil)
+	}
+	neg, err := os.ReadFile("../../testdata/negative-serial.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRaw := firstCertificatePEM(t, neg)
+	if !bytes.Equal(parsed.Entries[1].Raw, wantRaw) {
+		t.Fatalf("raw skip block mismatch:\n got %q\nwant %q", parsed.Entries[1].Raw, wantRaw)
+	}
+}
+
+func firstCertificatePEM(t *testing.T, blob []byte) []byte {
+	t.Helper()
+	src := blob
+	for {
+		block, rest := pem.Decode(src)
+		if block == nil {
+			t.Fatal("no CERTIFICATE PEM block")
+		}
+		if block.Type == "CERTIFICATE" {
+			return rawPEMBlock(src, rest)
+		}
+		src = rest
+	}
+}
+
+func TestParsePEMResult_KeepMatchingPreservesRawOrder(t *testing.T) {
+	blob, want := testPEMBundleWithNegativeSerial(t)
+	parsed := ParsePEMResult(blob)
+	if len(want) < 2 {
+		t.Fatal("need at least two good certs to test removal")
+	}
+	keepFP := want[0]
+	kept, removed := parsed.KeepMatching(func(c *x509.Certificate) bool {
+		return GetHexSHA256Fingerprint(*c) == keepFP
+	})
+	if len(kept.Certs) != 1 {
+		t.Fatalf("kept parseable certs=%d, want 1", len(kept.Certs))
+	}
+	if len(removed) != len(want)-1 {
+		t.Fatalf("removed=%d, want %d", len(removed), len(want)-1)
+	}
+	if kept.Skipped != 1 {
+		t.Fatalf("kept.Skipped=%d, want 1", kept.Skipped)
+	}
+
+	encoded, err := EncodePEMEntries(kept.Entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	neg, err := os.ReadFile("../../testdata/negative-serial.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantRaw := firstCertificatePEM(t, neg)
+	if !bytes.Contains(encoded, wantRaw) {
+		t.Fatal("encoded bundle dropped the unparsable PEM block")
+	}
+
+	// Order: kept first cert, then raw skip (original second entry).
+	if len(kept.Entries) < 2 {
+		t.Fatalf("kept.Entries=%d, want at least cert+skip", len(kept.Entries))
+	}
+	if kept.Entries[0].Cert == nil {
+		t.Fatal("first kept entry should be the matching cert")
+	}
+	if !bytes.Equal(kept.Entries[1].Raw, wantRaw) {
+		t.Fatal("raw skip should stay after the first cert")
+	}
+
+	round := ParsePEMResult(encoded)
+	if round.Skipped != 1 {
+		t.Fatalf("reparse Skipped=%d, want 1", round.Skipped)
+	}
+	if len(round.Certs) != 1 {
+		t.Fatalf("reparse certs=%d, want 1", len(round.Certs))
+	}
+	if GetHexSHA256Fingerprint(*round.Certs[0]) != keepFP {
+		t.Fatal("reparse kept the wrong certificate")
+	}
 }
 
 func TestFromFile_skipsNegativeSerial(t *testing.T) {
@@ -147,7 +234,7 @@ func TestParsePEM_negativeSerialOnly(t *testing.T) {
 		t.Fatal("negative-serial.pem: no PEM block")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path (check GODEBUG)")
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise the skip path on this toolchain")
 	}
 
 	var warn bytes.Buffer
@@ -188,5 +275,15 @@ func TestParsePEM_skipsMalformedCertificateBlock(t *testing.T) {
 	}
 	if !strings.Contains(warn.String(), "PEM block 2") {
 		t.Errorf("warning should identify PEM block 2, got %q", warn.String())
+	}
+	parsed := ParsePEMResult(append(append([]byte{}, good...), garbage...))
+	if parsed.Skipped != 1 {
+		t.Fatalf("Skipped=%d, want 1", parsed.Skipped)
+	}
+	if len(parsed.Entries) != 2 || parsed.Entries[1].Cert != nil {
+		t.Fatalf("want good cert then raw skip, entries=%d", len(parsed.Entries))
+	}
+	if !bytes.Contains(parsed.Entries[1].Raw, []byte("-----BEGIN CERTIFICATE-----")) {
+		t.Fatal("raw skip should include PEM headers")
 	}
 }
