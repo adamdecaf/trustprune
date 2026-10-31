@@ -67,7 +67,12 @@ func EncodePEMEntries(entries []PEMEntry) ([]byte, error) {
 			continue
 		}
 		buf.Write(entries[i].Raw)
-		if entries[i].Raw[len(entries[i].Raw)-1] != '\n' {
+		next := i + 1
+		for next < len(entries) && entries[next].Cert == nil && len(entries[next].Raw) == 0 {
+			next++
+		}
+		// Separator only when another block follows; preserve final raw bytes as-is.
+		if next < len(entries) && entries[i].Raw[len(entries[i].Raw)-1] != '\n' {
 			buf.WriteByte('\n')
 		}
 	}

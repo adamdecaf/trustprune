@@ -15,6 +15,7 @@
 package certutil
 
 import (
+	"bytes"
 	"os"
 	"testing"
 )
@@ -60,5 +61,39 @@ func TestCertutilPEM__write(t *testing.T) {
 		if f1 != f2 {
 			t.Fatalf("f1=%q != f2=%q", f1, f2)
 		}
+	}
+}
+
+
+func TestEncodePEMEntries_preservesFinalRawBytes(t *testing.T) {
+	rawNoNL := []byte("-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----")
+	rawWithNL := append(append([]byte{}, rawNoNL...), '\n')
+
+	out, err := EncodePEMEntries([]PEMEntry{{Raw: rawNoNL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, rawNoNL) {
+		t.Fatalf("solo raw without trailing newline should be unchanged:\n got %q\nwant %q", out, rawNoNL)
+	}
+
+	out, err = EncodePEMEntries([]PEMEntry{{Raw: rawWithNL}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(out, rawWithNL) {
+		t.Fatalf("solo raw with trailing newline should be unchanged:\n got %q\nwant %q", out, rawWithNL)
+	}
+
+	certs, err := FromFile("../../testdata/example.crt")
+	if err != nil || len(certs) == 0 {
+		t.Fatalf("example.crt: %v", err)
+	}
+	out, err = EncodePEMEntries([]PEMEntry{{Raw: rawNoNL}, {Cert: certs[0]}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(out, append(append([]byte{}, rawNoNL...), '\n')) {
+		t.Fatalf("raw without newline before another entry needs a separator, got %q", out)
 	}
 }
