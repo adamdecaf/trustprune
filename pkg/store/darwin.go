@@ -587,6 +587,7 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 		if err != nil {
 			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
 		}
+		found := false
 		for _, e := range ents {
 			if e.IsDir() {
 				continue
@@ -600,16 +601,25 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 			if err != nil {
 				return false, fmt.Errorf("restore: error reading certs from %s, err=%w", path, err)
 			}
+			if len(certs) == 0 {
+				return false, fmt.Errorf("restore: backup export %s contains no certificates", path)
+			}
+			matched := false
 			for i := range certs {
 				if certs[i] == nil {
 					continue
 				}
 				if certutil.GetHexSHA256Fingerprint(*certs[i]) == fp {
-					return true, nil
+					matched = true
+					break
 				}
 			}
+			if !matched {
+				return false, fmt.Errorf("restore: backup export %s fingerprint does not match filename", path)
+			}
+			found = true
 		}
-		return false, nil
+		return found, nil
 	}
 
 	login := filepath.Join(where, "login.keychain")

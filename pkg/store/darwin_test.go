@@ -285,6 +285,33 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	if _, err := resolveDarwinLoginBackupDir(junk); err == nil {
 		t.Fatal("dir with only invalid deadbeef.crt should error")
 	}
+
+	// One valid export plus an empty sibling .crt must fail clearly, not
+	// accept the directory on the first match.
+	mixedValidAndJunk := t.TempDir()
+	writeDarwinBackupCert(t, mixedValidAndJunk)
+	fake := strings.Repeat("0", 64) + ".crt"
+	if err := os.WriteFile(filepath.Join(mixedValidAndJunk, fake), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveDarwinLoginBackupDir(mixedValidAndJunk); err == nil {
+		t.Fatal("dir with valid export and empty sibling .crt should error")
+	}
+
+	// A damaged login.keychain child must not be hidden by a valid export
+	// sitting on the timestamp directory.
+	tsDamaged := filepath.Join(t.TempDir(), "darwin", "1700000001")
+	loginDamaged := filepath.Join(tsDamaged, "login.keychain")
+	if err := os.MkdirAll(loginDamaged, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(loginDamaged, "deadbeef.crt"), []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeDarwinBackupCert(t, tsDamaged)
+	if _, err := resolveDarwinLoginBackupDir(tsDamaged); err == nil {
+		t.Fatal("damaged login.keychain should not fall through to parent")
+	}
 }
 
 func TestDarwinRestore_DryRunHonorsWhere(t *testing.T) {
