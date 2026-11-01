@@ -113,6 +113,33 @@ func parseCertificateFallback(der []byte) (*x509.Certificate, error) {
 		return nil, fmt.Errorf("certutil: subject: %w", err)
 	}
 
+	// Remaining required TBS fields and the outer signature must be present so a
+	// truncated negative-serial block is not treated as a rewriteable Certificate.
+	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
+		return nil, errors.New("certutil: malformed subjectPublicKeyInfo")
+	}
+	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(1).ContextSpecific()) {
+		return nil, errors.New("certutil: malformed issuerUniqueID")
+	}
+	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(2).ContextSpecific()) {
+		return nil, errors.New("certutil: malformed subjectUniqueID")
+	}
+	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(3).Constructed().ContextSpecific()) {
+		return nil, errors.New("certutil: malformed extensions")
+	}
+	if !tbs.Empty() {
+		return nil, errors.New("certutil: trailing data in tbs certificate")
+	}
+	if !certSeq.SkipASN1(cryptobyte_asn1.SEQUENCE) {
+		return nil, errors.New("certutil: malformed outer signature algorithm")
+	}
+	if !certSeq.SkipASN1(cryptobyte_asn1.BIT_STRING) {
+		return nil, errors.New("certutil: malformed signature value")
+	}
+	if !certSeq.Empty() {
+		return nil, errors.New("certutil: trailing data in certificate")
+	}
+
 	return &x509.Certificate{
 		Raw:               append([]byte(nil), raw...),
 		RawTBSCertificate: append([]byte(nil), rawTBS...),
