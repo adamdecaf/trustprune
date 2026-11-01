@@ -19,14 +19,22 @@ package store
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"fmt"
+	"math/big"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 func TestStoreDarwin__SystemCertPool(t *testing.T) {
@@ -176,6 +184,36 @@ func TestStoreDarwin__info(t *testing.T) {
 	}
 }
 
+// writeDarwinBackupCert writes a tiny self-signed ECDSA cert into dir as
+// $fingerprint.crt (the Backup layout) and returns the fingerprint.
+func writeDarwinBackupCert(t *testing.T, dir string) string {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: "darwin-backup-test"},
+		NotBefore:    time.Now().Add(-time.Hour),
+		NotAfter:     time.Now().Add(24 * time.Hour),
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
+	path := filepath.Join(dir, fp+".crt")
+	if err := certutil.ToFile(path, []*x509.Certificate{cert}); err != nil {
+		t.Fatal(err)
+	}
+	return fp
+}
+
 func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	// Temp dirs only — never touch the live login/system keychain.
 	root := t.TempDir()
@@ -184,10 +222,7 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	if err := os.MkdirAll(login, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	crt := filepath.Join(login, "aabbccddeeff.crt")
-	if err := os.WriteFile(crt, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeDarwinBackupCert(t, login)
 
 	got, err := resolveDarwinLoginBackupDir(ts)
 	if err != nil {
@@ -206,9 +241,7 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	}
 
 	flat := t.TempDir()
-	if err := os.WriteFile(filepath.Join(flat, "deadbeef.crt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeDarwinBackupCert(t, flat)
 	got, err = resolveDarwinLoginBackupDir(flat)
 	if err != nil {
 		t.Fatalf("flat crt dir: %v", err)
@@ -236,15 +269,21 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(mixed, "login.keychain"), []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(mixed, "aabb.crt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeDarwinBackupCert(t, mixed)
 	got, err = resolveDarwinLoginBackupDir(mixed)
 	if err != nil {
 		t.Fatalf("login.keychain file fallback: %v", err)
 	}
 	if got != mixed {
 		t.Fatalf("login.keychain file fallback: got %s want %s", got, mixed)
+	}
+
+	junk := t.TempDir()
+	if err := os.WriteFile(filepath.Join(junk, "deadbeef.crt"), []byte("not a certificate"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveDarwinLoginBackupDir(junk); err == nil {
+		t.Fatal("dir with only invalid deadbeef.crt should error")
 	}
 }
 
@@ -253,9 +292,7 @@ func TestDarwinRestore_DryRunHonorsWhere(t *testing.T) {
 	if err := os.MkdirAll(login, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(login, "aabb.crt"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	writeDarwinBackupCert(t, login)
 
 	var buf bytes.Buffer
 	SetDryRunOutput(&buf)

@@ -588,8 +588,25 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
 		}
 		for _, e := range ents {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), ".crt") {
-				return true, nil
+			if e.IsDir() {
+				continue
+			}
+			fp, ok := darwinBackupCertFingerprint(e.Name())
+			if !ok {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			certs, err := certutil.FromFile(path)
+			if err != nil {
+				return false, fmt.Errorf("restore: error reading certs from %s, err=%w", path, err)
+			}
+			for i := range certs {
+				if certs[i] == nil {
+					continue
+				}
+				if certutil.GetHexSHA256Fingerprint(*certs[i]) == fp {
+					return true, nil
+				}
 			}
 		}
 		return false, nil
