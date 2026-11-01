@@ -254,7 +254,41 @@ func TestSSLStore_DetectsOSUpdateDrift(t *testing.T) {
 	}
 }
 
-func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string, []*x509.Certificate, []byte) {
+func sslEnvWithGarbagePEM(t *testing.T) (sslStore, string, []*x509.Certificate, []byte) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	good, err := os.ReadFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lots, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	garbage := []byte("-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n")
+	rawSkip := certificatePEMBlock(t, garbage)
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cert.pem")
+	var blob bytes.Buffer
+	blob.Write(good)
+	blob.Write(garbage)
+	blob.Write(lots)
+	if err := os.WriteFile(path, blob.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	refuseIfSystemSSL(t, path)
+	certs, err := certutil.FromFile(path)
+	if err != nil || len(certs) < 2 {
+		t.Fatalf("parseable certs: len=%d err=%v", len(certs), err)
+	}
+	return sslStoreAt(path), path, certs, rawSkip
+}
+
+func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string, []*x509.Certificate) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -277,9 +311,8 @@ func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string, []*x509.Certifica
 		t.Fatal("negative-serial.pem: no PEM block")
 	}
 	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path")
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise fallback on this toolchain")
 	}
-	rawSkip := certificatePEMBlock(t, neg)
 
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cert.pem")
@@ -292,10 +325,10 @@ func sslEnvWithNegativeSerial(t *testing.T) (sslStore, string, []*x509.Certifica
 	}
 	refuseIfSystemSSL(t, path)
 	certs, err := certutil.FromFile(path)
-	if err != nil || len(certs) < 2 {
-		t.Fatalf("parseable certs: len=%d err=%v", len(certs), err)
+	if err != nil || len(certs) < 3 {
+		t.Fatalf("parseable certs incl. fallback: len=%d err=%v", len(certs), err)
 	}
-	return sslStoreAt(path), path, certs, rawSkip
+	return sslStoreAt(path), path, certs
 }
 
 func certificatePEMBlock(t *testing.T, blob []byte) []byte {
@@ -321,7 +354,7 @@ func certificatePEMBlock(t *testing.T, blob []byte) []byte {
 }
 
 func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
-	s, path, certs, rawSkip := sslEnvWithNegativeSerial(t)
+	s, path, certs, rawSkip := sslEnvWithGarbagePEM(t)
 	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
 	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
 	removeFP := certutil.GetHexSHA256Fingerprint(*certs[len(certs)-1])
@@ -336,7 +369,7 @@ func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
 		t.Fatalf("List: %v", err)
 	}
 	if len(listed) != len(certs) {
-		t.Fatalf("List len=%d want %d parseable certs (negative serial skipped)", len(listed), len(certs))
+		t.Fatalf("List len=%d want %d parseable certs (garbage skipped)", len(listed), len(certs))
 	}
 
 	var buf bytes.Buffer
@@ -396,7 +429,7 @@ func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
 }
 
 func TestSSLStore_AddKeepsUnparsablePEM(t *testing.T) {
-	s, path, certs, rawSkip := sslEnvWithNegativeSerial(t)
+	s, path, certs, rawSkip := sslEnvWithGarbagePEM(t)
 	extra, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "example.crt"))
 	if err != nil || len(extra) == 0 {
 		t.Fatalf("example.crt: %v", err)
@@ -441,6 +474,55 @@ func TestSSLStore_AddKeepsUnparsablePEM(t *testing.T) {
 	got := result.Certs
 	if len(got) != len(certs)+len(extra) {
 		t.Fatalf("after add len=%d want %d", len(got), len(certs)+len(extra))
+	}
+}
+
+func TestSSLStore_AllowlistNegativeSerialFallback(t *testing.T) {
+	s, path, certs := sslEnvWithNegativeSerial(t)
+	negFP := "e80df890f56250311212ef234fb4cda53018e6bf409674f77003735342076c2a"
+	listed, err := s.List(nil)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(listed) != len(certs) {
+		t.Fatalf("List len=%d want %d (fallback includes negative serial)", len(listed), len(certs))
+	}
+	found := false
+	for _, c := range listed {
+		if certutil.GetHexSHA256Fingerprint(*c) == negFP {
+			found = true
+			if c.SerialNumber.Sign() >= 0 {
+				t.Fatal("listed negative-serial cert should keep a negative SerialNumber")
+			}
+		}
+	}
+	if !found {
+		t.Fatal("List missing negative-serial certificate from fallback parse")
+	}
+
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
+	SetDryRun(false)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	got, err := certutil.FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("after allowlist len=%d want 1", len(got))
+	}
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != keepFP {
+		t.Fatal("kept unexpected certificate")
+	}
+	for _, c := range got {
+		if certutil.GetHexSHA256Fingerprint(*c) == negFP {
+			t.Fatal("allowlist should have removed the negative-serial cert like any other")
+		}
 	}
 }
 
