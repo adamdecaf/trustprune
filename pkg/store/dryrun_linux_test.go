@@ -22,7 +22,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/hex"
-	"encoding/pem"
 	"os"
 	"path/filepath"
 	"strings"
@@ -211,27 +210,17 @@ func TestLinuxRemove_KeepsUnparsablePEM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	neg, err := os.ReadFile(filepath.Join("..", "..", "testdata", "negative-serial.pem"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	lots, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	block, _ := pem.Decode(neg)
-	if block == nil {
-		t.Fatal("negative-serial.pem: no PEM block")
-	}
-	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
-		t.Skip("crypto/x509 accepted a negative serial; cannot test skip path")
-	}
-	rawSkip := certificatePEMBlock(t, neg)
+	garbage := []byte("-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n")
+	rawSkip := certificatePEMBlock(t, garbage)
 
 	mixed := filepath.Join(s.ca.dir, "mixed.crt")
 	var blob bytes.Buffer
 	blob.Write(good)
-	blob.Write(neg)
+	blob.Write(garbage)
 	blob.Write(lots)
 	if err := os.WriteFile(mixed, blob.Bytes(), 0644); err != nil {
 		t.Fatal(err)

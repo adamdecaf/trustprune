@@ -41,16 +41,18 @@ type PEMResult struct {
 }
 
 // ParsePEM extracts certificates from a PEM bundle. Each CERTIFICATE block is
-// parsed independently. Unparsable blocks (for example those with a negative
-// serial number) are skipped with a warning to stderr so one bad entry cannot
-// abort the rest of the bundle. Non-CERTIFICATE PEM types are ignored.
+// parsed independently via ParseCertificate (crypto/x509 with a cryptobyte
+// fallback for negative serials). Blocks that still cannot be read are skipped
+// with a warning to stderr so one bad entry cannot abort the rest of the
+// bundle. Non-CERTIFICATE PEM types are ignored.
 func ParsePEM(blob []byte) ([]*x509.Certificate, error) {
 	return ParsePEMResult(blob).Certs, nil
 }
 
 // ParsePEMResult is ParsePEM plus the ordered mix of parseable certificates
-// and raw unparsable CERTIFICATE blocks. List/read callers use Certs; rewrite
-// callers should write Entries so skipped blocks are not dropped.
+// (including cryptobyte fallbacks) and raw CERTIFICATE blocks that still
+// failed to parse. List/read callers use Certs; rewrite callers should write
+// Entries so remaining unparsable blocks are not dropped.
 func ParsePEMResult(blob []byte) PEMResult {
 	var out PEMResult
 	n := 0
@@ -66,7 +68,7 @@ func ParsePEMResult(blob []byte) PEMResult {
 			continue
 		}
 		n++
-		cert, err := x509.ParseCertificate(block.Bytes)
+		cert, err := ParseCertificate(block.Bytes)
 		if err != nil {
 			fmt.Fprintf(pemParseWarn, "certutil: skipping PEM block %d: %v\n", n, err)
 			out.Skipped++
