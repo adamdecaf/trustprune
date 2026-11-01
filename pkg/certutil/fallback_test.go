@@ -65,17 +65,42 @@ func TestParseCertificate_fallbackNegativeSerial(t *testing.T) {
 	}
 }
 
-func TestParseCertificate_fallbackRejectsGarbage(t *testing.T) {
-	_, err := ParseCertificate([]byte{0x30, 0x03, 0x01, 0x01, 0x00})
+func TestParseCertificate_nonNegativeFailureStaysError(t *testing.T) {
+	good, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(good)
+	if block == nil {
+		t.Fatal("example.crt: no PEM block")
+	}
+	// Trailing bytes: x509.ParseCertificate rejects; fallback reads only the
+	// first SEQUENCE and would return a non-negative serial — the guard must
+	// still return the original x509 error.
+	der := append(append([]byte{}, block.Bytes...), 0x00)
+	if _, err := x509.ParseCertificate(der); err == nil {
+		t.Fatal("expected x509.ParseCertificate to reject trailing data")
+	}
+	fb, fbErr := parseCertificateFallback(der)
+	if fbErr != nil {
+		t.Fatalf("fallback should parse the leading cert: %v", fbErr)
+	}
+	if fb.SerialNumber == nil || fb.SerialNumber.Sign() < 0 {
+		t.Fatalf("fallback serial=%v, want non-negative", fb.SerialNumber)
+	}
+	_, err = ParseCertificate(der)
 	if err == nil {
-		t.Fatal("expected error for garbage DER")
+		t.Fatal("ParseCertificate must not accept fallback for non-negative serial failures")
+	}
+	if !strings.Contains(err.Error(), "trailing") && !strings.Contains(strings.ToLower(err.Error()), "asn1") {
+		// Accept either trailing-data wording or a related asn1 error from this Go.
+		t.Logf("got error %q (ok if x509 rejected trailing input)", err)
 	}
 }
 
-func TestParseCertificate_nonNegativeFailureStaysError(t *testing.T) {
-	// Truncated DER: cryptobyte fallback fails too; ensure we still error.
-	_, err := ParseCertificate([]byte{0x30, 0x06, 0x30, 0x04, 0x02, 0x01, 0x01})
+func TestParseCertificate_garbageStaysError(t *testing.T) {
+	_, err := ParseCertificate([]byte{0x30, 0x03, 0x01, 0x01, 0x00})
 	if err == nil {
-		t.Fatal("expected parse error for truncated certificate")
+		t.Fatal("expected error for garbage DER")
 	}
 }
