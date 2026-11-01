@@ -572,7 +572,7 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 		return "", fmt.Errorf("restore: backup path %s is not a directory", where)
 	}
 
-	hasCrt := func(dir string) (bool, error) {
+	hasCrt := func(dir string, allowEmpty bool) (bool, error) {
 		st, err := os.Stat(dir)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -619,18 +619,25 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 			}
 			found = true
 		}
-		return found, nil
+		if found || allowEmpty {
+			return true, nil
+		}
+		return false, nil
 	}
 
+	// Empty login.keychain/ is a valid backup (zero login certs exported);
+	// Restore's re-add loop is then a no-op. Bad .crt files still error.
 	login := filepath.Join(where, "login.keychain")
-	ok, err := hasCrt(login)
+	ok, err := hasCrt(login, true)
 	if err != nil {
 		return "", err
 	}
 	if ok {
 		return login, nil
 	}
-	ok, err = hasCrt(where)
+	// where itself may be the login.keychain export dir (including empty).
+	allowEmptyWhere := filepath.Base(where) == "login.keychain"
+	ok, err = hasCrt(where, allowEmptyWhere)
 	if err != nil {
 		return "", err
 	}

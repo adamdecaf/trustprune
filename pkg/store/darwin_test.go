@@ -255,6 +255,28 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 		t.Fatal("empty dir should error")
 	}
 
+	// Timestamp dir with an empty login.keychain/ child is a valid backup
+	// (zero login certs); Restore's re-add loop is a no-op.
+	emptyTS := filepath.Join(t.TempDir(), "darwin", "1700000002")
+	emptyLogin := filepath.Join(emptyTS, "login.keychain")
+	if err := os.MkdirAll(emptyLogin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolveDarwinLoginBackupDir(emptyTS)
+	if err != nil {
+		t.Fatalf("empty login.keychain dir: %v", err)
+	}
+	if got != emptyLogin {
+		t.Fatalf("empty login.keychain dir: got %s want %s", got, emptyLogin)
+	}
+	got, err = resolveDarwinLoginBackupDir(emptyLogin)
+	if err != nil {
+		t.Fatalf("empty login.keychain path: %v", err)
+	}
+	if got != emptyLogin {
+		t.Fatalf("empty login.keychain path: got %s want %s", got, emptyLogin)
+	}
+
 	filePath := filepath.Join(t.TempDir(), "not-a-dir.pem")
 	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
