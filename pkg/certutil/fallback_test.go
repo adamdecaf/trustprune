@@ -81,23 +81,35 @@ func TestParseCertificate_nonNegativeFailureStaysError(t *testing.T) {
 	if _, err := x509.ParseCertificate(der); err == nil {
 		t.Fatal("expected x509.ParseCertificate to reject trailing data")
 	}
-	fb, fbErr := parseCertificateFallback(der)
-	if fbErr != nil {
-		t.Fatalf("fallback should parse the leading cert: %v", fbErr)
-	}
-	if fb.SerialNumber == nil || fb.SerialNumber.Sign() < 0 {
-		t.Fatalf("fallback serial=%v, want non-negative", fb.SerialNumber)
+	if _, err := parseCertificateFallback(der); err == nil {
+		t.Fatal("fallback must reject trailing bytes after the certificate SEQUENCE")
 	}
 	_, err = ParseCertificate(der)
 	if err == nil {
-		t.Fatal("ParseCertificate must not accept fallback for non-negative serial failures")
-	}
-	if !strings.Contains(err.Error(), "trailing") && !strings.Contains(strings.ToLower(err.Error()), "asn1") {
-		// Accept either trailing-data wording or a related asn1 error from this Go.
-		t.Logf("got error %q (ok if x509 rejected trailing input)", err)
+		t.Fatal("ParseCertificate must reject trailing-data input")
 	}
 }
 
+func TestParseCertificate_negativeSerialTrailingRejected(t *testing.T) {
+	neg, err := os.ReadFile("../../testdata/negative-serial.pem")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(neg)
+	if block == nil {
+		t.Fatal("negative-serial.pem: no PEM block")
+	}
+	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise fallback on this toolchain")
+	}
+	der := append(append([]byte{}, block.Bytes...), 0x00)
+	if _, err := parseCertificateFallback(der); err == nil {
+		t.Fatal("fallback must reject negative-serial DER with trailing bytes")
+	}
+	if _, err := ParseCertificate(der); err == nil {
+		t.Fatal("ParseCertificate must not accept negative-serial DER with trailing bytes")
+	}
+}
 func TestParseCertificate_garbageStaysError(t *testing.T) {
 	_, err := ParseCertificate([]byte{0x30, 0x03, 0x01, 0x01, 0x00})
 	if err == nil {

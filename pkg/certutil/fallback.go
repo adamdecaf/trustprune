@@ -54,6 +54,9 @@ func parseCertificateFallback(der []byte) (*x509.Certificate, error) {
 	if !input.ReadASN1Element(&certSeq, cryptobyte_asn1.SEQUENCE) {
 		return nil, errors.New("certutil: malformed certificate")
 	}
+	if !input.Empty() {
+		return nil, errors.New("certutil: trailing data after certificate")
+	}
 	raw := []byte(certSeq)
 	if !certSeq.ReadASN1(&certSeq, cryptobyte_asn1.SEQUENCE) {
 		return nil, errors.New("certutil: malformed certificate")
