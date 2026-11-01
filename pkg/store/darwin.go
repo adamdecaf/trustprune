@@ -556,14 +556,19 @@ func getAppleRootCertificates() []*appleRoot {
 // Restore operates mostly on the system keychain and removes certificates which we've
 // explicitly marked "Never Trust". This re-enables them for use by apps.
 //
-// Afterwords, the login keychain is restored from its most recent backup.
-//
-// TODO(adam): `where` needs to be a directory with properly exported certs from keychain files
+// Afterwards, the login keychain is restored from where (CLI -file), or from the
+// latest darwin backup when where is empty. where may be a backup timestamp
+// directory (…/darwin/<unix>/) or the login.keychain directory that holds the
+// exported PEM files.
 func (s darwinStore) Restore(where string) error {
+	loginBackup, err := resolveDarwinLoginBackupDir(where)
+	if err != nil {
+		return err
+	}
 	if DryRun() {
-		details := []string{"reset trust settings toward Apple system roots"}
-		if where != "" {
-			details = append(details, fmt.Sprintf("using backup path %s", where))
+		details := []string{
+			"reset trust settings toward Apple system roots",
+			fmt.Sprintf("re-add missing login keychain certs from %s", loginBackup),
 		}
 		reportDryRun("restore", "darwin", systemKeychain, details...)
 		return nil
@@ -629,15 +634,9 @@ func (s darwinStore) Restore(where string) error {
 		}
 	}
 
-	// Restore the login.keychain
-	//
-	// Grab the filenames under our backup directory (e.g. login.keychain/$sha1.crt), read the cert
-	// and verify it's matching the sha1 filename and compare against the already installed certs.
-	dir, err := s.GetLatestBackup()
-	if err != nil {
-		return fmt.Errorf("restore: error getting latest backup, err=%w", err)
-	}
-	dir = filepath.Join(dir, "login.keychain")
+	// Restore the login.keychain from the resolved backup directory
+	// (login.keychain/$sha256.crt exports).
+	dir := loginBackup
 	if debug {
 		fmt.Printf("store/darwin: Found backup dir at %s\n", dir)
 	}

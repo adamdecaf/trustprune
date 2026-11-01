@@ -18,9 +18,11 @@
 package store
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -171,5 +173,87 @@ func TestStoreDarwin__info(t *testing.T) {
 	}
 	if info.Version == "" {
 		t.Error("blank Version")
+	}
+}
+
+func TestResolveDarwinLoginBackupDir(t *testing.T) {
+	// Temp dirs only — never touch the live login/system keychain.
+	root := t.TempDir()
+	ts := filepath.Join(root, "darwin", "1700000000")
+	login := filepath.Join(ts, "login.keychain")
+	if err := os.MkdirAll(login, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	crt := filepath.Join(login, "aabbccddeeff.crt")
+	if err := os.WriteFile(crt, []byte("-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := resolveDarwinLoginBackupDir(ts)
+	if err != nil {
+		t.Fatalf("timestamp dir: %v", err)
+	}
+	if got != login {
+		t.Fatalf("timestamp dir: got %s want %s", got, login)
+	}
+
+	got, err = resolveDarwinLoginBackupDir(login)
+	if err != nil {
+		t.Fatalf("login.keychain dir: %v", err)
+	}
+	if got != login {
+		t.Fatalf("login.keychain dir: got %s want %s", got, login)
+	}
+
+	flat := t.TempDir()
+	if err := os.WriteFile(filepath.Join(flat, "deadbeef.crt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolveDarwinLoginBackupDir(flat)
+	if err != nil {
+		t.Fatalf("flat crt dir: %v", err)
+	}
+	if got != flat {
+		t.Fatalf("flat crt dir: got %s want %s", got, flat)
+	}
+
+	empty := t.TempDir()
+	if _, err := resolveDarwinLoginBackupDir(empty); err == nil {
+		t.Fatal("empty dir should error")
+	}
+
+	filePath := filepath.Join(t.TempDir(), "not-a-dir.pem")
+	if err := os.WriteFile(filePath, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveDarwinLoginBackupDir(filePath); err == nil {
+		t.Fatal("file path should error")
+	}
+}
+
+func TestDarwinRestore_DryRunHonorsWhere(t *testing.T) {
+	login := filepath.Join(t.TempDir(), "login.keychain")
+	if err := os.MkdirAll(login, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(login, "aabb.crt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	SetDryRunOutput(&buf)
+	SetDryRun(true)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetDryRunOutput(nil)
+	})
+
+	s := darwinStore{}
+	if err := s.Restore(login); err != nil {
+		t.Fatalf("Restore dry-run: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, login) {
+		t.Fatalf("dry-run should name where=%s, got %q", login, out)
 	}
 }

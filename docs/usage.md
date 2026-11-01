@@ -76,7 +76,7 @@ See [Backup and restore](backup-restore.md) for where files land.
 
 ## restore
 
-Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, and `-app ssl`; Darwin keychain platform restore currently ignores it — see platforms).
+Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, Darwin platform (login-keychain backup dir), and `-app ssl`).
 
 ```bash
 trustprune restore
@@ -107,7 +107,7 @@ trustprune restore -app ssl
 trustprune restore -app ssl -file ~/Library/trustprune/ssl/<timestamp>/cert.pem
 ```
 
-Writes stage a temp PEM then install it (sudo when needed). An empty allowlist result is refused. After a successful write, trustprune records a content hash; if a later macOS update restores Apple's copy, `list -app ssl` prints a one-line warning. Re-apply with `backup -app ssl` then `allowlist -app ssl -file …`, or `restore -app ssl` to put back your pruned backup.
+Writes stage into a sibling temp dir, copy the live file aside to `.restore-old`, then rename over the destination (sudo when needed); a leftover `.restore-old` is refused rather than deleted. An empty allowlist result is refused. After a successful write, trustprune records a content hash; if a later macOS update restores Apple's copy, `list -app ssl` prints a one-line warning. Re-apply with `backup -app ssl` then `allowlist -app ssl -file …`, or `restore -app ssl` to put back your pruned backup.
 
 PEM parsing skips individual unparsable certificates (Apple's bundle can include negative serial numbers that Go rejects) and prints a warning to stderr naming the PEM block, then continues with the rest of the file. `list` still returns the parseable certificates. `add` and `allowlist` rewrite the parseable certificates and write unparsable PEM blocks back unchanged, in their original order, so those entries are not deleted.
 
