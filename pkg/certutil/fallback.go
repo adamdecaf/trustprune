@@ -28,17 +28,18 @@ import (
 )
 
 // ParseCertificate is crypto/x509.ParseCertificate with a cryptobyte fallback
-// for certificates Go rejects (notably negative serial numbers). The fallback
-// fills Raw, SerialNumber, Issuer, Subject, NotBefore, and NotAfter so list,
-// allowlist, and fingerprinting treat the cert like any other. It does not set
-// GODEBUG and does not verify signatures.
+// only for certificates rejected because of a negative serial number. The
+// fallback fills Raw, SerialNumber, Issuer, Subject, NotBefore, and NotAfter
+// so list, allowlist, and fingerprinting treat the cert like any other. Other
+// parse failures still return the original x509 error. It does not set GODEBUG
+// and does not verify signatures.
 func ParseCertificate(der []byte) (*x509.Certificate, error) {
 	cert, err := x509.ParseCertificate(der)
 	if err == nil {
 		return cert, nil
 	}
 	fb, fbErr := parseCertificateFallback(der)
-	if fbErr == nil {
+	if fbErr == nil && fb.SerialNumber != nil && fb.SerialNumber.Sign() < 0 {
 		return fb, nil
 	}
 	return nil, err

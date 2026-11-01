@@ -71,3 +71,11 @@ func TestParseCertificate_fallbackRejectsGarbage(t *testing.T) {
 		t.Fatal("expected error for garbage DER")
 	}
 }
+
+func TestParseCertificate_nonNegativeFailureStaysError(t *testing.T) {
+	// Truncated DER: cryptobyte fallback fails too; ensure we still error.
+	_, err := ParseCertificate([]byte{0x30, 0x06, 0x30, 0x04, 0x02, 0x01, 0x01})
+	if err == nil {
+		t.Fatal("expected parse error for truncated certificate")
+	}
+}
