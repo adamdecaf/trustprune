@@ -572,31 +572,60 @@ func resolveDarwinLoginBackupDir(where string) (string, error) {
 		return "", fmt.Errorf("restore: backup path %s is not a directory", where)
 	}
 
-	hasCrt := func(dir string) bool {
+	hasCrt := func(dir string) (bool, error) {
 		st, err := os.Stat(dir)
-		if err != nil || !st.IsDir() {
-			return false
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
+		}
+		if !st.IsDir() {
+			return false, nil
 		}
 		ents, err := os.ReadDir(dir)
 		if err != nil {
-			return false
+			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
 		}
 		for _, e := range ents {
 			if !e.IsDir() && strings.HasSuffix(e.Name(), ".crt") {
-				return true
+				return true, nil
 			}
 		}
-		return false
+		return false, nil
 	}
 
 	login := filepath.Join(where, "login.keychain")
-	if hasCrt(login) {
+	ok, err := hasCrt(login)
+	if err != nil {
+		return "", err
+	}
+	if ok {
 		return login, nil
 	}
-	if hasCrt(where) {
+	ok, err = hasCrt(where)
+	if err != nil {
+		return "", err
+	}
+	if ok {
 		return where, nil
 	}
 	return "", fmt.Errorf("restore: no certificate backups found in %s", where)
+}
+
+// darwinBackupCertFingerprint maps a backup export filename to the SHA-256
+// fingerprint Backup wrote as `$fingerprint.crt`. Names that do not end in
+// .crt are skipped.
+func darwinBackupCertFingerprint(name string) (string, bool) {
+	base := filepath.Base(name)
+	if !strings.HasSuffix(base, ".crt") {
+		return "", false
+	}
+	fp := strings.TrimSuffix(base, ".crt")
+	if fp == "" {
+		return "", false
+	}
+	return fp, true
 }
 
 // Restore operates mostly on the system keychain and removes certificates which we've
@@ -709,8 +738,14 @@ func (s darwinStore) Restore(where string) error {
 		return fmt.Errorf("restore: error reading backup dir contents, err=%w", err)
 	}
 	for i := range certfiles {
+		if certfiles[i].IsDir() {
+			continue
+		}
+		fp, ok := darwinBackupCertFingerprint(certfiles[i].Name())
+		if !ok {
+			continue
+		}
 		// For each cert file, grab the certs and find the one that matches the filename hash
-		_, fp := filepath.Split(certfiles[i].Name())
 		certs, err := certutil.FromFile(filepath.Join(dir, certfiles[i].Name()))
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("restore: error reading certs from %s, err=%v", certfiles[i].Name(), err)

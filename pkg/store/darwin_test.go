@@ -229,6 +229,23 @@ func TestResolveDarwinLoginBackupDir(t *testing.T) {
 	if _, err := resolveDarwinLoginBackupDir(filePath); err == nil {
 		t.Fatal("file path should error")
 	}
+
+	// login.keychain as a file (not a dir) must fall back to the parent when
+	// the parent itself has .crt exports.
+	mixed := t.TempDir()
+	if err := os.WriteFile(filepath.Join(mixed, "login.keychain"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(mixed, "aabb.crt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err = resolveDarwinLoginBackupDir(mixed)
+	if err != nil {
+		t.Fatalf("login.keychain file fallback: %v", err)
+	}
+	if got != mixed {
+		t.Fatalf("login.keychain file fallback: got %s want %s", got, mixed)
+	}
 }
 
 func TestDarwinRestore_DryRunHonorsWhere(t *testing.T) {
@@ -255,5 +272,29 @@ func TestDarwinRestore_DryRunHonorsWhere(t *testing.T) {
 	out := buf.String()
 	if !strings.Contains(out, login) {
 		t.Fatalf("dry-run should name where=%s, got %q", login, out)
+	}
+}
+
+func TestDarwinBackupCertFingerprint(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		fp   string
+		ok   bool
+	}{
+		{name: "strips .crt", in: "aabbccddeeff.crt", fp: "aabbccddeeff", ok: true},
+		{name: "basename of path", in: filepath.Join("login.keychain", "deadbeef.crt"), fp: "deadbeef", ok: true},
+		{name: "pem skipped", in: "aabbccddeeff.pem", ok: false},
+		{name: "no suffix skipped", in: "aabbccddeeff", ok: false},
+		{name: "directory name skipped", in: "login.keychain", ok: false},
+		{name: "empty fingerprint skipped", in: ".crt", ok: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := darwinBackupCertFingerprint(tt.in)
+			if ok != tt.ok || got != tt.fp {
+				t.Fatalf("darwinBackupCertFingerprint(%q)=(%q,%v) want (%q,%v)", tt.in, got, ok, tt.fp, tt.ok)
+			}
+		})
 	}
 }
