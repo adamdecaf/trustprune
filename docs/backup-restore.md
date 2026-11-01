@@ -77,8 +77,22 @@ Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/
 ## Darwin notes
 
 - System root keychain is SIP-protected and is not rewritten.
-- Backup exports certificates from the **login** keychain only.
-- Restore clears “Never Trust” overrides for Apple system roots where applicable, then re-adds missing login-keychain certs from the **latest** backup. The `where` / `-file` argument is currently unused (always `GetLatestBackup()`).
+- Backup exports certificates from the **login** keychain only under `darwin/<unix-timestamp>/login.keychain/<sha256>.crt`.
+- Restore clears “Never Trust” overrides for Apple system roots where applicable, then re-adds missing login-keychain certs from the chosen backup. Empty `where` uses the latest backup; `-file` / `where` may be the timestamp directory or the `login.keychain` directory itself.
+
+## Darwin `-app ssl` (`/etc/ssl/cert.pem`)
+
+Backup copies the live PEM into `~/Library/trustprune/ssl/<unix-timestamp>/cert.pem`. Backup directories use exclusive `Mkdir` and bump the unix-second on collision so two backups in the same second never share a directory.
+
+Restore and other writers install via a sibling temp directory:
+
+1. Stage into `<dst>.restore-tmp` (a directory next to the live file).
+2. **Copy** the live PEM aside to `<dst>.restore-old` (never move it), so the live path stays readable during the swap.
+3. Rename the staged file over `dst`.
+4. If `<dst>.restore-old` already exists before a restore, refuse with an error naming that path (do not delete it).
+5. After a successful swap, a failed aside cleanup warns on stderr naming the kept path and still returns success.
+
+Explicit `-file` / `where` is honored (PEM file or backup directory containing `cert.pem`).
 
 ## Windows
 

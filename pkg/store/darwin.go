@@ -553,17 +553,138 @@ func getAppleRootCertificates() []*appleRoot {
 	return roots
 }
 
+// resolveDarwinLoginBackupDir maps a restore path to the directory that holds
+// login-keychain PEM exports (*.crt).
+//
+// where may be a backup timestamp directory (…/darwin/<unix>/) containing a
+// login.keychain child, the login.keychain directory itself, or a flat
+// directory of .crt files. Empty where is rejected; Restore fills it from
+// GetLatestBackup first.
+func resolveDarwinLoginBackupDir(where string) (string, error) {
+	if where == "" {
+		return "", fmt.Errorf("restore: empty backup path")
+	}
+	st, err := os.Stat(where)
+	if err != nil {
+		return "", fmt.Errorf("restore: error stating backup path %s, err=%w", where, err)
+	}
+	if !st.IsDir() {
+		return "", fmt.Errorf("restore: backup path %s is not a directory", where)
+	}
+
+	hasCrt := func(dir string, allowEmpty bool) (bool, error) {
+		st, err := os.Stat(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
+		}
+		if !st.IsDir() {
+			return false, nil
+		}
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return false, fmt.Errorf("restore: error reading %s, err=%w", dir, err)
+		}
+		found := false
+		for _, e := range ents {
+			if e.IsDir() {
+				continue
+			}
+			fp, ok := darwinBackupCertFingerprint(e.Name())
+			if !ok {
+				continue
+			}
+			path := filepath.Join(dir, e.Name())
+			certs, err := certutil.FromFile(path)
+			if err != nil {
+				return false, fmt.Errorf("restore: error reading certs from %s, err=%w", path, err)
+			}
+			if len(certs) == 0 {
+				return false, fmt.Errorf("restore: backup export %s contains no certificates", path)
+			}
+			matched := false
+			for i := range certs {
+				if certs[i] == nil {
+					continue
+				}
+				if certutil.GetHexSHA256Fingerprint(*certs[i]) == fp {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false, fmt.Errorf("restore: backup export %s fingerprint does not match filename", path)
+			}
+			found = true
+		}
+		if found || allowEmpty {
+			return true, nil
+		}
+		return false, nil
+	}
+
+	// Empty login.keychain/ is a valid backup (zero login certs exported);
+	// Restore's re-add loop is then a no-op. Bad .crt files still error.
+	login := filepath.Join(where, "login.keychain")
+	ok, err := hasCrt(login, true)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return login, nil
+	}
+	// where itself may be the login.keychain export dir (including empty).
+	allowEmptyWhere := filepath.Base(where) == "login.keychain"
+	ok, err = hasCrt(where, allowEmptyWhere)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return where, nil
+	}
+	return "", fmt.Errorf("restore: no certificate backups found in %s", where)
+}
+
+// darwinBackupCertFingerprint maps a backup export filename to the SHA-256
+// fingerprint Backup wrote as `$fingerprint.crt`. Names that do not end in
+// .crt are skipped.
+func darwinBackupCertFingerprint(name string) (string, bool) {
+	base := filepath.Base(name)
+	if !strings.HasSuffix(base, ".crt") {
+		return "", false
+	}
+	fp := strings.TrimSuffix(base, ".crt")
+	if fp == "" {
+		return "", false
+	}
+	return fp, true
+}
+
 // Restore operates mostly on the system keychain and removes certificates which we've
 // explicitly marked "Never Trust". This re-enables them for use by apps.
 //
-// Afterwords, the login keychain is restored from its most recent backup.
-//
-// TODO(adam): `where` needs to be a directory with properly exported certs from keychain files
+// Afterwards, the login keychain is restored from where (CLI -file), or from the
+// latest darwin backup when where is empty. where may be a backup timestamp
+// directory (…/darwin/<unix>/) or the login.keychain directory that holds the
+// exported PEM files.
 func (s darwinStore) Restore(where string) error {
+	if where == "" {
+		var err error
+		where, err = s.GetLatestBackup()
+		if err != nil {
+			return err
+		}
+	}
+	loginBackup, err := resolveDarwinLoginBackupDir(where)
+	if err != nil {
+		return err
+	}
 	if DryRun() {
-		details := []string{"reset trust settings toward Apple system roots"}
-		if where != "" {
-			details = append(details, fmt.Sprintf("using backup path %s", where))
+		details := []string{
+			"reset trust settings toward Apple system roots",
+			fmt.Sprintf("re-add missing login keychain certs from %s", loginBackup),
 		}
 		reportDryRun("restore", "darwin", systemKeychain, details...)
 		return nil
@@ -629,15 +750,9 @@ func (s darwinStore) Restore(where string) error {
 		}
 	}
 
-	// Restore the login.keychain
-	//
-	// Grab the filenames under our backup directory (e.g. login.keychain/$sha1.crt), read the cert
-	// and verify it's matching the sha1 filename and compare against the already installed certs.
-	dir, err := s.GetLatestBackup()
-	if err != nil {
-		return fmt.Errorf("restore: error getting latest backup, err=%w", err)
-	}
-	dir = filepath.Join(dir, "login.keychain")
+	// Restore the login.keychain from the resolved backup directory
+	// (login.keychain/$sha256.crt exports).
+	dir := loginBackup
 	if debug {
 		fmt.Printf("store/darwin: Found backup dir at %s\n", dir)
 	}
@@ -657,8 +772,14 @@ func (s darwinStore) Restore(where string) error {
 		return fmt.Errorf("restore: error reading backup dir contents, err=%w", err)
 	}
 	for i := range certfiles {
+		if certfiles[i].IsDir() {
+			continue
+		}
+		fp, ok := darwinBackupCertFingerprint(certfiles[i].Name())
+		if !ok {
+			continue
+		}
 		// For each cert file, grab the certs and find the one that matches the filename hash
-		_, fp := filepath.Split(certfiles[i].Name())
 		certs, err := certutil.FromFile(filepath.Join(dir, certfiles[i].Name()))
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("restore: error reading certs from %s, err=%v", certfiles[i].Name(), err)
