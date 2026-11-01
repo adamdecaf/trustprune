@@ -553,6 +553,52 @@ func getAppleRootCertificates() []*appleRoot {
 	return roots
 }
 
+// resolveDarwinLoginBackupDir maps a restore path to the directory that holds
+// login-keychain PEM exports (*.crt).
+//
+// where may be a backup timestamp directory (…/darwin/<unix>/) containing a
+// login.keychain child, the login.keychain directory itself, or a flat
+// directory of .crt files. Empty where is rejected; Restore fills it from
+// GetLatestBackup first.
+func resolveDarwinLoginBackupDir(where string) (string, error) {
+	if where == "" {
+		return "", fmt.Errorf("restore: empty backup path")
+	}
+	st, err := os.Stat(where)
+	if err != nil {
+		return "", fmt.Errorf("restore: error stating backup path %s, err=%w", where, err)
+	}
+	if !st.IsDir() {
+		return "", fmt.Errorf("restore: backup path %s is not a directory", where)
+	}
+
+	hasCrt := func(dir string) bool {
+		st, err := os.Stat(dir)
+		if err != nil || !st.IsDir() {
+			return false
+		}
+		ents, err := os.ReadDir(dir)
+		if err != nil {
+			return false
+		}
+		for _, e := range ents {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), ".crt") {
+				return true
+			}
+		}
+		return false
+	}
+
+	login := filepath.Join(where, "login.keychain")
+	if hasCrt(login) {
+		return login, nil
+	}
+	if hasCrt(where) {
+		return where, nil
+	}
+	return "", fmt.Errorf("restore: no certificate backups found in %s", where)
+}
+
 // Restore operates mostly on the system keychain and removes certificates which we've
 // explicitly marked "Never Trust". This re-enables them for use by apps.
 //
@@ -561,6 +607,13 @@ func getAppleRootCertificates() []*appleRoot {
 // directory (…/darwin/<unix>/) or the login.keychain directory that holds the
 // exported PEM files.
 func (s darwinStore) Restore(where string) error {
+	if where == "" {
+		var err error
+		where, err = s.GetLatestBackup()
+		if err != nil {
+			return err
+		}
+	}
 	loginBackup, err := resolveDarwinLoginBackupDir(where)
 	if err != nil {
 		return err
