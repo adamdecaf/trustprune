@@ -29,31 +29,69 @@ import (
 var ktool keytool
 
 func init() {
-	full := expandKnownJavaInstall()
-	if full == "" {
-		full = "/Library/Java/JavaVirtualMachines/"
-	}
-
 	ktool = keytool{
-		javahome:         os.Getenv("JAVA_HOME"),
-		javaInstallPaths: []string{full},
-		relativeKeystorePaths: []string{
-			"/lib/security/cacerts",
-			"/jre/lib/security/cacerts", // OSX 10.10.1
-		},
+		javahome:              os.Getenv("JAVA_HOME"),
+		javaInstallPaths:      darwinJavaInstallPaths(),
+		relativeKeystorePaths: darwinRelativeKeystorePaths,
 	}
 }
 
+var darwinRelativeKeystorePaths = []string{
+	"/lib/security/cacerts",
+	"/jre/lib/security/cacerts", // older JDK/JRE layouts
+}
+
+// darwinJavaInstallPaths prefers java_home output, then individual JVMs under
+// /Library/Java/JavaVirtualMachines, then common Homebrew OpenJDK prefixes.
+func darwinJavaInstallPaths() []string {
+	var paths []string
+	if home := expandKnownJavaInstall(); home != "" {
+		paths = append(paths, home)
+	}
+	paths = append(paths, listDarwinJVMHomes()...)
+	paths = append(paths,
+		"/opt/homebrew/opt/openjdk",
+		"/opt/homebrew/opt/openjdk@21",
+		"/opt/homebrew/opt/openjdk@17",
+		"/usr/local/opt/openjdk",
+		"/usr/local/opt/openjdk@21",
+		"/usr/local/opt/openjdk@17",
+	)
+	return paths
+}
+
+func listDarwinJVMHomes() []string {
+	root := "/Library/Java/JavaVirtualMachines"
+	matches, err := filepath.Glob(filepath.Join(root, "*", "Contents", "Home"))
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, m := range matches {
+		if st, err := os.Stat(m); err == nil && st.IsDir() {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 func expandKnownJavaInstall() string {
-	full := "/System/Library/Frameworks/JavaVM.framework/Versions/Current/Commands/java_home"
-	if file.Exists(full) && file.IsExecutable(full) {
-		// We need to exec the script and return its result as JAVA_HOME
+	candidates := []string{
+		"/usr/libexec/java_home",
+		"/System/Library/Frameworks/JavaVM.framework/Versions/Current/Commands/java_home",
+	}
+	for _, full := range candidates {
+		if !(file.Exists(full) && file.IsExecutable(full)) {
+			continue
+		}
 		out, err := exec.Command(full).Output()
 		if err != nil {
-			// return we found nothing
-			return ""
+			continue
 		}
-		return filepath.Clean(strings.TrimSpace(string(out)))
+		home := filepath.Clean(strings.TrimSpace(string(out)))
+		if home != "" {
+			return home
+		}
 	}
 	return ""
 }

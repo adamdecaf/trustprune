@@ -141,3 +141,23 @@ func createMeta(st store.Store) ui.Meta {
 		Path:    info.Path,
 	}
 }
+
+// ListCertsForAppWithFile lists certificates for app, optionally overriding the
+// trust-store path with filePath (java keystore override).
+func ListCertsForAppWithFile(app, filePath string, cfg *ui.Config) error {
+	st, err := store.ForAppWithFile(app, filePath)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	certificates, err := st.List(&store.ListOptions{
+		Trusted: true,
+	})
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	meta := createMeta(st)
+	return ui.ListCertificatesWithMeta(meta, certificates, cfg)
+}

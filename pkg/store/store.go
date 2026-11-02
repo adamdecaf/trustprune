@@ -138,6 +138,20 @@ func ForApp(app string) (Store, error) {
 	return s, nil
 }
 
+// ForAppWithFile returns a Store for app, optionally overriding the trust-store
+// path with filePath. Today only java uses filePath (keystore override); other
+// apps ignore it and behave like ForApp. Empty filePath is ForApp.
+func ForAppWithFile(app, filePath string) (Store, error) {
+	app = strings.ToLower(app)
+	if strings.TrimSpace(filePath) == "" {
+		return ForApp(app)
+	}
+	if app == "java" {
+		return JavaStoreAt(filePath), nil
+	}
+	return ForApp(app)
+}
+
 // getCertManageDir returns the fs location (always creating first) where a specific
 // store can save files into. New backups are written under ~/.trustprune
 // (or ~/Library/trustprune on Darwin). The legacy ~/.cert-manage tree is never
@@ -256,6 +270,7 @@ func getLatestStoreBackup(name string) (string, error) {
 //   - bare digits: "1761780000"
 //   - legacy NSS: "cert8.db-1700000000", "cert.db-1700000000"
 //   - Java: "cacerts-1761780000.bck" (any "<name>-<unix>.bck")
+//
 // Unparseable names return ok=false and are skipped by latest-backup selection.
 func backupBasenameUnix(name string) (ts int64, ok bool) {
 	if name == "" {

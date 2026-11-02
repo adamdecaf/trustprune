@@ -17,6 +17,7 @@ package store
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -141,5 +142,64 @@ func TestStoreJava__info(t *testing.T) {
 	}
 	if info.Version == "" {
 		t.Error("blank Version")
+	}
+}
+
+func TestJavaStoreAt_OverridesSearch(t *testing.T) {
+	dir := t.TempDir()
+	kpath := filepath.Join(dir, "cacerts")
+	if err := os.WriteFile(kpath, []byte("not-empty-keystore"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	refuseSystemKeystore(t, kpath)
+
+	s := JavaStoreAt(kpath).(javaStore)
+	got, err := s.keystorePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != kpath {
+		t.Fatalf("keystorePath=%q want %q", got, kpath)
+	}
+
+	info := s.GetInfo()
+	if info == nil || info.Path != kpath {
+		t.Fatalf("GetInfo.Path=%v want %s", info, kpath)
+	}
+}
+
+func TestJavaStoreAt_RejectsDirectory(t *testing.T) {
+	dir := t.TempDir()
+	s := JavaStoreAt(dir).(javaStore)
+	if _, err := s.keystorePath(); err == nil {
+		t.Fatal("expected error for directory keystore path")
+	}
+}
+
+func TestForAppWithFile_Java(t *testing.T) {
+	dir := t.TempDir()
+	kpath := filepath.Join(dir, "cacerts")
+	if err := os.WriteFile(kpath, []byte("ks"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := ForAppWithFile("java", kpath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := st.GetInfo()
+	if info.Path != kpath {
+		t.Fatalf("Path=%q want %q", info.Path, kpath)
+	}
+}
+
+func TestGetKeystorePath_JavaHomeMissingCacerts(t *testing.T) {
+	dir := t.TempDir()
+	k := keytool{
+		javahome:              dir,
+		relativeKeystorePaths: []string{"lib/security/cacerts"},
+	}
+	_, err := k.getKeystorePath()
+	if err == nil || !strings.Contains(err.Error(), "has no cacerts") {
+		t.Fatalf("expected missing cacerts error, got %v", err)
 	}
 }

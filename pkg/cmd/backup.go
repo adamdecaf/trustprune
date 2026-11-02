@@ -47,3 +47,19 @@ func BackupForPlatform() error {
 	}
 	return err
 }
+
+func BackupForAppWithFile(app, filePath string) error {
+	s, err := store.ForAppWithFile(app, filePath)
+	if err != nil {
+		return err
+	}
+	err = s.Backup()
+	if err == nil {
+		if store.DryRun() {
+			fmt.Println("dry-run: no changes made")
+		} else {
+			fmt.Println("Backup completed successfully")
+		}
+	}
+	return err
+}

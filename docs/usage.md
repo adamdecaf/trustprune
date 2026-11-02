@@ -42,6 +42,7 @@ Show trusted certificates from the platform store, an app store, a local file, o
 trustprune list
 trustprune list -count
 trustprune list -app java
+trustprune list -app java -file /path/to/cacerts
 trustprune list -file example.crt
 trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 ```
@@ -63,6 +64,7 @@ Capture the current trust store so you can restore later. Allowlisting refuses t
 ```bash
 trustprune backup
 trustprune backup -app java
+trustprune backup -app java -file /path/to/cacerts
 trustprune backup -app chrome
 trustprune backup -app firefox
 ```

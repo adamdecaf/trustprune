@@ -38,7 +38,12 @@ var (
 	javaCertManageDir       = "java"
 )
 
-type javaStore struct{}
+type javaStore struct {
+	// keystoreOverride, when set, is the cacerts (or other) keystore file to
+	// use instead of searching JAVA_HOME / platform install paths. CLI -file
+	// with -app java sets this for list/backup/connect.
+	keystoreOverride string
+}
 
 // JavaStore returns an implementation of Store for Java certificate stores
 //
@@ -49,9 +54,39 @@ func JavaStore() Store {
 	return javaStore{}
 }
 
+// JavaStoreAt returns a Java store that always uses the given keystore file
+// path instead of searching JAVA_HOME. path must be an existing non-empty file.
+func JavaStoreAt(path string) Store {
+	return javaStore{keystoreOverride: path}
+}
+
+func (s javaStore) tool() keytool {
+	k := ktool
+	k.explicitKeystore = s.keystoreOverride
+	return k
+}
+
+func (s javaStore) keystorePath() (string, error) {
+	return s.tool().getKeystorePath()
+}
+
+func validateJavaKeystoreFile(path string) (string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("store/java: keystore %s: %w", path, err)
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("store/java: keystore path %s is a directory, need the cacerts file", path)
+	}
+	if st.Size() == 0 {
+		return "", fmt.Errorf("store/java: keystore %s is empty", path)
+	}
+	return path, nil
+}
+
 func (s javaStore) Add(certs []*x509.Certificate) error {
 	if DryRun() {
-		kpath, err := ktool.getKeystorePath()
+		kpath, err := s.keystorePath()
 		if err != nil {
 			return err
 		}
@@ -77,7 +112,7 @@ func (s javaStore) Add(certs []*x509.Certificate) error {
 
 		// this replace is too simplistic
 		alias := strings.ReplaceAll(certutil.StringifyPKIXName(certs[i].Subject), " ", "_")
-		err = ktool.addCertificate(path, alias)
+		err = s.tool().addCertificate(path, alias)
 		if err != nil {
 			return err
 		}
@@ -86,7 +121,7 @@ func (s javaStore) Add(certs []*x509.Certificate) error {
 }
 
 func (s javaStore) Backup() error {
-	kpath, err := ktool.getKeystorePath()
+	kpath, err := s.keystorePath()
 	if err != nil {
 		return err
 	}
@@ -121,7 +156,7 @@ func (s javaStore) GetInfo() *Info {
 		Name:    "Java",
 		Version: s.version(),
 	}
-	if path, err := ktool.getKeystorePath(); err == nil {
+	if path, err := s.keystorePath(); err == nil {
 		info.Path = path
 	}
 	return info
@@ -143,21 +178,22 @@ func (s javaStore) version() string {
 //
 // Note: keytool does not offer the ability to "untrust" a certificate
 func (s javaStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
-	return ktool.getCertificates()
+	return s.tool().getCertificates()
 }
 
 func (s javaStore) Remove(al allowlist.Allowlist) error {
-	kpath, err := ktool.getKeystorePath()
+	tool := s.tool()
+	kpath, err := tool.getKeystorePath()
 	if err != nil {
 		return err
 	}
 
-	certs, err := ktool.getCertificates()
+	certs, err := tool.getCertificates()
 	if err != nil {
 		return err
 	}
 
-	shortCerts, err := ktool.getShortCerts()
+	shortCerts, err := tool.getShortCerts()
 	if err != nil {
 		return err
 	}
@@ -197,7 +233,7 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 			if shortCerts[i].matches(certs[j]) {
 				// then remove if it's not allowlisted
 				if !al.Matches(certs[j]) {
-					err = ktool.deleteCertificate(kpath, shortCerts[i].alias)
+					err = tool.deleteCertificate(kpath, shortCerts[i].alias)
 					if err != nil {
 						return err
 					}
@@ -231,7 +267,7 @@ func (s javaStore) Restore(where string) error {
 	}
 
 	// Get destination path
-	dst, err := ktool.getKeystorePath()
+	dst, err := s.keystorePath()
 	if err != nil {
 		return err
 	}
@@ -258,6 +294,10 @@ type keytool struct {
 	// Under java install path where is the `cacerts` keystore located?
 	// This changes on each platform...
 	relativeKeystorePaths []string
+
+	// explicitKeystore, when set, skips JAVA_HOME / install-path search and
+	// uses this file directly (CLI -file with -app java).
+	explicitKeystore string
 }
 
 // addCertificate installs a certificate into the truststore
@@ -324,8 +364,12 @@ func (k keytool) expandSymlink(p string) (string, error) {
 }
 
 func (k keytool) getKeystorePath() (string, error) {
-	kpath := k.javahome
-	if kpath == "" {
+	if k.explicitKeystore != "" {
+		return validateJavaKeystoreFile(k.explicitKeystore)
+	}
+
+	kpath := ""
+	if k.javahome == "" {
 		for i := range k.javaInstallPaths {
 			// Sometimes javaInstallPaths can be a symlink, if so expand it and use that
 			installPath := k.javaInstallPaths[i]
@@ -342,14 +386,12 @@ func (k keytool) getKeystorePath() (string, error) {
 
 			// Check each possible relative location
 			for j := range k.relativeKeystorePaths {
-				// Check if we've got a path now
 				where := filepath.Join(installPath, k.relativeKeystorePaths[j])
 				if file.Exists(where) {
 					kpath = where
 					break
 				}
 			}
-			// If we've found something then quit
 			if kpath != "" {
 				if debug {
 					fmt.Printf("store/java: found kpath %s\n", kpath)
@@ -360,7 +402,7 @@ func (k keytool) getKeystorePath() (string, error) {
 	} else {
 		// We've got JAVA_HOME, but need to add the relative path to `cacerts`
 		for i := range k.relativeKeystorePaths {
-			where := filepath.Join(kpath, k.relativeKeystorePaths[i])
+			where := filepath.Join(k.javahome, k.relativeKeystorePaths[i])
 			if file.Exists(where) {
 				kpath = where
 				if debug {
@@ -369,23 +411,14 @@ func (k keytool) getKeystorePath() (string, error) {
 				break
 			}
 		}
+		if kpath == "" {
+			return "", fmt.Errorf("store/java: JAVA_HOME=%s has no cacerts under %v", k.javahome, k.relativeKeystorePaths)
+		}
 	}
 	if kpath == "" {
 		return "", errors.New("store/java: never found java and/or keystore path")
 	}
-
-	s, err := os.Stat(kpath)
-	if err != nil {
-		return "", err
-	}
-	if s.IsDir() {
-		return "", errors.New("store/java: never found java and/or keystore path")
-	}
-	if s.Size() == 0 {
-		return "", fmt.Errorf("found keystore at %s, but it's an empty file", kpath)
-	}
-
-	return kpath, nil
+	return validateJavaKeystoreFile(kpath)
 }
 
 func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
@@ -399,6 +432,7 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 		"-list",
 		"-storepass", defaultKeystorePassword,
 		"-keystore", kpath,
+		"-noprompt",
 	}, extraArgs...)
 	cmd := exec.Command("keytool", args...)
 
@@ -545,6 +579,7 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 		"-alias", alias,
 		"-keystore", kpath,
 		"-storepass", defaultKeystorePassword,
+		"-noprompt",
 	}
 
 	var cmd *exec.Cmd
