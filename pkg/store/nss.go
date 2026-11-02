@@ -59,7 +59,8 @@ type nssStore struct {
 	// appVersion refers to the version of whatever tool is using NSS
 	appVersion string
 
-	// foundCertdbLocation is the locally found filepath to a cert.db file
+	// foundCertdbLocation is the profile directory that contains cert9.db
+	// (shared DB) and/or legacy cert8.db.
 	foundCertdbLocation string
 
 	// Holds a trigger if we've made modifications (useful for triggering a "Restart app" message
@@ -97,13 +98,18 @@ func containsCertdb(where string) bool {
 	return false
 }
 
-// NSS apps on cert8.db require being restarted to get the updated set of trustAttrs for each certificate
+// NSS apps on cert8.db require being restarted to get the updated set of trustAttrs for each certificate.
+// Shared DB (cert9.db) picks up trust changes without a restart.
 func (s nssStore) notifyToRestart() {
-	if strings.Contains(s.foundCertdbLocation, "cert8.db") {
-		s.notify.Do(func() {
-			fmt.Printf("Restart %s to refresh certificate trust\n", titleASCII(s.nssType))
-		})
+	if file.Exists(filepath.Join(s.foundCertdbLocation, "cert9.db")) {
+		return
 	}
+	if !file.Exists(filepath.Join(s.foundCertdbLocation, "cert8.db")) {
+		return
+	}
+	s.notify.Do(func() {
+		fmt.Printf("Restart %s to refresh certificate trust\n", titleASCII(s.nssType))
+	})
 }
 
 func (s nssStore) Add(certs []*x509.Certificate) error {
@@ -525,12 +531,26 @@ func (c crtutil) getExecPath() (string, error) {
 }
 
 // Different versions of NSS/cert.db files require different prefixes
-// when passed to crtutil.
+// when passed to certutil. Shared DB (cert9.db) uses sql:; legacy
+// cert8.db uses dbm:. Callers pass a profile directory (or, rarely, a
+// path ending in cert8.db / cert9.db); when both DBs exist, prefer sql:
+// because that is the active store after Firefox's migration.
 func (c crtutil) appendScheme(where string) string {
-	if filepath.Base(where) == "cert9.db" {
-		return "sql:" + where
+	dir, scheme := nssCertutilDirAndScheme(where)
+	return scheme + dir
+}
+
+func nssCertutilDirAndScheme(where string) (dir, scheme string) {
+	switch filepath.Base(where) {
+	case "cert9.db":
+		return filepath.Dir(where), "sql:"
+	case "cert8.db":
+		return filepath.Dir(where), "dbm:"
 	}
-	return "dbm:" + where
+	if file.Exists(filepath.Join(where, "cert9.db")) {
+		return where, "sql:"
+	}
+	return where, "dbm:"
 }
 
 // Emulates the following
