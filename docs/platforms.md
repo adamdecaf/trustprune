@@ -37,7 +37,7 @@ For Chrome (Linux) and Firefox, backups copy the matching profile set from the c
 | Shared DB (`cert9.db`) | `cert9.db`, `key4.db`, `pkcs11.txt` |
 | Legacy (`cert8.db`) | `cert8.db`, `key3.db`, `secmod.db` |
 
-NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/certutil`; Linux probes `/usr/bin/certutil`. After changes to a `cert8.db` profile, the tool may print a restart hint for that app.
+NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/certutil`; Linux probes `/usr/bin/certutil`. The `-d` argument uses the `sql:` prefix when `cert9.db` is present (shared DB) and `dbm:` for legacy `cert8.db`-only profiles. After changes to a `cert8.db` profile, the tool may print a restart hint for that app.
 
 ## Backup parent directories
 

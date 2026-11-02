@@ -59,7 +59,8 @@ type nssStore struct {
 	// appVersion refers to the version of whatever tool is using NSS
 	appVersion string
 
-	// foundCertdbLocation is the locally found filepath to a cert.db file
+	// foundCertdbLocation is the profile directory that contains cert9.db
+	// (shared DB) and/or legacy cert8.db.
 	foundCertdbLocation string
 
 	// Holds a trigger if we've made modifications (useful for triggering a "Restart app" message
@@ -75,6 +76,12 @@ type nssStore struct {
 // - https://wiki.mozilla.org/NSS_Shared_DB
 // - https://wiki.mozilla.org/NSS_Shared_DB_And_LINUX
 func NssStore(nssType string, appVersion string, certdbPath string) Store {
+	// Callers sometimes pass the cert DB file itself; backup/restore operate on
+	// the profile directory that contains it.
+	switch filepath.Base(certdbPath) {
+	case "cert9.db", "cert8.db":
+		certdbPath = filepath.Dir(certdbPath)
+	}
 	return nssStore{
 		nssType:             nssType,
 		appVersion:          appVersion,
@@ -97,13 +104,24 @@ func containsCertdb(where string) bool {
 	return false
 }
 
-// NSS apps on cert8.db require being restarted to get the updated set of trustAttrs for each certificate
+// notifyRestart prints a one-shot restart hint for the app using this store.
+func (s nssStore) notifyRestart() {
+	s.notify.Do(func() {
+		fmt.Printf("Restart %s to refresh certificate trust\n", titleASCII(s.nssType))
+	})
+}
+
+// NSS apps on cert8.db require being restarted to get the updated set of trustAttrs for each certificate.
+// Shared DB (cert9.db) picks up certutil trust-attribute changes without a restart; Restore still
+// always hints via notifyRestart because it replaces the DB files under the app.
 func (s nssStore) notifyToRestart() {
-	if strings.Contains(s.foundCertdbLocation, "cert8.db") {
-		s.notify.Do(func() {
-			fmt.Printf("Restart %s to refresh certificate trust\n", titleASCII(s.nssType))
-		})
+	if file.Exists(filepath.Join(s.foundCertdbLocation, "cert9.db")) {
+		return
 	}
+	if !file.Exists(filepath.Join(s.foundCertdbLocation, "cert8.db")) {
+		return
+	}
+	s.notifyRestart()
 }
 
 func (s nssStore) Add(certs []*x509.Certificate) error {
@@ -324,9 +342,6 @@ func (s nssStore) Restore(where string) error {
 		return nil
 	}
 
-	// Queue notification to restart app
-	defer s.notifyToRestart()
-
 	dst := s.foundCertdbLocation
 	tmp := dst + ".restore-tmp"
 	aside := dst + ".restore-old"
@@ -350,8 +365,40 @@ func (s nssStore) Restore(where string) error {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("no NSS profile files to restore from %s", src)
 	}
+	if err := nssRejectIncompatibleRestore(dst, names); err != nil {
+		_ = os.RemoveAll(tmp)
+		return err
+	}
 
-	return nssSwapStagedFiles(dst, tmp, aside, names)
+	if err := nssSwapStagedFiles(dst, tmp, aside, names); err != nil {
+		return err
+	}
+	// File-level restore can leave a running app on the previous inode even
+	// for shared DB (cert9.db), so always hint a restart after a successful swap.
+	s.notifyRestart()
+	return nil
+}
+
+// nssRejectIncompatibleRestore refuses a legacy cert8-only backup when the live
+// profile already has an active cert9.db. Restoring cert8 files would leave the
+// shared DB untouched while reporting success.
+func nssRejectIncompatibleRestore(dst string, stagedNames []string) error {
+	if !file.Exists(filepath.Join(dst, "cert9.db")) {
+		return nil
+	}
+	has9, has8 := false, false
+	for _, name := range stagedNames {
+		switch name {
+		case "cert9.db":
+			has9 = true
+		case "cert8.db":
+			has8 = true
+		}
+	}
+	if has8 && !has9 {
+		return fmt.Errorf("cannot restore legacy cert8.db backup into cert9.db profile at %s", dst)
+	}
+	return nil
 }
 
 // nssStageRestoreFiles copies the backup profile set (or a legacy single-file
@@ -525,12 +572,26 @@ func (c crtutil) getExecPath() (string, error) {
 }
 
 // Different versions of NSS/cert.db files require different prefixes
-// when passed to crtutil.
+// when passed to certutil. Shared DB (cert9.db) uses sql:; legacy
+// cert8.db uses dbm:. Callers pass a profile directory (or, rarely, a
+// path ending in cert8.db / cert9.db); when both DBs exist, prefer sql:
+// because that is the active store after Firefox's migration.
 func (c crtutil) appendScheme(where string) string {
-	if filepath.Base(where) == "cert9.db" {
-		return "sql:" + where
+	dir, scheme := nssCertutilDirAndScheme(where)
+	return scheme + dir
+}
+
+func nssCertutilDirAndScheme(where string) (dir, scheme string) {
+	switch filepath.Base(where) {
+	case "cert9.db":
+		return filepath.Dir(where), "sql:"
+	case "cert8.db":
+		return filepath.Dir(where), "dbm:"
 	}
-	return "dbm:" + where
+	if file.Exists(filepath.Join(where, "cert9.db")) {
+		return where, "sql:"
+	}
+	return where, "dbm:"
 }
 
 // Emulates the following
