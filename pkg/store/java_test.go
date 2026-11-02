@@ -203,3 +203,9 @@ func TestGetKeystorePath_JavaHomeMissingCacerts(t *testing.T) {
 		t.Fatalf("expected missing cacerts error, got %v", err)
 	}
 }
+
+func TestForAppWithFile_RejectsOtherApps(t *testing.T) {
+	if _, err := ForAppWithFile("firefox", "/tmp/x"); err == nil {
+		t.Fatal("expected error for non-java -file override")
+	}
+}

@@ -149,7 +149,7 @@ func ForAppWithFile(app, filePath string) (Store, error) {
 	if app == "java" {
 		return JavaStoreAt(filePath), nil
 	}
-	return ForApp(app)
+	return nil, fmt.Errorf("-file with -app %s is only supported for java (keystore override)", app)
 }
 
 // getCertManageDir returns the fs location (always creating first) where a specific
