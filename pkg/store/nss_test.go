@@ -161,6 +161,100 @@ func TestNSSNotifyToRestart_OnlyCert8(t *testing.T) {
 	}
 }
 
+func TestNssStore_NormalizesCertDBFilePath(t *testing.T) {
+	dir := t.TempDir()
+	cert9 := filepath.Join(dir, "cert9.db")
+	if err := os.WriteFile(cert9, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := NssStore("firefox-test", "0", cert9).(nssStore)
+	if s.foundCertdbLocation != dir {
+		t.Fatalf("foundCertdbLocation=%q want %q", s.foundCertdbLocation, dir)
+	}
+}
+
+func TestNSSRestore_RejectsCert8BackupIntoCert9Profile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nssdbDir := filepath.Join(home, "profile")
+	if err := os.MkdirAll(nssdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "cert9.db"), []byte("live-cert9\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "key4.db"), []byte("live-key4\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	backup := filepath.Join(home, "backup")
+	if err := os.MkdirAll(backup, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "cert8.db"), []byte("old-cert8\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "key3.db"), []byte("old-key3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox-test", "0", nssdbDir)
+	err := s.Restore(backup)
+	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("cannot restore legacy cert8.db")) {
+		t.Fatalf("expected incompatible restore error, got %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(nssdbDir, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte("live-cert9\n")) {
+		t.Fatalf("live cert9.db mutated: %q", got)
+	}
+}
+
+func TestNSSRestore_Cert9PrintsRestartHint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nssdbDir := filepath.Join(home, "profile")
+	if err := os.MkdirAll(nssdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "cert9.db"), []byte("live\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	backup := filepath.Join(home, "backup")
+	if err := os.MkdirAll(backup, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "cert9.db"), []byte("bak\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox-test", "0", nssdbDir).(nssStore)
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = s.Restore(backup)
+	_ = w.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("Restart Firefox-test")) {
+		t.Fatalf("expected restart hint after cert9 restore, got %q", out)
+	}
+}
+
 func TestStoreNSS_trustedForSSL(t *testing.T) {
 	trusted := map[string]bool{
 		// trusted attrs
