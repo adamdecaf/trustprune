@@ -23,6 +23,9 @@ Connection to https://google.com passed!
 
 $ ./trustprune connect -app java https://google.com
 Connection to https://google.com passed!
+
+$ ./trustprune connect -url https://google.com
+Connection to https://google.com passed!
 ```
 
 ## List
