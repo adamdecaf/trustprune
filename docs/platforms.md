@@ -49,3 +49,18 @@ NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/
 Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`.
 
 [← Home](index.md)
+
+## Future stores
+
+Researched but not yet supported:
+
+- Container images
+- Thunderbird and Chromium browsers on NSS
+- BSD stores
+- p11-kit distros
+- Node
+- Registry CAs
+- .NET
+- Android
+- Kubernetes
+- iOS

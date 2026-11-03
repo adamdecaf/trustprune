@@ -30,7 +30,7 @@ chrome    found      /home/you/.pki/nssdb
 firefox   not-found  -
 java      not-found  -
 openssl   found      /etc/ssl/certs/ca-certificates.crt
-ssl       found      /etc/ssl/cert.pem
+ssl       not-found  -
 platform  found      /etc/ssl/certs/ca-certificates.crt
 ```
 
@@ -153,7 +153,7 @@ trustprune gen-allowlist -out allowlist.yaml -file urls.txt
 
 | Flag | Meaning |
 |------|---------|
-| `-out <path>` | **Required.** Where to write the allowlist |
+| `-out <path>` | **Required.** Where to write the allowlist. The extension picks the format: `.json` writes JSON, `.yaml` or `.yml` writes YAML |
 | `-from <types>` | Comma-separated sources: `browser` / `browsers`, `chrome`, `firefox`, `safari`, `file` |
 | `-file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
 
@@ -179,11 +179,13 @@ Attempt an HTTPS connection using the platform store or an app store. Useful aft
 ```bash
 trustprune connect https://example.com
 trustprune connect -app java https://example.com
+trustprune connect -url https://example.com
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
+| `-url <url>` | URL to connect to, instead of the positional argument (e.g. `-url https://example.com`) |
 
 The URL must use the `https` scheme.
 
