@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -46,6 +47,211 @@ func TestStoreNSS_certdbDiscovery(t *testing.T) {
 	// Now we should find the cert.db path
 	if !containsCertdb(tmp) {
 		t.Errorf("should have found cert.db in %s", tmp)
+	}
+}
+
+func TestNSSAppendScheme_Cert9Directory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := cutil.appendScheme(dir)
+	want := "sql:" + dir
+	if got != want {
+		t.Fatalf("appendScheme(cert9 dir)=%q want %q", got, want)
+	}
+}
+
+func TestNSSAppendScheme_Cert8Directory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cert8.db"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := cutil.appendScheme(dir)
+	want := "dbm:" + dir
+	if got != want {
+		t.Fatalf("appendScheme(cert8 dir)=%q want %q", got, want)
+	}
+}
+
+func TestNSSAppendScheme_PrefersCert9WhenBothPresent(t *testing.T) {
+	// Firefox leaves cert8.db after migrating to the shared DB.
+	dir := t.TempDir()
+	for _, name := range []string{"cert9.db", "cert8.db"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := cutil.appendScheme(dir)
+	want := "sql:" + dir
+	if got != want {
+		t.Fatalf("appendScheme(both)=%q want %q", got, want)
+	}
+}
+
+func TestNSSAppendScheme_FilePathUsesParent(t *testing.T) {
+	dir := t.TempDir()
+	cert9 := filepath.Join(dir, "cert9.db")
+	if err := os.WriteFile(cert9, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := cutil.appendScheme(cert9)
+	want := "sql:" + dir
+	if got != want {
+		t.Fatalf("appendScheme(cert9 file)=%q want %q", got, want)
+	}
+
+	cert8 := filepath.Join(dir, "cert8.db")
+	if err := os.WriteFile(cert8, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// Explicit cert8.db path still selects dbm: even if cert9 exists alongside.
+	got = cutil.appendScheme(cert8)
+	want = "dbm:" + dir
+	if got != want {
+		t.Fatalf("appendScheme(cert8 file)=%q want %q", got, want)
+	}
+}
+
+func TestNSSNotifyToRestart_OnlyCert8(t *testing.T) {
+	capture := func(fn func()) []byte {
+		t.Helper()
+		old := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		defer func() { os.Stdout = old }()
+		fn()
+		_ = w.Close()
+		out, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	cert8Dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cert8Dir, "cert8.db"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := nssStore{nssType: "firefox-test", foundCertdbLocation: cert8Dir, notify: &sync.Once{}}
+	out := capture(func() {
+		s.notifyToRestart()
+		s.notifyToRestart() // Once: second call must not print again
+	})
+	if !bytes.Contains(out, []byte("Restart Firefox-test")) {
+		t.Fatalf("expected restart hint on stdout, got %q", out)
+	}
+	if bytes.Count(out, []byte("Restart Firefox-test")) != 1 {
+		t.Fatalf("expected single restart hint, got %q", out)
+	}
+
+	cert9Dir := t.TempDir()
+	for _, name := range []string{"cert9.db", "cert8.db"} {
+		if err := os.WriteFile(filepath.Join(cert9Dir, name), []byte("x"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s = nssStore{nssType: "firefox-test", foundCertdbLocation: cert9Dir, notify: &sync.Once{}}
+	out = capture(func() { s.notifyToRestart() })
+	if len(out) != 0 {
+		t.Fatalf("cert9 profile should not print restart hint, got %q", out)
+	}
+}
+
+func TestNssStore_NormalizesCertDBFilePath(t *testing.T) {
+	dir := t.TempDir()
+	cert9 := filepath.Join(dir, "cert9.db")
+	if err := os.WriteFile(cert9, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := NssStore("firefox-test", "0", cert9).(nssStore)
+	if s.foundCertdbLocation != dir {
+		t.Fatalf("foundCertdbLocation=%q want %q", s.foundCertdbLocation, dir)
+	}
+}
+
+func TestNSSRestore_RejectsCert8BackupIntoCert9Profile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nssdbDir := filepath.Join(home, "profile")
+	if err := os.MkdirAll(nssdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "cert9.db"), []byte("live-cert9\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "key4.db"), []byte("live-key4\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	backup := filepath.Join(home, "backup")
+	if err := os.MkdirAll(backup, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "cert8.db"), []byte("old-cert8\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "key3.db"), []byte("old-key3\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox-test", "0", nssdbDir)
+	err := s.Restore(backup)
+	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("cannot restore legacy cert8.db")) {
+		t.Fatalf("expected incompatible restore error, got %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(nssdbDir, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, []byte("live-cert9\n")) {
+		t.Fatalf("live cert9.db mutated: %q", got)
+	}
+}
+
+func TestNSSRestore_Cert9PrintsRestartHint(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	nssdbDir := filepath.Join(home, "profile")
+	if err := os.MkdirAll(nssdbDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nssdbDir, "cert9.db"), []byte("live\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	backup := filepath.Join(home, "backup")
+	if err := os.MkdirAll(backup, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(backup, "cert9.db"), []byte("bak\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox-test", "0", nssdbDir).(nssStore)
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	err = s.Restore(backup)
+	_ = w.Close()
+	os.Stdout = old
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("Restart Firefox-test")) {
+		t.Fatalf("expected restart hint after cert9 restore, got %q", out)
 	}
 }
 
