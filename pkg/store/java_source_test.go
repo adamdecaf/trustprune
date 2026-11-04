@@ -143,3 +143,98 @@ func TestJavaRestore_SymlinkReplacedByFileStillMatches(t *testing.T) {
 		t.Fatalf("restore mismatch: %q", got)
 	}
 }
+
+func TestJavaBackup_SameSecondDoesNotOverwrite(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir := t.TempDir()
+	first, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJavaBackupSource(first, a); err != nil {
+		t.Fatal(err)
+	}
+	second, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("same-second backups share a name: %s", first)
+	}
+	if ts, ok := backupBasenameUnix(filepath.Base(second)); !ok || ts != 1700000000 {
+		t.Fatalf("counter name %s does not parse to timestamp: %d %v", second, ts, ok)
+	}
+	// Writing a sidecar a second time must not overwrite the first record.
+	if err := writeJavaBackupSource(first, "/other/cacerts"); err == nil {
+		t.Fatal("expected O_EXCL failure on existing .source")
+	}
+	if got, _ := readJavaBackupSource(first); got != javaCanonicalPath(a) {
+		t.Fatalf(".source overwritten: %q", got)
+	}
+}
+
+func TestJavaBackup_TwoBackupsSameSecondBothKept(t *testing.T) {
+	a, b := javaSourceTestHome(t)
+	if err := JavaStoreAt(a).Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := JavaStoreAt(b).Backup(); err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{a, b} {
+		p, err := JavaStoreAt(k).GetLatestBackup()
+		if err != nil {
+			t.Fatalf("%s: %v", k, err)
+		}
+		got, _ := os.ReadFile(p)
+		if !bytes.Equal(got, []byte("ORIG-"+k)) {
+			t.Fatalf("backup for %s has wrong content %q", k, got)
+		}
+	}
+}
+
+func TestJavaLatestBackup_IgnoresSourceSidecars(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir, err := getCertManageDir(javaCertManageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bck := filepath.Join(dir, "cacerts-100.bck")
+	if err := os.WriteFile(bck, []byte("B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeJavaBackupSource(bck, a); err != nil {
+		t.Fatal(err)
+	}
+	// A stray, newer-looking sidecar must never be selected as a backup.
+	if err := os.WriteFile(filepath.Join(dir, "cacerts-999.bck.source"), []byte(javaCanonicalPath(a)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := latestJavaBackupFor(a, false)
+	if err != nil || got != bck {
+		t.Fatalf("got %q err=%v, want %q", got, err, bck)
+	}
+}
+
+func TestJavaLatestBackup_PrefersHigherCounterSameSecond(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir, err := getCertManageDir(javaCertManageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last string
+	for i := 0; i < 3; i++ {
+		p, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writeJavaBackupSource(p, a); err != nil {
+			t.Fatal(err)
+		}
+		last = p
+	}
+	got, err := latestJavaBackupFor(a, false)
+	if err != nil || got != last {
+		t.Fatalf("got %q err=%v, want newest %q", got, err, last)
+	}
+}

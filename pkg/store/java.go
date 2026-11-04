@@ -20,11 +20,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,11 +138,9 @@ func (s javaStore) Backup() error {
 		return err
 	}
 
-	// Rename the file as is
 	_, filename := filepath.Split(kpath)
-	dst := filepath.Join(dir, fmt.Sprintf("%s-%d.bck", filename, time.Now().Unix()))
-
-	if err := file.CopyFile(kpath, dst); err != nil {
+	dst, err := createJavaBackupFile(dir, filename, time.Now().Unix(), kpath)
+	if err != nil {
 		return err
 	}
 	// Record which keystore this backup came from so restore never copies it
@@ -150,6 +150,68 @@ func (s javaStore) Backup() error {
 		return err
 	}
 	return nil
+}
+
+// createJavaBackupFile copies src into a new, never-overwritten backup in dir.
+// The name is "<filename>-<unix>.bck"; on collision a counter goes before the
+// timestamp ("<filename>.<n>-<unix>.bck") so the timestamp still parses.
+// Files are created with O_EXCL, so concurrent backups cannot clobber each other.
+func createJavaBackupFile(dir, filename string, unix int64, src string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = in.Close() }()
+	st, err := in.Stat()
+	if err != nil {
+		return "", err
+	}
+	for n := 0; n < 1000; n++ {
+		name := fmt.Sprintf("%s-%d.bck", filename, unix)
+		if n > 0 {
+			name = fmt.Sprintf("%s.%d-%d.bck", filename, n, unix)
+		}
+		dst := filepath.Join(dir, name)
+		// Skip names whose sidecar is already taken too.
+		if _, err := os.Lstat(dst + javaBackupSourceSuffix); err == nil {
+			continue
+		}
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, st.Mode().Perm())
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		_, err = io.Copy(out, in)
+		if err == nil {
+			err = out.Sync()
+		}
+		if cerr := out.Close(); err == nil {
+			err = cerr
+		}
+		if err != nil {
+			_ = os.Remove(dst)
+			return "", err
+		}
+		return dst, nil
+	}
+	return "", fmt.Errorf("store/java: could not pick a unique backup name for %s in %s", filename, dir)
+}
+
+// javaBackupCounter returns the collision counter in a backup name
+// ("<file>.<n>-<unix>.bck"), or 0 when there is none.
+func javaBackupCounter(name, unixPart string) int {
+	base := strings.TrimSuffix(strings.TrimSuffix(name, ".bck"), "-"+unixPart)
+	i := strings.LastIndexByte(base, '.')
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(base[i+1:])
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // javaBackupSourceSuffix names the sidecar holding a backup's source keystore.
@@ -179,7 +241,21 @@ func sameJavaKeystore(recorded, keystore string) bool {
 }
 
 func writeJavaBackupSource(backup, keystore string) error {
-	return os.WriteFile(backup+javaBackupSourceSuffix, []byte(javaCanonicalPath(keystore)+"\n"), 0600)
+	f, err := os.OpenFile(backup+javaBackupSourceSuffix, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(javaCanonicalPath(keystore) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(backup + javaBackupSourceSuffix)
+	}
+	return err
 }
 
 // readJavaBackupSource returns the recorded source keystore, or "" when the
@@ -235,7 +311,7 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 	if lp := legacyBackupParent(uhome); lp != "" {
 		dirs = append(dirs, filepath.Join(lp, javaCertManageDir))
 	}
-	best, bestTS := "", int64(-1)
+	best, bestTS, bestN := "", int64(-1), -1
 	for _, d := range dirs {
 		ents, err := os.ReadDir(d)
 		if err != nil {
@@ -245,8 +321,16 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 			return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
 		}
 		for _, ent := range ents {
+			// Only .bck files are backups; skip .bck.source sidecars and others.
+			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".bck") {
+				continue
+			}
 			ts, ok := backupBasenameUnix(ent.Name())
-			if !ok || ent.IsDir() || ts <= bestTS {
+			if !ok {
+				continue
+			}
+			n := javaBackupCounter(ent.Name(), strconv.FormatInt(ts, 10))
+			if ts < bestTS || (ts == bestTS && n <= bestN) {
 				continue
 			}
 			path := filepath.Join(d, ent.Name())
@@ -255,7 +339,7 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 				return "", err
 			}
 			if (recorded != "" && sameJavaKeystore(recorded, keystore)) || (recorded == "" && allowUnknown) {
-				best, bestTS = path, ts
+				best, bestTS, bestN = path, ts, n
 			}
 		}
 	}
