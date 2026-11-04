@@ -294,16 +294,16 @@ func (s linuxStore) Restore(where string) error {
 			_ = os.RemoveAll(tmp)
 			return err
 		}
-		if err := os.Rename(s.ca.dir, aside); err != nil {
+		if err := renameDir(s.ca.dir, aside); err != nil {
 			_ = os.RemoveAll(tmp)
 			return err
 		}
 	}
 
-	if err := os.Rename(tmp, s.ca.dir); err != nil {
+	if err := renameDir(tmp, s.ca.dir); err != nil {
 		_ = os.RemoveAll(tmp)
 		if liveExists {
-			if rerr := os.Rename(aside, s.ca.dir); rerr != nil {
+			if rerr := renameDir(aside, s.ca.dir); rerr != nil {
 				fmt.Printf("store/linux: previous CA directory moved aside to %s\n", aside)
 				return fmt.Errorf("%w (previous CA dir still at %s)", err, aside)
 			}
@@ -317,13 +317,13 @@ func (s linuxStore) Restore(where string) error {
 		if liveExists {
 			failed := s.ca.dir + ".restore-failed"
 			_ = os.RemoveAll(failed)
-			if rerr := os.Rename(s.ca.dir, failed); rerr != nil {
+			if rerr := renameDir(s.ca.dir, failed); rerr != nil {
 				// Aside still holds the previous CA dir; tell the operator where.
 				fmt.Printf("store/linux: previous CA directory moved aside to %s\n", aside)
 				return fmt.Errorf("%w (previous CA dir still at %s)", err, aside)
 			}
-			if rerr := os.Rename(aside, s.ca.dir); rerr != nil {
-				_ = os.Rename(failed, s.ca.dir)
+			if rerr := renameDir(aside, s.ca.dir); rerr != nil {
+				_ = renameDir(failed, s.ca.dir)
 				fmt.Printf("store/linux: previous CA directory moved aside to %s\n", aside)
 				return fmt.Errorf("failed to restore previous CA dir from %s: %w", aside, errors.Join(err, rerr))
 			}
