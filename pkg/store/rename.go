@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//go:build linux
+// +build linux
+
 package store
 
 import (
@@ -58,7 +61,7 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		target := filepath.Join(dst, rel)
-		info, err := os.Lstat(path)
+		info, err := d.Info()
 		if err != nil {
 			return err
 		}
@@ -68,7 +71,7 @@ func copyTree(src, dst string) error {
 			if err != nil {
 				return err
 			}
-			return os.Symlink(link, target)
+			return os.Symlink(link, target) //nolint:gosec // root-owned CA dir; links are copied, never followed
 		case info.IsDir():
 			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
 				return err
@@ -87,17 +90,17 @@ func copyRegular(src, dst string, perm os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
+	defer func() { _ = in.Close() }()
 	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, perm)
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Sync(); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	if err := out.Close(); err != nil {
