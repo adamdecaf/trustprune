@@ -293,6 +293,11 @@ func copyTree(src, dst string) error {
 }
 
 func copyRegular(src, dst string, perm os.FileMode) error {
+	// CA files never need setuid or setgid; refuse to mint such files
+	// (ownership isn't preserved, so the copy would be root-owned).
+	if perm&(os.ModeSetuid|os.ModeSetgid) != 0 {
+		return fmt.Errorf("refusing to copy setuid/setgid file %s", src)
+	}
 	in, err := os.Open(src)
 	if err != nil {
 		return err

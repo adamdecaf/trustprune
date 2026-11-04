@@ -331,3 +331,31 @@ func TestRenameDir_EXDEVKeepsSpecialModes(t *testing.T) {
 		t.Fatalf("mode %v, want %v", fi.Mode(), want)
 	}
 }
+
+func TestRenameDir_EXDEVRejectsSetuidFile(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "ca"), filepath.Join(root, "aside")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(src, "x")
+	if err := os.WriteFile(f, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(f, 0o755|os.ModeSetuid); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(f); fi.Mode()&os.ModeSetuid == 0 {
+		t.Skip("filesystem does not keep setuid")
+	}
+	withRename(t, exdev)
+	if err := renameDir(src, dst); err == nil || !strings.Contains(err.Error(), "setuid") {
+		t.Fatalf("got %v", err)
+	}
+	if _, err := os.Lstat(dst); !os.IsNotExist(err) {
+		t.Fatalf("partial copy left: %v", err)
+	}
+	if _, err := os.Stat(f); err != nil {
+		t.Fatalf("source changed: %v", err)
+	}
+}
