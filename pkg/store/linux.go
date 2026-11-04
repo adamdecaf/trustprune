@@ -294,7 +294,7 @@ func (s linuxStore) Restore(where string) error {
 			_ = os.RemoveAll(tmp)
 			return err
 		}
-		if err := renameDir(s.ca.dir, aside); err != nil {
+		if err := renameAside(s.ca.dir, aside); err != nil {
 			_ = os.RemoveAll(tmp)
 			return err
 		}

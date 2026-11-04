@@ -66,9 +66,78 @@ func renameDir(src, dst string) error {
 		return fmt.Errorf("cross-device copy %s -> %s: verify: %w", src, dst, verr)
 	}
 	if rerr := osRemoveAll(src); rerr != nil {
-		return fmt.Errorf("cross-device move %s -> %s: removing source failed, %s may be incomplete; intact copy is at %s: %w", src, dst, src, dst, rerr)
+		return &partialMoveError{src: src, copy: dst, err: rerr}
 	}
 	return nil
+}
+
+// partialMoveError reports that an EXDEV move copied and verified src at
+// copy but could not fully remove src, which may now be incomplete.
+type partialMoveError struct {
+	src, copy string
+	err       error
+}
+
+func (e *partialMoveError) Error() string {
+	return fmt.Sprintf("cross-device move %s -> %s: removing source failed, %s may be incomplete; intact copy is at %s: %v", e.src, e.copy, e.src, e.copy, e.err)
+}
+
+func (e *partialMoveError) Unwrap() error { return e.err }
+
+// renameAside moves live to aside for a restore. If an EXDEV move leaves
+// live partially removed, the verified copy is copied back over live and
+// checked; if that fails too, the error names the intact copy.
+func renameAside(live, aside string) error {
+	err := renameDir(live, aside)
+	var pe *partialMoveError
+	if !errors.As(err, &pe) {
+		return err
+	}
+	if rerr := copyTreeOver(pe.copy, live); rerr != nil {
+		return fmt.Errorf("%w; copying back to %s failed, intact copy is at %s: %w", err, live, pe.copy, rerr)
+	}
+	if verr := verifyTree(pe.copy, live); verr != nil {
+		return fmt.Errorf("%w; %s does not match after copy-back, intact copy is at %s: %w", err, live, pe.copy, verr)
+	}
+	return fmt.Errorf("%w; %s was restored from the copy", err, live)
+}
+
+// copyTreeOver copies src onto dst, replacing existing files and links.
+func copyTreeOver(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chmod(target, info.Mode().Perm())
+		}
+		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err := os.Readlink(path) //nolint:gosec // root-owned CA dir; links are copied, never followed
+			if err != nil {
+				return err
+			}
+			return os.Symlink(link, target) //nolint:gosec // root-owned CA dir; stale entries are replaced, never followed
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("unsupported file type %s at %s", info.Mode().Type(), path)
+		}
+		return copyRegular(path, target, info.Mode().Perm())
+	})
 }
 
 // moveContents moves the entries of src into dst (created if missing, or

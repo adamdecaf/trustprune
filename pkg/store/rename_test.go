@@ -239,3 +239,72 @@ func TestVerifyTree_DetectsMismatch(t *testing.T) {
 		t.Fatal("expected mismatch")
 	}
 }
+
+func setupPartialRemove(t *testing.T, src string) {
+	t.Helper()
+	origRm := osRemoveAll
+	osRemoveAll = func(p string) error {
+		if p == src {
+			_ = os.Remove(filepath.Join(src, "sub", "a.crt"))
+			_ = os.Remove(filepath.Join(src, "link.crt"))
+			return errors.New("remove failed")
+		}
+		return origRm(p)
+	}
+	t.Cleanup(func() { osRemoveAll = origRm })
+}
+
+func makeCATree(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sub", "a.crt"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("sub/a.crt", filepath.Join(dir, "link.crt")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRenameAside_RestoresLiveAfterPartialRemove(t *testing.T) {
+	root := t.TempDir()
+	live, aside := filepath.Join(root, "ca"), filepath.Join(root, "ca.restore-old")
+	makeCATree(t, live)
+	withRename(t, exdev)
+	setupPartialRemove(t, live)
+
+	err := renameAside(live, aside)
+	if err == nil || !strings.Contains(err.Error(), "restored from the copy") {
+		t.Fatalf("got %v", err)
+	}
+	if err := verifyTree(aside, live); err != nil {
+		t.Fatalf("live not restored: %v", err)
+	}
+}
+
+func TestRenameAside_CopyBackFailsNamesCopy(t *testing.T) {
+	root := t.TempDir()
+	live, aside := filepath.Join(root, "ca"), filepath.Join(root, "ca.restore-old")
+	makeCATree(t, live)
+	withRename(t, exdev)
+	origRm := osRemoveAll
+	osRemoveAll = func(p string) error {
+		if p == live {
+			// Partial removal, then make live unusable for copy-back.
+			_ = os.RemoveAll(live)
+			_ = os.WriteFile(live, []byte("x"), 0o644)
+			return errors.New("remove failed")
+		}
+		return origRm(p)
+	}
+	t.Cleanup(func() { osRemoveAll = origRm })
+
+	err := renameAside(live, aside)
+	if err == nil || !strings.Contains(err.Error(), "intact copy is at "+aside) || strings.Contains(err.Error(), "restored from the copy") {
+		t.Fatalf("got %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(aside, "sub", "a.crt")); string(b) != "A" {
+		t.Fatalf("copy not intact: %q", b)
+	}
+}
