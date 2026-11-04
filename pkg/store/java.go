@@ -212,6 +212,11 @@ func createJavaBackupFile(dir, filename string, unix int64, src string) (string,
 			}
 			return "", err
 		}
+		// Make .source durable before the .bck name can appear.
+		if err := syncDir(dir); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
+			return "", err
+		}
 		if err := javaBackupBeforePublish(); err != nil {
 			_ = os.Remove(dst + javaBackupSourceSuffix)
 			return "", err
@@ -223,18 +228,29 @@ func createJavaBackupFile(dir, filename string, unix int64, src string) (string,
 			}
 			return "", err
 		}
-		syncDir(dir)
+		if err := syncDir(dir); err != nil {
+			return "", err
+		}
 		return dst, nil
 	}
 	return "", fmt.Errorf("store/java: could not pick a unique backup name for %s in %s", filename, dir)
 }
 
-// syncDir best-effort fsyncs a directory so new entries are durable.
-func syncDir(dir string) {
-	if d, err := os.Open(dir); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
+// syncDir fsyncs a directory so new entries are durable. Windows can't
+// fsync directories, so it's a no-op there.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
 	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		return err
+	}
+	return d.Close()
 }
 
 // javaBackupCounter returns the collision counter in a backup name
