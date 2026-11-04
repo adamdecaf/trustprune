@@ -15,9 +15,9 @@
 package store
 
 import (
-	"errors"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,16 +48,18 @@ var linuxJavaLayouts = []javaHomeLayout{
 	{name: "alpine-jre", relativeKeystorePath: "jre/lib/security/cacerts"},
 }
 
-// darwinJavaLayouts / windowsJavaLayouts are intentionally empty in this PR;
-// add entries when those platform CI jobs exist.
+// darwinJavaLayouts mirrors production java_darwin.go relative paths.
+// windowsJavaLayouts stay empty until Windows Java CI exists.
 var (
-	darwinJavaLayouts  []javaHomeLayout
+	darwinJavaLayouts = []javaHomeLayout{
+		{name: "darwin-temurin", relativeKeystorePath: "lib/security/cacerts"},
+		{name: "darwin-jre", relativeKeystorePath: "jre/lib/security/cacerts"},
+	}
 	windowsJavaLayouts []javaHomeLayout
 )
 
 func activeJavaLayouts() []javaHomeLayout {
-	// Unit tests create temp trees for Linux OpenJDK layouts on every OS.
-	// Darwin/Windows fixture rows stay empty until those CI jobs exist.
+	// Unit tests create temp trees for Linux and Darwin OpenJDK layouts on every OS.
 	out := append([]javaHomeLayout(nil), linuxJavaLayouts...)
 	out = append(out, darwinJavaLayouts...)
 	out = append(out, windowsJavaLayouts...)

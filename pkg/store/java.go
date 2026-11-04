@@ -20,11 +20,13 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,7 +40,12 @@ var (
 	javaCertManageDir       = "java"
 )
 
-type javaStore struct{}
+type javaStore struct {
+	// keystoreOverride, when set, is the cacerts (or other) keystore file to
+	// use instead of searching JAVA_HOME / platform install paths. CLI -file
+	// with -app java sets this for list/backup/connect.
+	keystoreOverride string
+}
 
 // JavaStore returns an implementation of Store for Java certificate stores
 //
@@ -49,9 +56,39 @@ func JavaStore() Store {
 	return javaStore{}
 }
 
+// JavaStoreAt returns a Java store that always uses the given keystore file
+// path instead of searching JAVA_HOME. path must be an existing non-empty file.
+func JavaStoreAt(path string) Store {
+	return javaStore{keystoreOverride: path}
+}
+
+func (s javaStore) tool() keytool {
+	k := ktool
+	k.explicitKeystore = s.keystoreOverride
+	return k
+}
+
+func (s javaStore) keystorePath() (string, error) {
+	return s.tool().getKeystorePath()
+}
+
+func validateJavaKeystoreFile(path string) (string, error) {
+	st, err := os.Stat(path)
+	if err != nil {
+		return "", fmt.Errorf("store/java: keystore %s: %w", path, err)
+	}
+	if st.IsDir() {
+		return "", fmt.Errorf("store/java: keystore path %s is a directory, need the cacerts file", path)
+	}
+	if st.Size() == 0 {
+		return "", fmt.Errorf("store/java: keystore %s is empty", path)
+	}
+	return path, nil
+}
+
 func (s javaStore) Add(certs []*x509.Certificate) error {
 	if DryRun() {
-		kpath, err := ktool.getKeystorePath()
+		kpath, err := s.keystorePath()
 		if err != nil {
 			return err
 		}
@@ -77,7 +114,7 @@ func (s javaStore) Add(certs []*x509.Certificate) error {
 
 		// this replace is too simplistic
 		alias := strings.ReplaceAll(certutil.StringifyPKIXName(certs[i].Subject), " ", "_")
-		err = ktool.addCertificate(path, alias)
+		err = s.tool().addCertificate(path, alias)
 		if err != nil {
 			return err
 		}
@@ -86,7 +123,7 @@ func (s javaStore) Add(certs []*x509.Certificate) error {
 }
 
 func (s javaStore) Backup() error {
-	kpath, err := ktool.getKeystorePath()
+	kpath, err := s.keystorePath()
 	if err != nil {
 		return err
 	}
@@ -101,19 +138,270 @@ func (s javaStore) Backup() error {
 		return err
 	}
 
-	// Rename the file as is
 	_, filename := filepath.Split(kpath)
-	dst := filepath.Join(dir, fmt.Sprintf("%s-%d.bck", filename, time.Now().Unix()))
+	// The backup is published together with a record of which keystore it
+	// came from, so restore never copies it over a different keystore
+	// (-file backups share the java/ directory).
+	_, err = createJavaBackupFile(dir, filename, time.Now().Unix(), kpath)
+	return err
+}
 
-	return file.CopyFile(kpath, dst)
+// javaBackupBeforePublish is a test hook run after the temp copy and .source
+// record are durable but before the final .bck name is published.
+var javaBackupBeforePublish = func() error { return nil }
+
+// createJavaBackupFile copies src into a new, never-overwritten backup in dir
+// and records src as its source keystore.
+//
+// The copy is written and fsynced under a temp name that listing ignores
+// ("."+filename+"-*.partial"), then the .source record is written (O_EXCL) and
+// fsynced, and only then is the copy published with os.Link to the final
+// ".bck" name (fails if it exists). An interrupted run therefore never leaves
+// a .bck without its record, or a partial .bck.
+//
+// The name is "<filename>-<unix>.bck"; on collision a counter goes before the
+// timestamp ("<filename>.<n>-<unix>.bck") so the timestamp still parses.
+func createJavaBackupFile(dir, filename string, unix int64, src string) (string, error) {
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = in.Close() }()
+	st, err := in.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	tmp, err := os.CreateTemp(dir, "."+filename+"-*.partial")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // the published .bck is a hard link
+	_, err = io.Copy(tmp, in)
+	if err == nil {
+		err = tmp.Chmod(st.Mode().Perm())
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	if tst, err := os.Stat(tmpName); err != nil {
+		return "", err
+	} else if tst.Size() != st.Size() {
+		return "", fmt.Errorf("store/java: short backup copy of %s (%d of %d bytes)", src, tst.Size(), st.Size())
+	}
+
+	for n := 0; n < 1000; n++ {
+		name := fmt.Sprintf("%s-%d.bck", filename, unix)
+		if n > 0 {
+			name = fmt.Sprintf("%s.%d-%d.bck", filename, n, unix)
+		}
+		dst := filepath.Join(dir, name)
+		if _, err := os.Lstat(dst); err == nil {
+			continue
+		}
+		if err := writeJavaBackupSource(dst, src); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		// Make .source durable before the .bck name can appear.
+		if err := syncDir(dir); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
+			return "", err
+		}
+		if err := javaBackupBeforePublish(); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
+			return "", err
+		}
+		if err := os.Link(tmpName, dst); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		if err := syncDir(dir); err != nil {
+			return "", err
+		}
+		return dst, nil
+	}
+	return "", fmt.Errorf("store/java: could not pick a unique backup name for %s in %s", filename, dir)
+}
+
+// syncDir fsyncs a directory so new entries are durable. Windows can't
+// fsync directories, so it's a no-op there.
+func syncDir(dir string) error {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	if err := d.Sync(); err != nil {
+		_ = d.Close()
+		return err
+	}
+	return d.Close()
+}
+
+// javaBackupCounter returns the collision counter in a backup name
+// ("<file>.<n>-<unix>.bck"), or 0 when there is none.
+func javaBackupCounter(name, unixPart string) int {
+	base := strings.TrimSuffix(strings.TrimSuffix(name, ".bck"), "-"+unixPart)
+	i := strings.LastIndexByte(base, '.')
+	if i < 0 {
+		return 0
+	}
+	n, err := strconv.Atoi(base[i+1:])
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
+}
+
+// javaBackupSourceSuffix names the sidecar holding a backup's source keystore.
+// It does not end in .bck, so latest-backup selection skips it.
+const javaBackupSourceSuffix = ".source"
+
+// javaCanonicalPath returns the absolute, cleaned keystore path. Symlinks are
+// not resolved here: some distros ship cacerts as a symlink that a later
+// write replaces with a regular file, which would change the resolved path.
+func javaCanonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
+}
+
+// sameJavaKeystore reports whether a recorded source path names keystore,
+// either literally or after resolving symlinks on both sides.
+func sameJavaKeystore(recorded, keystore string) bool {
+	k := javaCanonicalPath(keystore)
+	if recorded == k {
+		return true
+	}
+	r1, err1 := filepath.EvalSymlinks(recorded)
+	r2, err2 := filepath.EvalSymlinks(k)
+	return err1 == nil && err2 == nil && r1 == r2
+}
+
+func writeJavaBackupSource(backup, keystore string) error {
+	f, err := os.OpenFile(backup+javaBackupSourceSuffix, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(javaCanonicalPath(keystore) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(backup + javaBackupSourceSuffix)
+	}
+	return err
+}
+
+// readJavaBackupSource returns the recorded source keystore, or "" when the
+// backup predates source recording.
+func readJavaBackupSource(backup string) (string, error) {
+	b, err := os.ReadFile(backup + javaBackupSourceSuffix)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// checkJavaBackupSource refuses a restore whose backup was taken from a
+// different keystore than dst. Backups without a recorded source are allowed
+// only when allowUnknown is set.
+func checkJavaBackupSource(backup, dst string, allowUnknown bool) error {
+	recorded, err := readJavaBackupSource(backup)
+	if err != nil {
+		return fmt.Errorf("store/java: reading source of backup %s: %w", backup, err)
+	}
+	if recorded == "" {
+		if allowUnknown {
+			return nil
+		}
+		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -file to use it", backup)
+	}
+	if !sameJavaKeystore(recorded, dst) {
+		return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s", backup, recorded, dst)
+	}
+	return nil
 }
 
 func (s javaStore) GetLatestBackup() (string, error) {
-	dir, err := getLatestStoreBackup(javaCertManageDir)
+	dst, err := s.keystorePath()
 	if err != nil {
-		return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
+		return "", err
 	}
-	return dir, nil
+	return latestJavaBackupFor(dst, s.keystoreOverride == "")
+}
+
+// latestJavaBackupFor returns the newest java backup recorded for keystore.
+// Backups without a recorded source (older releases only backed up the
+// discovered keystore) are considered only when allowUnknown is true.
+func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	dirs := []string{filepath.Join(primaryBackupParent(uhome), javaCertManageDir)}
+	if lp := legacyBackupParent(uhome); lp != "" {
+		dirs = append(dirs, filepath.Join(lp, javaCertManageDir))
+	}
+	best, bestTS, bestN := "", int64(-1), -1
+	for _, d := range dirs {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
+		}
+		for _, ent := range ents {
+			// Only regular .bck files are backups; skip .bck.source sidecars,
+			// .partial temp copies, and anything else.
+			if !ent.Type().IsRegular() || !strings.HasSuffix(ent.Name(), ".bck") {
+				continue
+			}
+			ts, ok := backupBasenameUnix(ent.Name())
+			if !ok {
+				continue
+			}
+			n := javaBackupCounter(ent.Name(), strconv.FormatInt(ts, 10))
+			if ts < bestTS || (ts == bestTS && n <= bestN) {
+				continue
+			}
+			path := filepath.Join(d, ent.Name())
+			recorded, err := readJavaBackupSource(path)
+			if err != nil {
+				return "", err
+			}
+			if (recorded != "" && sameJavaKeystore(recorded, keystore)) || (recorded == "" && allowUnknown) {
+				best, bestTS, bestN = path, ts, n
+			}
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("store/java: no backup found for keystore %s", keystore)
+	}
+	return best, nil
 }
 
 func (s javaStore) GetInfo() *Info {
@@ -121,7 +409,7 @@ func (s javaStore) GetInfo() *Info {
 		Name:    "Java",
 		Version: s.version(),
 	}
-	if path, err := ktool.getKeystorePath(); err == nil {
+	if path, err := s.keystorePath(); err == nil {
 		info.Path = path
 	}
 	return info
@@ -143,21 +431,22 @@ func (s javaStore) version() string {
 //
 // Note: keytool does not offer the ability to "untrust" a certificate
 func (s javaStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
-	return ktool.getCertificates()
+	return s.tool().getCertificates()
 }
 
 func (s javaStore) Remove(al allowlist.Allowlist) error {
-	kpath, err := ktool.getKeystorePath()
+	tool := s.tool()
+	kpath, err := tool.getKeystorePath()
 	if err != nil {
 		return err
 	}
 
-	certs, err := ktool.getCertificates()
+	certs, err := tool.getCertificates()
 	if err != nil {
 		return err
 	}
 
-	shortCerts, err := ktool.getShortCerts()
+	shortCerts, err := tool.getShortCerts()
 	if err != nil {
 		return err
 	}
@@ -197,7 +486,7 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 			if shortCerts[i].matches(certs[j]) {
 				// then remove if it's not allowlisted
 				if !al.Matches(certs[j]) {
-					err = ktool.deleteCertificate(kpath, shortCerts[i].alias)
+					err = tool.deleteCertificate(kpath, shortCerts[i].alias)
 					if err != nil {
 						return err
 					}
@@ -221,18 +510,22 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 }
 
 func (s javaStore) Restore(where string) error {
+	// Get destination path
+	dst, err := s.keystorePath()
+	if err != nil {
+		return err
+	}
+
 	src := where
-	var err error
 	if src == "" {
-		src, err = s.GetLatestBackup()
+		src, err = latestJavaBackupFor(dst, s.keystoreOverride == "")
 		if err != nil {
 			return err
 		}
 	}
-
-	// Get destination path
-	dst, err := ktool.getKeystorePath()
-	if err != nil {
+	// Never copy a backup over a different keystore than it came from. An
+	// explicit backup without a recorded source is the operator's choice.
+	if err := checkJavaBackupSource(src, dst, true); err != nil {
 		return err
 	}
 
@@ -258,6 +551,10 @@ type keytool struct {
 	// Under java install path where is the `cacerts` keystore located?
 	// This changes on each platform...
 	relativeKeystorePaths []string
+
+	// explicitKeystore, when set, skips JAVA_HOME / install-path search and
+	// uses this file directly (CLI -file with -app java).
+	explicitKeystore string
 }
 
 // addCertificate installs a certificate into the truststore
@@ -314,6 +611,13 @@ func (k keytool) expandSymlink(p string) (string, error) {
 		return "", nil // path doesn't exist
 	}
 	if bin != "" {
+		// Relative link targets resolve against the link's own directory.
+		if !filepath.IsAbs(bin) {
+			bin = filepath.Join(filepath.Dir(p), bin)
+		}
+		if abs, err := filepath.Abs(bin); err == nil {
+			bin = abs
+		}
 		dir := strings.TrimSuffix(bin, filepath.Join("bin", "java"))
 		if debug {
 			fmt.Printf("store/java: expanded %s to %s and stripped to %s\n", p, bin, dir)
@@ -324,8 +628,12 @@ func (k keytool) expandSymlink(p string) (string, error) {
 }
 
 func (k keytool) getKeystorePath() (string, error) {
-	kpath := k.javahome
-	if kpath == "" {
+	if k.explicitKeystore != "" {
+		return validateJavaKeystoreFile(k.explicitKeystore)
+	}
+
+	kpath := ""
+	if k.javahome == "" {
 		for i := range k.javaInstallPaths {
 			// Sometimes javaInstallPaths can be a symlink, if so expand it and use that
 			installPath := k.javaInstallPaths[i]
@@ -342,14 +650,12 @@ func (k keytool) getKeystorePath() (string, error) {
 
 			// Check each possible relative location
 			for j := range k.relativeKeystorePaths {
-				// Check if we've got a path now
 				where := filepath.Join(installPath, k.relativeKeystorePaths[j])
 				if file.Exists(where) {
 					kpath = where
 					break
 				}
 			}
-			// If we've found something then quit
 			if kpath != "" {
 				if debug {
 					fmt.Printf("store/java: found kpath %s\n", kpath)
@@ -360,7 +666,7 @@ func (k keytool) getKeystorePath() (string, error) {
 	} else {
 		// We've got JAVA_HOME, but need to add the relative path to `cacerts`
 		for i := range k.relativeKeystorePaths {
-			where := filepath.Join(kpath, k.relativeKeystorePaths[i])
+			where := filepath.Join(k.javahome, k.relativeKeystorePaths[i])
 			if file.Exists(where) {
 				kpath = where
 				if debug {
@@ -369,23 +675,14 @@ func (k keytool) getKeystorePath() (string, error) {
 				break
 			}
 		}
+		if kpath == "" {
+			return "", fmt.Errorf("store/java: JAVA_HOME=%s has no cacerts under %v", k.javahome, k.relativeKeystorePaths)
+		}
 	}
 	if kpath == "" {
 		return "", errors.New("store/java: never found java and/or keystore path")
 	}
-
-	s, err := os.Stat(kpath)
-	if err != nil {
-		return "", err
-	}
-	if s.IsDir() {
-		return "", errors.New("store/java: never found java and/or keystore path")
-	}
-	if s.Size() == 0 {
-		return "", fmt.Errorf("found keystore at %s, but it's an empty file", kpath)
-	}
-
-	return kpath, nil
+	return validateJavaKeystoreFile(kpath)
 }
 
 func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
@@ -399,6 +696,7 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 		"-list",
 		"-storepass", defaultKeystorePassword,
 		"-keystore", kpath,
+		"-noprompt",
 	}, extraArgs...)
 	cmd := exec.Command("keytool", args...)
 
@@ -545,6 +843,7 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 		"-alias", alias,
 		"-keystore", kpath,
 		"-storepass", defaultKeystorePassword,
+		"-noprompt",
 	}
 
 	var cmd *exec.Cmd

@@ -74,7 +74,7 @@ func javaSuite(t *testing.T, img *dockerfile) {
 func javaKeystoreByteRoundTrip(img *dockerfile) {
 	img.Run("sh", "-c", `test -n "$JAVA_HOME"; if [ -f "$JAVA_HOME/lib/security/cacerts" ]; then cacerts="$JAVA_HOME/lib/security/cacerts"; elif [ -f "$JAVA_HOME/jre/lib/security/cacerts" ]; then cacerts="$JAVA_HOME/jre/lib/security/cacerts"; else echo "java cacerts not found under JAVA_HOME=$JAVA_HOME (tried lib/security/cacerts and jre/lib/security/cacerts)" >&2; exit 1; fi; echo "$cacerts" > /tmp/jcacerts; echo "java cacerts=$cacerts"; test -s "$cacerts"; cp "$cacerts" /tmp/java-cacerts.orig; test -s /tmp/java-cacerts.orig`)
 	img.CertManage("backup", "-app", "java")
-	img.Run("sh", "-c", `test "$(ls -1 ~/.trustprune/java | wc -l | tr -d ' ')" -ge 1; bck=$(ls -1 ~/.trustprune/java | sort | tail -1); test -n "$bck"; test -f ~/.trustprune/java/"$bck"; cmp /tmp/java-cacerts.orig ~/.trustprune/java/"$bck"`)
+	img.Run("sh", "-c", `bck=$(ls -1 ~/.trustprune/java | grep '\.bck$' | sort | tail -1); test -n "$bck"; test -f ~/.trustprune/java/"$bck"; test -s ~/.trustprune/java/"$bck".source; cmp /tmp/java-cacerts.orig ~/.trustprune/java/"$bck"`)
 	img.Run("sh", "-c", `printf %s MUTATED-JAVA-CACERTS > "$(cat /tmp/jcacerts)"; o=$(cksum < /tmp/java-cacerts.orig); n=$(cksum < "$(cat /tmp/jcacerts)"); echo "java cacerts orig=$o mutated=$n"; test "$o" != "$n"`)
 	img.CertManage("restore", "-app", "java")
 	img.Run("sh", "-c", `cmp /tmp/java-cacerts.orig "$(cat /tmp/jcacerts)"`)

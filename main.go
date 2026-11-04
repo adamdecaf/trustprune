@@ -237,11 +237,16 @@ APPS
 			return cmd.BackupForPlatform()
 		},
 		appfn: func(a string) error {
+			if *flagFile != "" {
+				return cmd.BackupForAppWithFile(a, *flagFile)
+			}
 			return cmd.BackupForApp(a)
 		},
-		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-file <keystore>] [-dry-run]
 
   Backup a certificate store. This can be done for the platform or a given app.
+
+  Java: -file <cacerts> overrides trust-store search and backs up that keystore.
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -259,9 +264,12 @@ APPS
 			if err != nil {
 				return err
 			}
-			return cmd.ConnectWithAppStore(u, *flagApp)
+			if *flagFile != "" {
+				return cmd.ConnectWithAppStoreFile(u, a, *flagFile)
+			}
+			return cmd.ConnectWithAppStore(u, a)
 		},
-		help: fmt.Sprintf(`Usage: trustprune connect [-app <name>] (-url <url> | <url>)
+		help: fmt.Sprintf(`Usage: trustprune connect [-app <name>] [-file <keystore>] (-url <url> | <url>)
 
 Attempt an HTTP connect to a URL with the given certificate store. Pass the URL as
 -url <url> or as a positional argument. If -app is provided then the certificates for
@@ -309,6 +317,10 @@ APPS
 			return cmd.ListCertsForPlatform(cfg)
 		},
 		appfn: func(a string) error {
+			// -app java -file <cacerts> overrides trust-store search (#126).
+			if *flagFile != "" {
+				return cmd.ListCertsForAppWithFile(a, *flagFile, cfg)
+			}
 			return cmd.ListCertsForApp(a, cfg)
 		},
 		help: fmt.Sprintf(`Usage: trustprune list [options]
@@ -320,6 +332,9 @@ APPS
 
   List certificates from a file
     trustprune list -file <path>
+
+  List certificates from a Java keystore path (skips JAVA_HOME search)
+    trustprune list -app java -file <cacerts>
 
   List certificates from a URL
     trustprune list -url <endpoint>
@@ -485,7 +500,6 @@ func certManageAliasActive(version string) bool {
 	}
 	return minor == "0" || minor == "1" || minor == "2"
 }
-
 
 func getVersion() string {
 	return fmt.Sprintf("%s (Go: %s)", Version, runtime.Version())

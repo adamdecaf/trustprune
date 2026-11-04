@@ -36,7 +36,11 @@ func ConnectWithPlatformStore(uri *url.URL) error {
 }
 
 func ConnectWithAppStore(uri *url.URL, app string) error {
-	st, err := store.ForApp(app)
+	return ConnectWithAppStoreFile(uri, app, "")
+}
+
+func ConnectWithAppStoreFile(uri *url.URL, app, filePath string) error {
+	st, err := store.ForAppWithFile(app, filePath)
 	if err != nil {
 		return fmt.Errorf("problem finding %s: %w", app, err)
 	}

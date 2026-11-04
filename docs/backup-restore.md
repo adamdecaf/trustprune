@@ -72,7 +72,7 @@ A failed stage leaves the live profile files untouched. Restore from a **legacy 
 
 ## Java
 
-Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/trustprune/java/` on Darwin). Restore copies the chosen backup over the live keystore (`SudoCopyFile` when permissions require it). Explicit `-file` is honored.
+Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/trustprune/java/` on Darwin). Restore copies the chosen backup over the live keystore (`SudoCopyFile` when permissions require it). Explicit restore `-file` is honored as the backup source. For list/backup/connect, `-app java -file <cacerts>` overrides trust-store search and uses that keystore file instead of `JAVA_HOME` discovery.
 
 ## Darwin notes
 
