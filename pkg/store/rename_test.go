@@ -21,6 +21,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -106,5 +107,135 @@ func TestRenameDir_EXDEVDestExists(t *testing.T) {
 	}
 	if _, err := os.Stat(src); err != nil {
 		t.Fatalf("source removed: %v", err)
+	}
+}
+
+func ebusyFor(busy string) func(string, string) error {
+	return func(old, new string) error {
+		if old == busy || new == busy {
+			return &os.LinkError{Op: "rename", Old: old, New: new, Err: syscall.EBUSY}
+		}
+		return os.Rename(old, new)
+	}
+}
+
+func TestRenameDir_EBUSYMovesContents(t *testing.T) {
+	root := t.TempDir()
+	live := filepath.Join(root, "ca") // pretend mount point
+	aside := filepath.Join(root, "ca.restore-old")
+	tmp := filepath.Join(root, "ca.restore-tmp")
+	for _, d := range []string{live, tmp} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(live, "old.crt"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, "new.crt"), []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withRename(t, ebusyFor(live))
+
+	if err := renameDir(live, aside); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(live); err != nil {
+		t.Fatalf("mount point removed: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(aside, "old.crt")); string(b) != "old" {
+		t.Fatalf("aside content %q", b)
+	}
+	if err := renameDir(tmp, live); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(live, "new.crt")); string(b) != "new" {
+		t.Fatalf("live content %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(live, "old.crt")); !os.IsNotExist(err) {
+		t.Fatalf("old entry still live: %v", err)
+	}
+	if _, err := os.Stat(tmp); !os.IsNotExist(err) {
+		t.Fatalf("tmp left behind: %v", err)
+	}
+}
+
+func TestRenameDir_EBUSYRollsBack(t *testing.T) {
+	root := t.TempDir()
+	live := filepath.Join(root, "ca")
+	aside := filepath.Join(root, "aside")
+	if err := os.Mkdir(live, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, n := range []string{"a.crt", "b.crt"} {
+		if err := os.WriteFile(filepath.Join(live, n), []byte(n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	boom := errors.New("boom")
+	withRename(t, func(old, new string) error {
+		if old == live {
+			return &os.LinkError{Op: "rename", Old: old, New: new, Err: syscall.EBUSY}
+		}
+		if filepath.Base(old) == "b.crt" && filepath.Dir(old) == live {
+			return boom
+		}
+		return os.Rename(old, new)
+	})
+	if err := renameDir(live, aside); !errors.Is(err, boom) {
+		t.Fatalf("got %v", err)
+	}
+	for _, n := range []string{"a.crt", "b.crt"} {
+		if _, err := os.Stat(filepath.Join(live, n)); err != nil {
+			t.Fatalf("%s not rolled back: %v", n, err)
+		}
+	}
+	if _, err := os.Stat(aside); !os.IsNotExist(err) {
+		t.Fatalf("aside left behind: %v", err)
+	}
+}
+
+func TestRenameDir_EXDEVRemoveFailsKeepsCopy(t *testing.T) {
+	root := t.TempDir()
+	src := filepath.Join(root, "ca")
+	dst := filepath.Join(root, "aside")
+	if err := os.Mkdir(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "a.crt"), []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	withRename(t, exdev)
+	origRm := osRemoveAll
+	osRemoveAll = func(p string) error {
+		if p == src {
+			_ = os.Remove(filepath.Join(src, "a.crt")) // partial removal
+			return errors.New("remove failed")
+		}
+		return origRm(p)
+	}
+	t.Cleanup(func() { osRemoveAll = origRm })
+
+	err := renameDir(src, dst)
+	if err == nil || !strings.Contains(err.Error(), "intact copy is at "+dst) {
+		t.Fatalf("got %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dst, "a.crt")); string(b) != "A" {
+		t.Fatalf("copy not intact: %q", b)
+	}
+}
+
+func TestVerifyTree_DetectsMismatch(t *testing.T) {
+	root := t.TempDir()
+	a, b := filepath.Join(root, "a"), filepath.Join(root, "b")
+	for _, d := range []string{a, b} {
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(a, "x"), []byte("1"), 0o644)
+	_ = os.WriteFile(filepath.Join(b, "x"), []byte("2"), 0o644)
+	if err := verifyTree(a, b); err == nil {
+		t.Fatal("expected mismatch")
 	}
 }
