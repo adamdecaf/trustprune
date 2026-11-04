@@ -140,15 +140,118 @@ func (s javaStore) Backup() error {
 	_, filename := filepath.Split(kpath)
 	dst := filepath.Join(dir, fmt.Sprintf("%s-%d.bck", filename, time.Now().Unix()))
 
-	return file.CopyFile(kpath, dst)
+	if err := file.CopyFile(kpath, dst); err != nil {
+		return err
+	}
+	// Record which keystore this backup came from so restore never copies it
+	// over a different keystore (-file backups share the java/ directory).
+	if err := writeJavaBackupSource(dst, kpath); err != nil {
+		_ = os.Remove(dst)
+		return err
+	}
+	return nil
+}
+
+// javaBackupSourceSuffix names the sidecar holding a backup's source keystore.
+// It does not end in .bck, so latest-backup selection skips it.
+const javaBackupSourceSuffix = ".source"
+
+func javaCanonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		p = r
+	}
+	return filepath.Clean(p)
+}
+
+func writeJavaBackupSource(backup, keystore string) error {
+	return os.WriteFile(backup+javaBackupSourceSuffix, []byte(javaCanonicalPath(keystore)+"\n"), 0600)
+}
+
+// readJavaBackupSource returns the recorded source keystore, or "" when the
+// backup predates source recording.
+func readJavaBackupSource(backup string) (string, error) {
+	b, err := os.ReadFile(backup + javaBackupSourceSuffix)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// checkJavaBackupSource refuses a restore whose backup was taken from a
+// different keystore than dst. Backups without a recorded source are allowed
+// only when allowUnknown is set.
+func checkJavaBackupSource(backup, dst string, allowUnknown bool) error {
+	recorded, err := readJavaBackupSource(backup)
+	if err != nil {
+		return fmt.Errorf("store/java: reading source of backup %s: %w", backup, err)
+	}
+	if recorded == "" {
+		if allowUnknown {
+			return nil
+		}
+		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -file to use it", backup)
+	}
+	if recorded != javaCanonicalPath(dst) {
+		return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s", backup, recorded, dst)
+	}
+	return nil
 }
 
 func (s javaStore) GetLatestBackup() (string, error) {
-	dir, err := getLatestStoreBackup(javaCertManageDir)
+	dst, err := s.keystorePath()
 	if err != nil {
-		return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
+		return "", err
 	}
-	return dir, nil
+	return latestJavaBackupFor(dst, s.keystoreOverride == "")
+}
+
+// latestJavaBackupFor returns the newest java backup recorded for keystore.
+// Backups without a recorded source (older releases only backed up the
+// discovered keystore) are considered only when allowUnknown is true.
+func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	dirs := []string{filepath.Join(primaryBackupParent(uhome), javaCertManageDir)}
+	if lp := legacyBackupParent(uhome); lp != "" {
+		dirs = append(dirs, filepath.Join(lp, javaCertManageDir))
+	}
+	want := javaCanonicalPath(keystore)
+	best, bestTS := "", int64(-1)
+	for _, d := range dirs {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
+		}
+		for _, ent := range ents {
+			ts, ok := backupBasenameUnix(ent.Name())
+			if !ok || ent.IsDir() || ts <= bestTS {
+				continue
+			}
+			path := filepath.Join(d, ent.Name())
+			recorded, err := readJavaBackupSource(path)
+			if err != nil {
+				return "", err
+			}
+			if recorded == want || (recorded == "" && allowUnknown) {
+				best, bestTS = path, ts
+			}
+		}
+	}
+	if best == "" {
+		return "", fmt.Errorf("store/java: no backup found for keystore %s", keystore)
+	}
+	return best, nil
 }
 
 func (s javaStore) GetInfo() *Info {
@@ -257,18 +360,22 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 }
 
 func (s javaStore) Restore(where string) error {
+	// Get destination path
+	dst, err := s.keystorePath()
+	if err != nil {
+		return err
+	}
+
 	src := where
-	var err error
 	if src == "" {
-		src, err = s.GetLatestBackup()
+		src, err = latestJavaBackupFor(dst, s.keystoreOverride == "")
 		if err != nil {
 			return err
 		}
 	}
-
-	// Get destination path
-	dst, err := s.keystorePath()
-	if err != nil {
+	// Never copy a backup over a different keystore than it came from. An
+	// explicit backup without a recorded source is the operator's choice.
+	if err := checkJavaBackupSource(src, dst, true); err != nil {
 		return err
 	}
 
@@ -354,6 +461,13 @@ func (k keytool) expandSymlink(p string) (string, error) {
 		return "", nil // path doesn't exist
 	}
 	if bin != "" {
+		// Relative link targets resolve against the link's own directory.
+		if !filepath.IsAbs(bin) {
+			bin = filepath.Join(filepath.Dir(p), bin)
+		}
+		if abs, err := filepath.Abs(bin); err == nil {
+			bin = abs
+		}
 		dir := strings.TrimSuffix(bin, filepath.Join("bin", "java"))
 		if debug {
 			fmt.Printf("store/java: expanded %s to %s and stripped to %s\n", p, bin, dir)

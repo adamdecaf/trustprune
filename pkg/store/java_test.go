@@ -209,3 +209,25 @@ func TestForAppWithFile_RejectsOtherApps(t *testing.T) {
 		t.Fatal("expected error for non-java -file override")
 	}
 }
+
+func TestStoreJava__expandSymlinkRelativeIsAbsolute(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "Cellar", "openjdk", "21")
+	if err := os.MkdirAll(filepath.Join(target, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "opt", "openjdk")
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "Cellar", "openjdk", "21"), link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	got, err := keytool{}.expandSymlink(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !filepath.IsAbs(got) || got != target {
+		t.Fatalf("got %q, want absolute %q", got, target)
+	}
+}

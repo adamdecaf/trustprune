@@ -64,7 +64,7 @@ Capture the current trust store so you can restore later. Allowlisting refuses t
 ```bash
 trustprune backup
 trustprune backup -app java
-trustprune backup -app java -file /path/to/cacerts
+trustprune backup -app java -file /path/to/cacerts   # Java keystore override; backup records its source keystore
 trustprune backup -app chrome
 trustprune backup -app firefox
 ```

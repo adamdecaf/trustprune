@@ -49,6 +49,7 @@ func darwinJavaInstallPaths() []string {
 		paths = append(paths, home)
 	}
 	paths = append(paths, listDarwinJVMHomes()...)
+	paths = append(paths, homebrewJDKHomes([]string{"/opt/homebrew", "/usr/local"})...)
 	paths = append(paths,
 		"/opt/homebrew/opt/openjdk",
 		"/opt/homebrew/opt/openjdk@21",
@@ -58,6 +59,24 @@ func darwinJavaInstallPaths() []string {
 		"/usr/local/opt/openjdk@17",
 	)
 	return paths
+}
+
+// homebrewJDKHomes returns Homebrew OpenJDK homes under each prefix
+// (opt/openjdk*/libexec/openjdk.jdk/Contents/Home).
+func homebrewJDKHomes(prefixes []string) []string {
+	var out []string
+	for _, prefix := range prefixes {
+		matches, err := filepath.Glob(filepath.Join(prefix, "opt", "openjdk*", "libexec", "openjdk.jdk", "Contents", "Home"))
+		if err != nil {
+			continue
+		}
+		for _, m := range matches {
+			if st, err := os.Stat(m); err == nil && st.IsDir() {
+				out = append(out, m)
+			}
+		}
+	}
+	return out
 }
 
 func listDarwinJVMHomes() []string {

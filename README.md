@@ -25,6 +25,7 @@ This project was renamed from **cert-manage** to **trustprune**. The repository 
 trustprune list
 trustprune list -count
 trustprune list -app java
+trustprune list -app java -file /path/to/cacerts   # skip JAVA_HOME search
 
 # 2. Always take a backup before changing trust
 trustprune backup
