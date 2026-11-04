@@ -156,14 +156,26 @@ func (s javaStore) Backup() error {
 // It does not end in .bck, so latest-backup selection skips it.
 const javaBackupSourceSuffix = ".source"
 
+// javaCanonicalPath returns the absolute, cleaned keystore path. Symlinks are
+// not resolved here: some distros ship cacerts as a symlink that a later
+// write replaces with a regular file, which would change the resolved path.
 func javaCanonicalPath(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		p = r
-	}
 	return filepath.Clean(p)
+}
+
+// sameJavaKeystore reports whether a recorded source path names keystore,
+// either literally or after resolving symlinks on both sides.
+func sameJavaKeystore(recorded, keystore string) bool {
+	k := javaCanonicalPath(keystore)
+	if recorded == k {
+		return true
+	}
+	r1, err1 := filepath.EvalSymlinks(recorded)
+	r2, err2 := filepath.EvalSymlinks(k)
+	return err1 == nil && err2 == nil && r1 == r2
 }
 
 func writeJavaBackupSource(backup, keystore string) error {
@@ -197,7 +209,7 @@ func checkJavaBackupSource(backup, dst string, allowUnknown bool) error {
 		}
 		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -file to use it", backup)
 	}
-	if recorded != javaCanonicalPath(dst) {
+	if !sameJavaKeystore(recorded, dst) {
 		return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s", backup, recorded, dst)
 	}
 	return nil
@@ -223,7 +235,6 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 	if lp := legacyBackupParent(uhome); lp != "" {
 		dirs = append(dirs, filepath.Join(lp, javaCertManageDir))
 	}
-	want := javaCanonicalPath(keystore)
 	best, bestTS := "", int64(-1)
 	for _, d := range dirs {
 		ents, err := os.ReadDir(d)
@@ -243,7 +254,7 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if recorded == want || (recorded == "" && allowUnknown) {
+			if (recorded != "" && sameJavaKeystore(recorded, keystore)) || (recorded == "" && allowUnknown) {
 				best, bestTS = path, ts
 			}
 		}

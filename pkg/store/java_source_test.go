@@ -117,3 +117,29 @@ func TestJavaLatestBackup_SkipsUnknownSourceForOverride(t *testing.T) {
 		t.Fatalf("discovered keystore should accept legacy backup: got %q err=%v", got, err)
 	}
 }
+
+func TestJavaRestore_SymlinkReplacedByFileStillMatches(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	link := filepath.Join(t.TempDir(), "cacerts")
+	if err := os.Symlink(a, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	s := JavaStoreAt(link)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	// Replace the symlink with a regular file, as some keystore writers do.
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(link, []byte("MUTATED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restore(""); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	got, _ := os.ReadFile(link)
+	if !bytes.Equal(got, []byte("ORIG-"+a)) {
+		t.Fatalf("restore mismatch: %q", got)
+	}
+}
