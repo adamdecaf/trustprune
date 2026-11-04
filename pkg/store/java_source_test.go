@@ -16,6 +16,7 @@ package store
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,9 +152,6 @@ func TestJavaBackup_SameSecondDoesNotOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := writeJavaBackupSource(first, a); err != nil {
-		t.Fatal(err)
-	}
 	second, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
 	if err != nil {
 		t.Fatal(err)
@@ -228,13 +226,93 @@ func TestJavaLatestBackup_PrefersHigherCounterSameSecond(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := writeJavaBackupSource(p, a); err != nil {
-			t.Fatal(err)
-		}
 		last = p
 	}
 	got, err := latestJavaBackupFor(a, false)
 	if err != nil || got != last {
 		t.Fatalf("got %q err=%v, want newest %q", got, err, last)
+	}
+}
+
+func javaBackupDirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, e := range ents {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+func TestJavaBackup_InterruptedBeforePublishLeavesNothing(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir := t.TempDir()
+	orig := javaBackupBeforePublish
+	t.Cleanup(func() { javaBackupBeforePublish = orig })
+	javaBackupBeforePublish = func() error { return errors.New("simulated interruption") }
+
+	if _, err := createJavaBackupFile(dir, "cacerts", 1700000000, a); err == nil {
+		t.Fatal("expected simulated interruption error")
+	}
+	if names := javaBackupDirEntries(t, dir); len(names) != 0 {
+		t.Fatalf("interrupted backup left files behind: %v", names)
+	}
+}
+
+func TestJavaLatestBackup_IgnoresCrashLeftovers(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir, err := getCertManageDir(javaCertManageDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	good, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A crash mid-copy can leave a temp partial; old code could leave a
+	// newer .bck with no record. Neither may be chosen for a -file override.
+	if err := os.WriteFile(filepath.Join(dir, ".cacerts-123.partial"), []byte("PART"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	orphan := filepath.Join(dir, "cacerts-1800000000.bck")
+	if err := os.WriteFile(orphan, []byte("PART"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := latestJavaBackupFor(a, false)
+	if err != nil || got != good {
+		t.Fatalf("got %q err=%v, want %q", got, err, good)
+	}
+	// Restore with the override must use the recorded backup, not the orphan.
+	if err := os.WriteFile(a, []byte("MUTATED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := JavaStoreAt(a).Restore(""); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(a); !bytes.Equal(b, []byte("ORIG-"+a)) {
+		t.Fatalf("restored wrong content %q", b)
+	}
+}
+
+func TestJavaBackup_PublishedBackupHasRecordAndNoTemp(t *testing.T) {
+	a, _ := javaSourceTestHome(t)
+	dir := t.TempDir()
+	p, err := createJavaBackupFile(dir, "cacerts", 1700000000, a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := readJavaBackupSource(p); got != javaCanonicalPath(a) {
+		t.Fatalf("missing/incorrect record: %q", got)
+	}
+	for _, n := range javaBackupDirEntries(t, dir) {
+		if strings.HasSuffix(n, ".partial") {
+			t.Fatalf("temp file left behind: %s", n)
+		}
+	}
+	if b, _ := os.ReadFile(p); !bytes.Equal(b, []byte("ORIG-"+a)) {
+		t.Fatalf("backup content %q", b)
 	}
 }

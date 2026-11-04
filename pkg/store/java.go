@@ -139,23 +139,28 @@ func (s javaStore) Backup() error {
 	}
 
 	_, filename := filepath.Split(kpath)
-	dst, err := createJavaBackupFile(dir, filename, time.Now().Unix(), kpath)
-	if err != nil {
-		return err
-	}
-	// Record which keystore this backup came from so restore never copies it
-	// over a different keystore (-file backups share the java/ directory).
-	if err := writeJavaBackupSource(dst, kpath); err != nil {
-		_ = os.Remove(dst)
-		return err
-	}
-	return nil
+	// The backup is published together with a record of which keystore it
+	// came from, so restore never copies it over a different keystore
+	// (-file backups share the java/ directory).
+	_, err = createJavaBackupFile(dir, filename, time.Now().Unix(), kpath)
+	return err
 }
 
-// createJavaBackupFile copies src into a new, never-overwritten backup in dir.
+// javaBackupBeforePublish is a test hook run after the temp copy and .source
+// record are durable but before the final .bck name is published.
+var javaBackupBeforePublish = func() error { return nil }
+
+// createJavaBackupFile copies src into a new, never-overwritten backup in dir
+// and records src as its source keystore.
+//
+// The copy is written and fsynced under a temp name that listing ignores
+// ("."+filename+"-*.partial"), then the .source record is written (O_EXCL) and
+// fsynced, and only then is the copy published with os.Link to the final
+// ".bck" name (fails if it exists). An interrupted run therefore never leaves
+// a .bck without its record, or a partial .bck.
+//
 // The name is "<filename>-<unix>.bck"; on collision a counter goes before the
 // timestamp ("<filename>.<n>-<unix>.bck") so the timestamp still parses.
-// Files are created with O_EXCL, so concurrent backups cannot clobber each other.
 func createJavaBackupFile(dir, filename string, unix int64, src string) (string, error) {
 	in, err := os.Open(src)
 	if err != nil {
@@ -166,37 +171,70 @@ func createJavaBackupFile(dir, filename string, unix int64, src string) (string,
 	if err != nil {
 		return "", err
 	}
+
+	tmp, err := os.CreateTemp(dir, "."+filename+"-*.partial")
+	if err != nil {
+		return "", err
+	}
+	tmpName := tmp.Name()
+	defer func() { _ = os.Remove(tmpName) }() // the published .bck is a hard link
+	_, err = io.Copy(tmp, in)
+	if err == nil {
+		err = tmp.Chmod(st.Mode().Perm())
+	}
+	if err == nil {
+		err = tmp.Sync()
+	}
+	if cerr := tmp.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		return "", err
+	}
+	if tst, err := os.Stat(tmpName); err != nil {
+		return "", err
+	} else if tst.Size() != st.Size() {
+		return "", fmt.Errorf("store/java: short backup copy of %s (%d of %d bytes)", src, tst.Size(), st.Size())
+	}
+
 	for n := 0; n < 1000; n++ {
 		name := fmt.Sprintf("%s-%d.bck", filename, unix)
 		if n > 0 {
 			name = fmt.Sprintf("%s.%d-%d.bck", filename, n, unix)
 		}
 		dst := filepath.Join(dir, name)
-		// Skip names whose sidecar is already taken too.
-		if _, err := os.Lstat(dst + javaBackupSourceSuffix); err == nil {
+		if _, err := os.Lstat(dst); err == nil {
 			continue
 		}
-		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_EXCL, st.Mode().Perm())
-		if errors.Is(err, os.ErrExist) {
-			continue
-		}
-		if err != nil {
+		if err := writeJavaBackupSource(dst, src); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
 			return "", err
 		}
-		_, err = io.Copy(out, in)
-		if err == nil {
-			err = out.Sync()
-		}
-		if cerr := out.Close(); err == nil {
-			err = cerr
-		}
-		if err != nil {
-			_ = os.Remove(dst)
+		if err := javaBackupBeforePublish(); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
 			return "", err
 		}
+		if err := os.Link(tmpName, dst); err != nil {
+			_ = os.Remove(dst + javaBackupSourceSuffix)
+			if errors.Is(err, os.ErrExist) {
+				continue
+			}
+			return "", err
+		}
+		syncDir(dir)
 		return dst, nil
 	}
 	return "", fmt.Errorf("store/java: could not pick a unique backup name for %s in %s", filename, dir)
+}
+
+// syncDir best-effort fsyncs a directory so new entries are durable.
+func syncDir(dir string) {
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
+	}
 }
 
 // javaBackupCounter returns the collision counter in a backup name
@@ -321,8 +359,9 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 			return "", fmt.Errorf("getLatestBackup: error reading java backup directory, err=%w", err)
 		}
 		for _, ent := range ents {
-			// Only .bck files are backups; skip .bck.source sidecars and others.
-			if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".bck") {
+			// Only regular .bck files are backups; skip .bck.source sidecars,
+			// .partial temp copies, and anything else.
+			if !ent.Type().IsRegular() || !strings.HasSuffix(ent.Name(), ".bck") {
 				continue
 			}
 			ts, ok := backupBasenameUnix(ent.Name())
