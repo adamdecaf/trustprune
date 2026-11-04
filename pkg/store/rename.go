@@ -28,6 +28,9 @@ import (
 	"syscall"
 )
 
+// keepModeBits are the mode bits copied for files and directories.
+const keepModeBits = os.ModePerm | os.ModeSetuid | os.ModeSetgid | os.ModeSticky
+
 // osRename and osRemoveAll are swappable in tests to simulate EXDEV,
 // EBUSY, and removal failures.
 var (
@@ -118,10 +121,10 @@ func copyTreeOver(src, dst string) error {
 			return err
 		}
 		if info.IsDir() {
-			if err := os.MkdirAll(target, info.Mode().Perm()); err != nil {
+			if err := os.MkdirAll(target, info.Mode()&keepModeBits); err != nil {
 				return err
 			}
-			return os.Chmod(target, info.Mode().Perm())
+			return os.Chmod(target, info.Mode()&keepModeBits)
 		}
 		if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
 			return err
@@ -136,7 +139,7 @@ func copyTreeOver(src, dst string) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("unsupported file type %s at %s", info.Mode().Type(), path)
 		}
-		return copyRegular(path, target, info.Mode().Perm())
+		return copyRegular(path, target, info.Mode()&keepModeBits)
 	})
 }
 
@@ -162,7 +165,7 @@ func moveContents(src, dst string, cause error) error {
 			return fmt.Errorf("rename %s -> %s: destination not empty: %w", src, dst, cause)
 		}
 	} else {
-		if err := os.Mkdir(dst, st.Mode().Perm()); err != nil {
+		if err := os.Mkdir(dst, st.Mode()&keepModeBits); err != nil {
 			return err
 		}
 		created = true
@@ -277,12 +280,12 @@ func copyTree(src, dst string) error {
 			}
 			return os.Symlink(link, target) //nolint:gosec // root-owned CA dir; links are copied, never followed
 		case info.IsDir():
-			if err := os.Mkdir(target, info.Mode().Perm()); err != nil {
+			if err := os.Mkdir(target, info.Mode()&keepModeBits); err != nil {
 				return err
 			}
-			return os.Chmod(target, info.Mode().Perm())
+			return os.Chmod(target, info.Mode()&keepModeBits)
 		case info.Mode().IsRegular():
-			return copyRegular(path, target, info.Mode().Perm())
+			return copyRegular(path, target, info.Mode()&keepModeBits)
 		default:
 			return fmt.Errorf("unsupported file type %s at %s", info.Mode().Type(), path)
 		}

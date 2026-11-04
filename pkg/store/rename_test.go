@@ -308,3 +308,26 @@ func TestRenameAside_CopyBackFailsNamesCopy(t *testing.T) {
 		t.Fatalf("copy not intact: %q", b)
 	}
 }
+
+func TestRenameDir_EXDEVKeepsSpecialModes(t *testing.T) {
+	root := t.TempDir()
+	src, dst := filepath.Join(root, "ca"), filepath.Join(root, "aside")
+	sub := filepath.Join(src, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := os.ModeDir | os.ModeSetgid | os.ModeSticky | 0o775
+	if err := os.Chmod(sub, want&keepModeBits); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(sub); fi.Mode() != want {
+		t.Skipf("filesystem does not keep special bits: %v", fi.Mode())
+	}
+	withRename(t, exdev)
+	if err := renameDir(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Lstat(filepath.Join(dst, "sub")); fi.Mode() != want {
+		t.Fatalf("mode %v, want %v", fi.Mode(), want)
+	}
+}
