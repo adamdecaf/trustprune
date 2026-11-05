@@ -676,6 +676,9 @@ func (s darwinStore) Restore(where string) error {
 		if err != nil {
 			return err
 		}
+		if where == "" {
+			return errNoBackup("darwin", darwinBackupDir)
+		}
 	}
 	loginBackup, err := resolveDarwinLoginBackupDir(where)
 	if err != nil {

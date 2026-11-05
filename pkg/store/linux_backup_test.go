@@ -19,6 +19,7 @@ package store
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -476,5 +477,66 @@ func TestLinuxRestore_AsideCleanupFailureWarns(t *testing.T) {
 	}
 	if !fileExists(t, aside) {
 		t.Errorf("aside should remain when cleanup fails: %s", aside)
+	}
+}
+
+// snapshotTreeMeta records every path under root (with size and mode) so tests can
+// assert a call made no filesystem writes.
+func snapshotTreeMeta(t *testing.T, root string) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	_ = filepath.Walk(root, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		out[p] = fmt.Sprintf("%v:%v:%d", info.Mode(), info.ModTime().UnixNano(), info.Size())
+		return nil
+	})
+	return out
+}
+
+func TestLinuxRestore_NoBackupRefusesBeforeWrite(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		t.Run(map[bool]string{false: "real", true: "dry-run"}[dry], func(t *testing.T) {
+			s := linuxTestStore(t) // HOME is an empty temp dir
+			home := os.Getenv("HOME")
+			caParent := filepath.Dir(s.ca.dir)
+			if dry {
+				SetDryRun(true)
+				defer SetDryRun(false)
+			}
+			beforeCA := snapshotTreeMeta(t, caParent)
+			beforeHome := snapshotTreeMeta(t, home)
+
+			err := s.Restore("")
+			if err == nil {
+				t.Fatal("expected error with no backup")
+			}
+			want := "no backup for linux in ~/.trustprune/linux; run: trustprune backup"
+			if err.Error() != want {
+				t.Fatalf("got %q, want %q", err.Error(), want)
+			}
+			if got := snapshotTreeMeta(t, caParent); len(got) != len(beforeCA) {
+				t.Fatalf("CA tree changed: before=%v after=%v", beforeCA, got)
+			} else {
+				for k, v := range beforeCA {
+					if got[k] != v {
+						t.Fatalf("CA path %s changed", k)
+					}
+				}
+			}
+			if got := snapshotTreeMeta(t, home); len(got) != len(beforeHome) {
+				t.Fatalf("HOME changed: before=%v after=%v", beforeHome, got)
+			} else {
+				for k, v := range beforeHome {
+					if got[k] != v {
+						t.Fatalf("HOME path %s changed", k)
+					}
+				}
+			}
+			if _, err := os.Stat(s.ca.dir + ".restore-tmp"); !os.IsNotExist(err) {
+				t.Fatalf("restore-tmp created: %v", err)
+			}
+		})
 	}
 }

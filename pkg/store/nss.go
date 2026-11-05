@@ -316,6 +316,9 @@ func (s nssStore) Restore(where string) error {
 		if err != nil {
 			return err
 		}
+		if src == "" {
+			return errNoBackupCmd(s.nssType, s.nssType, "trustprune backup -app "+s.nssType)
+		}
 	}
 
 	if DryRun() {

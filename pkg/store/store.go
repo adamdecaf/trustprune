@@ -92,9 +92,10 @@ type Store interface {
 	// to exist.
 	GetLatestBackup() (string, error)
 
-	// Restore will bring the system back to it's previous state
-	// if a backup exists, otherwise it will attempt to bring the
-	// cert trust status to the system's default state
+	// Restore will bring the system back to its previous state from a
+	// backup. When no backup exists (and no path is given), Restore must
+	// return an error before making any filesystem write, including under
+	// dry-run; it never falls back to a system default state.
 	//
 	// Optionally, this can take a specific filepath to use as the
 	// restore point. This may not be supported on all stores.
@@ -220,6 +221,22 @@ func backupParentDisplay() string {
 	default:
 		return "$HOME/.trustprune"
 	}
+}
+
+// errNoBackup is returned by Restore when no backup exists for a store. It is
+// raised before any filesystem write (including under -dry-run).
+func errNoBackup(store, name string) error {
+	return errNoBackupCmd(store, name, "trustprune backup")
+}
+
+// errNoBackupCmd is errNoBackup with a custom suggested backup command, used by
+// app stores (e.g. "trustprune backup -app firefox").
+func errNoBackupCmd(store, name, backupCmd string) error {
+	parent := "~/.trustprune"
+	if runtime.GOOS == "darwin" {
+		parent = "~/Library/trustprune"
+	}
+	return fmt.Errorf("no backup for %s in %s/%s; run: %s", store, parent, name, backupCmd)
 }
 
 // primaryBackupParent is where new backups are written.
