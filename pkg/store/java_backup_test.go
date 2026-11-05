@@ -38,8 +38,9 @@ type javaHomeLayout struct {
 	relativeKeystorePath string
 }
 
-// linuxJavaLayouts covers the Linux distro matrix (alpine, debian, ubuntu)
-// used by the docker integration suites and production java_linux.go paths.
+// linuxJavaLayouts covers the Linux distro matrix (alpine, debian, ubuntu,
+// rocky, fedora, arch) used by the docker integration suites and
+// production java_linux.go paths.
 var linuxJavaLayouts = []javaHomeLayout{
 	{name: "ubuntu-openjdk", relativeKeystorePath: "lib/security/cacerts"},
 	{name: "debian-openjdk", relativeKeystorePath: "lib/security/cacerts"},

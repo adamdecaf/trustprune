@@ -67,7 +67,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Level | Platform | Notes |
 |-------|----------|--------|
-| **Supported** | Linux (Alpine, Debian, Ubuntu, Fedora/RHEL `/etc/pki/ca-trust`) | System CA dir list, add, allowlist, backup, restore (see Safety) |
+| **Supported** | Linux (Alpine, Debian, Ubuntu, Rocky, Fedora/RHEL, Arch) | System CA dir list, add, allowlist, backup, restore (see Safety) |
 | **Partial** | Darwin / macOS | Keychain-backed list/add/allowlist/backup/restore; system roots are SIP-protected; restore honors `-backup` / `-file` / `where` for login-keychain backups |
 | **List-only** | Windows | `list` works (PowerShell export of machine stores); add, backup, allowlist, and restore are not implemented yet |
 
@@ -170,7 +170,7 @@ MOCKED=true make test   # skip Docker-backed tests
 
 Backup/restore tests use **temp directories only** and refuse paths under `/etc` or `/usr`. Do not point destructive tests at a real system CA directory.
 
-Cross-platform binaries: `make linux`, `make osx`, `make win`, or `make dist`. CI cross-compiles `linux`/`darwin`/`windows` (`amd64`/`arm64`), runs unit tests on Ubuntu/macOS/Windows runners, and runs Alpine/Debian/Ubuntu Docker distro suites.
+Cross-platform binaries: `make linux`, `make osx`, `make win`, or `make dist`. CI cross-compiles `linux`/`darwin`/`windows` (`amd64`/`arm64`), runs unit tests on Ubuntu/macOS/Windows runners, and runs Alpine/Debian/Ubuntu/Rocky/Fedora/Arch Docker distro suites.
 
 ## Contributing
 

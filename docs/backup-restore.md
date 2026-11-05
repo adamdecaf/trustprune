@@ -27,7 +27,7 @@ Parent directory (created as needed):
 
 | Store | Layout under the parent |
 |-------|-------------------------|
-| Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates` or Fedora anchors dir) |
+| Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |

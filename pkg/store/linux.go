@@ -45,6 +45,11 @@ type cadir struct {
 
 	// reload/refresh command
 	refresh string
+
+	// p11-kit distrust dir. When set, Remove writes PEM overlays here
+	// instead of rewriting files in dir: update-ca-trust regenerates the
+	// bundle from trust-source, so editing extracted PEMs does not stick.
+	blocklist string
 }
 
 func (ca *cadir) empty() bool {
@@ -56,8 +61,26 @@ func (ca *cadir) empty() bool {
 }
 
 var (
-	// From Go's source, src/crypto/x509/root_linux.go
+	// First matching `all` bundle wins. Fedora/RHEL/Rocky and Arch are
+	// listed before Debian because they also ship
+	// /etc/ssl/certs/ca-certificates.crt as a compatibility symlink.
 	cadirs = []cadir{
+		// Fedora/RHEL/CentOS/Rocky
+		{
+			add:       "/etc/pki/ca-trust/source/anchors",
+			dir:       "/etc/pki/ca-trust/source",
+			all:       "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
+			refresh:   "/usr/bin/update-ca-trust",
+			blocklist: "/etc/pki/ca-trust/source/blocklist",
+		},
+		// Arch (p11-kit)
+		{
+			add:       "/etc/ca-certificates/trust-source/anchors",
+			dir:       "/etc/ca-certificates/trust-source",
+			all:       "/etc/ca-certificates/extracted/tls-ca-bundle.pem",
+			refresh:   "/usr/bin/update-ca-trust",
+			blocklist: "/etc/ca-certificates/trust-source/blocklist",
+		},
 		// Debian/Ubuntu/Alpine/Gentoo
 		{
 			add:     "/usr/local/share/ca-certificates",
@@ -65,29 +88,32 @@ var (
 			all:     "/etc/ssl/certs/ca-certificates.crt",
 			refresh: "/usr/sbin/update-ca-certificates",
 		},
-		// Fedora/RHEL/CentOS
-		{
-			add:     "/etc/pki/ca-trust/source/anchors",
-			dir:     "/etc/pki/ca-trust/source/anchors",
-			all:     "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",
-			refresh: "/usr/bin/update-ca-trust",
-		},
 	}
 
 	linuxBackupDir = "linux"
+
+	// Public p11-kit trust-source modes. Distro blocklist dirs are 0755
+	// and the PEM overlays must be world-readable for p11-kit clients.
+	linuxPublicDirPerms  os.FileMode = 0o755
+	linuxPublicFilePerms os.FileMode = 0o644
 )
 
 type linuxStore struct {
 	ca cadir
 }
 
-func platform() Store {
-	for _, ca := range cadirs {
+func selectCadir(dirs []cadir) (cadir, bool) {
+	for _, ca := range dirs {
 		if !ca.empty() {
-			return linuxStore{ca: ca}
+			return ca, true
 		}
 	}
-	return linuxStore{}
+	return cadir{}, false
+}
+
+func platform() Store {
+	ca, _ := selectCadir(cadirs)
+	return linuxStore{ca: ca}
 }
 
 func (s linuxStore) Add(certs []*x509.Certificate) error {
@@ -195,13 +221,14 @@ func (s linuxStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
 	return certs, nil
 }
 
-// Remove walks through the installed CA certificates on a linux based
-// machine and deactivates those that are not to be trusted.
-//
-// Steps
-// 1. Walk through the dir (/etc/ssl/certs/) and chmod 000 the certs we aren't trusting
-// 2. Run `update-ca-certificates` to re-create the ca-certificates.crt file
+// Remove deactivates CA certificates that are not on the allowlist, then
+// refreshes the system bundle. Debian-style cadirs rewrite files under dir.
+// p11-kit cadirs (Fedora/RHEL/Rocky, Arch) write distrust PEMs into blocklist.
 func (s linuxStore) Remove(al allowlist.Allowlist) error {
+	if s.ca.blocklist != "" {
+		return s.removeWithBlocklist(al)
+	}
+
 	if DryRun() {
 		var details []string
 		err := filepath.Walk(s.ca.dir, func(path string, info os.FileInfo, err error) error {
@@ -249,6 +276,90 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 	}
 
 	return s.rebundleCerts()
+}
+
+func (s linuxStore) removeWithBlocklist(al allowlist.Allowlist) error {
+	certs, err := s.List(nil)
+	if err != nil {
+		return err
+	}
+
+	var removed []*x509.Certificate
+	for i := range certs {
+		if al.Matches(certs[i]) {
+			continue
+		}
+		removed = append(removed, certs[i])
+	}
+
+	if DryRun() {
+		details := []string{fmt.Sprintf("blocklist directory %s", s.ca.blocklist)}
+		details = append(details, reportDryRunCerts("remove", removed)...)
+		details = append(details, fmt.Sprintf("then run %s", s.ca.refresh))
+		reportDryRun("remove certificates from", "linux", s.ca.dir, details...)
+		return nil
+	}
+
+	snapshot := s.ca.blocklist + ".allowlist-old"
+	if _, err := os.Lstat(snapshot); err == nil {
+		return fmt.Errorf("previous allowlist left %s; inspect it and remove it, then rerun", snapshot)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", snapshot, err)
+	}
+	existed := file.Exists(s.ca.blocklist)
+	if existed {
+		if err := file.MirrorDir(s.ca.blocklist, snapshot); err != nil {
+			_ = os.RemoveAll(snapshot)
+			return err
+		}
+	}
+
+	rollback := func() error {
+		if existed {
+			if err := os.RemoveAll(s.ca.blocklist); err != nil {
+				return err
+			}
+			if err := file.MirrorDir(snapshot, s.ca.blocklist); err != nil {
+				return err
+			}
+		} else if err := os.RemoveAll(s.ca.blocklist); err != nil {
+			return err
+		}
+		return os.RemoveAll(snapshot)
+	}
+
+	fail := func(err error) error {
+		if rerr := rollback(); rerr != nil {
+			fmt.Printf("store/linux: previous blocklist moved aside to %s\n", snapshot)
+			return fmt.Errorf("%w (previous blocklist still at %s)", err, snapshot)
+		}
+		return err
+	}
+
+	if err := os.MkdirAll(s.ca.blocklist, linuxPublicDirPerms); err != nil { //nolint:gosec // G301: p11-kit trust-source blocklist is a public system CA directory
+		return fail(err)
+	}
+	if err := os.Chmod(s.ca.blocklist, linuxPublicDirPerms); err != nil {
+		return fail(err)
+	}
+	for i := range removed {
+		fp := certutil.GetHexSHA256Fingerprint(*removed[i])
+		path := filepath.Join(s.ca.blocklist, fmt.Sprintf("%s.crt", fp))
+		if err := certutil.ToFile(path, removed[i:i+1]); err != nil {
+			return fail(err)
+		}
+		if err := os.Chmod(path, linuxPublicFilePerms); err != nil {
+			return fail(err)
+		}
+	}
+
+	if err := s.rebundleCerts(); err != nil {
+		return fail(err)
+	}
+	if err := os.RemoveAll(snapshot); err != nil {
+		fmt.Printf("store/linux: warning: could not fully remove %s after allowlist: %v (remaining contents may be incomplete)\n", snapshot, err)
+	}
+	return nil
 }
 
 func (s linuxStore) Restore(where string) error {
