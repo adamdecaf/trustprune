@@ -316,6 +316,9 @@ func (s nssStore) Restore(where string) error {
 		if err != nil {
 			return err
 		}
+		if src == "" {
+			return errNoBackup(s.nssType, s.nssType)
+		}
 	}
 
 	if DryRun() {

@@ -259,6 +259,9 @@ func (s linuxStore) Restore(where string) error {
 		if err != nil {
 			return err
 		}
+		if dir == "" {
+			return errNoBackup("linux", linuxBackupDir)
+		}
 	}
 	if debug {
 		fmt.Printf("store/linux: restoring from backup dir %s\n", dir)
