@@ -15,6 +15,7 @@
 package ui
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -115,7 +116,7 @@ func (p tablePrinter) write(fd io.Writer, certs []*x509.Certificate) error {
 		issuer := certutil.StringifyPKIXName(certs[i].Issuer)
 		c1 := truncateColumn(subject, tableColumnWidth)
 		c2 := "="
-		if issuer != subject {
+		if !bytes.Equal(certs[i].RawIssuer, certs[i].RawSubject) {
 			c2 = truncateColumn(issuer, tableColumnWidth)
 		}
 		key := certutil.FormatKeyLabel(certs[i])
