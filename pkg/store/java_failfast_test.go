@@ -44,9 +44,11 @@ func javaFailFastEnv(t *testing.T) string {
 
 	orig := ktool
 	origTimeout := keytoolTimeout
+	origSudo := keytoolSudoPath
 	t.Cleanup(func() {
 		ktool = orig
 		keytoolTimeout = origTimeout
+		keytoolSudoPath = origSudo
 	})
 	ktool = keytool{
 		javahome:              javaHome,

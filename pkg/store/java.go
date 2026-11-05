@@ -47,6 +47,15 @@ var (
 	// keytoolTimeout bounds every keytool process so a password prompt or a
 	// hung child cannot block forever. Tests override this to a short duration.
 	keytoolTimeout = 30 * time.Second
+
+	// keytoolWaitDelay bounds how long Run waits for I/O after the process is
+	// canceled. Needed when a child (keytool under sudo) keeps stdout open.
+	keytoolWaitDelay = 2 * time.Second
+
+	// keytoolSudoPath is the sudo binary used when runKeytool is asked to
+	// escalate. Tests replace it with a wrapper; never a reason to call real
+	// sudo from unit tests.
+	keytoolSudoPath = "sudo"
 )
 
 type javaStore struct {
@@ -893,12 +902,14 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	bin := k.keytoolBin()
 	var cmd *exec.Cmd
 	if useSudo {
-		cmd = exec.CommandContext(ctx, "sudo", append([]string{bin}, args...)...)
+		cmd = exec.CommandContext(ctx, keytoolSudoPath, append([]string{bin}, args...)...)
 	} else {
 		cmd = exec.CommandContext(ctx, bin, args...)
 	}
 	// nil Stdin is the null device; keytool must never inherit a TTY.
 	cmd.Stdin = nil
+	cmd.WaitDelay = keytoolWaitDelay
+	configureKeytoolCmd(cmd)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
