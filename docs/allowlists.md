@@ -59,6 +59,8 @@ The older `whitelist` command name remains as a hidden alias.
 
 `trustprune` supports generating allowlists from browser history. Either all browsers `-from browser` or specific browsers `-from chrome`.
 
+`-out` is required. Without it, `gen-allowlist` prints `ERROR: -out is required` and exits with status 2. With `-out` but neither `-from` nor `-file`, it prints usage and exits 1.
+
 ```
 $ trustprune gen-allowlist -from browser -out wh.yaml
 CA                                             Fingerprint      Count Example DNSNames

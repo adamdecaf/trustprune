@@ -144,6 +144,7 @@ trustprune restore -file <path>    # explicit backup path
 trustprune gen-allowlist -out allowlist.yaml -from firefox
 trustprune gen-allowlist -out allowlist.yaml -from browsers
 trustprune gen-allowlist -out allowlist.yaml -file urls.txt
+# -out is required: without it gen-allowlist prints "ERROR: -out is required" and exits 2
 
 # Verify connectivity after a change
 trustprune connect https://example.com
