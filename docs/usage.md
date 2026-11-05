@@ -128,10 +128,12 @@ Python's [certifi](https://github.com/certifi/python-certifi) package ships a Mo
 
 Path discovery (first existing wins):
 
-1. `-file <cacert.pem>` override (one bundle per venv)
+1. `-file <cacert.pem>` override on `list`, `backup`, and `connect` (one bundle per venv)
 2. `python3 -c 'import certifi; print(certifi.where())'` (then `python`)
 3. The same probe against `pip._vendor.certifi`
 4. Common `site-packages/certifi/cacert.pem` fallbacks
+
+On `add`, `allowlist`, and `restore`, `-file` keeps its usual meaning (certificate to import, allowlist YAML/JSON, or backup source). To target a specific venv for those commands, put that venv's `python` first on `PATH` so discovery selects its certifi.
 
 Some Linux distros patch certifi so `where()` returns the system CA bundle (for example `/etc/ssl/certs/ca-certificates.crt`). That path is still managed as a PEM file. Upstream installs keep a dedicated `cacert.pem` beside the package.
 

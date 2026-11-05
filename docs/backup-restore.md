@@ -108,7 +108,7 @@ Backup copies the live certifi CA bundle into `~/.trustprune/certifi/<unix-times
 
 Restore and other writers use the same atomic sibling-temp install as `-app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). An empty allowlist result is refused. Restore with no backup returns an error before any filesystem write (dry-run included).
 
-Path discovery matches `docs/usage.md`: `-file` override, Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. Use `-app certifi -file <cacert.pem>` to target a specific venv.
+Path discovery matches `docs/usage.md`: on `list`/`backup`/`connect`, `-file` overrides the bundle; Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. For `add`/`allowlist`/`restore`, `-file` is the command input (cert, allowlist, or backup source) — put the venv's `python` first on `PATH` to select that venv's certifi.
 
 ## OpenSSL (`-app openssl`)
 

@@ -315,11 +315,14 @@ func (s certifiStore) findCertPath() (string, error) {
 // lookupCertifiWhere asks the active Python interpreters for certifi.where(),
 // then pip's vendored copy. Empty string means not found.
 func lookupCertifiWhere() string {
+	// Drop the empty cwd entry from sys.path so a local certifi.py cannot shadow
+	// the installed package (user site-packages stay enabled).
+	const dropCwd = "import sys; sys.path = [p for p in sys.path if p]"
 	for _, py := range certifiPythonBins() {
-		if p := runCertifiWhere(py, "import certifi; print(certifi.where())"); p != "" {
+		if p := runCertifiWhere(py, dropCwd+"; import certifi; print(certifi.where())"); p != "" {
 			return p
 		}
-		if p := runCertifiWhere(py, "import pip._vendor.certifi as certifi; print(certifi.where())"); p != "" {
+		if p := runCertifiWhere(py, dropCwd+"; import pip._vendor.certifi as certifi; print(certifi.where())"); p != "" {
 			return p
 		}
 	}

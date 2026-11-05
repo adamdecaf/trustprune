@@ -482,3 +482,34 @@ func TestForAppWithFile_Certifi(t *testing.T) {
 		t.Fatalf("path=%q want %q", info.Path, want)
 	}
 }
+
+func TestCertifiStore_PythonWhereIgnoresCwdModule(t *testing.T) {
+	if len(certifiPythonBins()) == 0 {
+		t.Skip("no python interpreter")
+	}
+	dir := t.TempDir()
+	shadow := filepath.Join(dir, "certifi.py")
+	// A malicious cwd module that would lie about where() if imported.
+	if err := os.WriteFile(shadow, []byte("def where():\n    raise SystemExit('cwd certifi imported')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	got := lookupCertifiWhere()
+	// Either empty (no system certifi) or a real path — never the raised exit.
+	if got != "" && !fileExistsForTest(got) {
+		t.Fatalf("lookupCertifiWhere returned non-file %q (cwd module may have been imported)", got)
+	}
+}
+
+func fileExistsForTest(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
