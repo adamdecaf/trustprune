@@ -16,7 +16,7 @@ Allowlists represent an operation which disables certificate trust in a certific
 
 Allowlists are stored in yaml or json files. There is a basic structure to them which allows for multiple methods of allowlisting. The structure looks like:
 
-```json
+```yaml
 # Optional array of SHA256 certificate fingerprints
 fingerprints:
  - "050cf9fa95e40e9bddedaeda6961f6168c1279c4660172479cdd51ab03cea62c"
@@ -59,7 +59,7 @@ The older `whitelist` command name remains as a hidden alias.
 
 `trustprune` supports generating allowlists from browser history. Either all browsers `-from browser` or specific browsers `-from chrome`.
 
-`-out` is required. Without it, `gen-allowlist` prints `ERROR: -out is required` and exits with status 2. With `-out` but neither `-from` nor `-file`, it prints usage and exits 1.
+`-out` is required. Without it, `gen-allowlist` prints `ERROR: -out is required` and exits with status 2. With `-out` but neither `-from` nor `-file`, it prints usage and exits 1. The `-out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
 
 ```
 $ trustprune gen-allowlist -from browser -out wh.yaml

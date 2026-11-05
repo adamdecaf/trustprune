@@ -32,6 +32,7 @@ Parent directory (created as needed):
 | Java | `java/cacerts-<unix-timestamp>.bck` (filename taken from the keystore basename) |
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem`, or a mirror of a hashed cert directory |
+| Darwin `-app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
