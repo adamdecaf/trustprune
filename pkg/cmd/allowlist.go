@@ -36,10 +36,11 @@ func AllowlistForApp(app, path string) error {
 	// check for a backup
 	latest, err := s.GetLatestBackup()
 	if err != nil {
-		return fmt.Errorf("can't get latest %s backup err=%w", app, err)
+		return fmt.Errorf("can't check for a %s backup: %w", app, err)
 	}
 	if latest == "" {
-		return fmt.Errorf("no backup for %s found", app)
+		// Refuse before any write, dry-run included.
+		return store.NoBackupError(app)
 	}
 
 	err = s.Remove(al)
@@ -66,10 +67,11 @@ func AllowlistForPlatform(path string) error {
 	// check for backup
 	latest, err := s.GetLatestBackup()
 	if err != nil {
-		return fmt.Errorf("can't get latest backup for %s err=%w", runtime.GOOS, err)
+		return fmt.Errorf("can't check for a %s backup: %w", runtime.GOOS, err)
 	}
 	if latest == "" {
-		return fmt.Errorf("no %s backup found", runtime.GOOS)
+		// Refuse before any write, dry-run included.
+		return store.NoBackupError("")
 	}
 
 	err = s.Remove(al)

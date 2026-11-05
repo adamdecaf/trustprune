@@ -174,7 +174,7 @@ A PEM file is rewritten like `-app ssl` (atomic install, refuse empty bundle). A
 
 ## allowlist
 
-Distrust certificates that are **not** on the allowlist. Requires `-file` and a prior backup. Always applies Chromium's certificate blocklist so known-bad CAs are never kept (cannot be disabled). The older `whitelist` name remains as a hidden alias.
+Distrust certificates that are **not** on the allowlist. Requires `-file` and a prior backup. With no backup, `allowlist` (and `allowlist -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup -app openssl` (platform stores suggest `trustprune backup`). Always applies Chromium's certificate blocklist so known-bad CAs are never kept (cannot be disabled). The older `whitelist` name remains as a hidden alias.
 
 Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
 

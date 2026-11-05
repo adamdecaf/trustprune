@@ -245,6 +245,21 @@ func errNoBackupCmd(store, name, backupCmd string) error {
 	return fmt.Errorf("no backup for %s in %s/%s; run: %s", store, parent, name, backupCmd)
 }
 
+// NoBackupError is the error the allowlist command returns, before any
+// write, when no backup exists for a store. app is the -app name, or "" for
+// the platform store. It matches the wording Restore uses.
+func NoBackupError(app string) error {
+	app = strings.ToLower(strings.TrimSpace(app))
+	if app == "" {
+		return errNoBackup(runtime.GOOS, runtime.GOOS)
+	}
+	name := app
+	if app == "java" {
+		name = javaCertManageDir
+	}
+	return errNoBackupCmd(app, name, "trustprune backup -app "+app)
+}
+
 // primaryBackupParent is where new backups are written.
 func primaryBackupParent(uhome string) string {
 	switch runtime.GOOS {
