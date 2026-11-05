@@ -118,7 +118,7 @@ func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected an error with no backup")
 				}
-				if app == "java" && !strings.Contains(err.Error(), "no backup") {
+				if app == "java" && strings.Contains(err.Error(), "never found java") {
 					// No JDK keystore on this machine: still refused, nothing written.
 					t.Logf("java refused without a keystore: %v", err)
 				} else {

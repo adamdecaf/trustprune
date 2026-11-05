@@ -46,6 +46,10 @@ var (
 	// ErrNoBackupMade is returned if no backup of a certificate store can be found
 	ErrNoBackupMade = errors.New("unable to make backup of store")
 
+	// ErrNoBackupFound is wrapped by GetLatestBackup implementations that
+	// report a missing backup as an error rather than an empty path.
+	ErrNoBackupFound = errors.New("no backup found")
+
 	backupDirPerms os.FileMode = file.TempDirPermissions
 )
 

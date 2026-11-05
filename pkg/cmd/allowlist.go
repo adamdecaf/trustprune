@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 
@@ -35,6 +36,9 @@ func AllowlistForApp(app, path string) error {
 
 	// check for a backup
 	latest, err := s.GetLatestBackup()
+	if errors.Is(err, store.ErrNoBackupFound) {
+		return store.NoBackupError(app)
+	}
 	if err != nil {
 		return fmt.Errorf("can't check for a %s backup: %w", app, err)
 	}
@@ -66,6 +70,9 @@ func AllowlistForPlatform(path string) error {
 
 	// check for backup
 	latest, err := s.GetLatestBackup()
+	if errors.Is(err, store.ErrNoBackupFound) {
+		return store.NoBackupError("")
+	}
 	if err != nil {
 		return fmt.Errorf("can't check for a %s backup: %w", runtime.GOOS, err)
 	}
