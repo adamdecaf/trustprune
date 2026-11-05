@@ -92,9 +92,10 @@ type Store interface {
 	// to exist.
 	GetLatestBackup() (string, error)
 
-	// Restore will bring the system back to it's previous state
-	// if a backup exists, otherwise it will attempt to bring the
-	// cert trust status to the system's default state
+	// Restore will bring the system back to its previous state from a
+	// backup. When no backup exists (and no path is given), Restore must
+	// return an error before making any filesystem write, including under
+	// dry-run; it never falls back to a system default state.
 	//
 	// Optionally, this can take a specific filepath to use as the
 	// restore point. This may not be supported on all stores.

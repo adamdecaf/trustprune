@@ -34,6 +34,10 @@ Parent directory (created as needed):
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
+## Restore with no backup
+
+When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (browser apps suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
+
 ## Linux: temp-dir swap and rollback
 
 `linuxStore.Restore` does **not** delete the live CA directory before copying. It:

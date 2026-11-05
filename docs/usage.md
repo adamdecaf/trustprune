@@ -80,6 +80,8 @@ See [Backup and restore](backup-restore.md) for where files land.
 
 Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, Darwin platform (login-keychain backup dir), and `-app ssl`).
 
+If no backup exists, `restore` (and `restore -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For browser apps the hint is `trustprune backup -app <name>`.
+
 ```bash
 trustprune restore
 trustprune restore -file /path/to/backup
