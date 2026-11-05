@@ -29,11 +29,11 @@ Parent directory (created as needed):
 |-------|-------------------------|
 | Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
-| Java | `java/cacerts-<unix-timestamp>.bck` (filename taken from the keystore basename) |
+| Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem`, or a mirror of a hashed cert directory |
 | Darwin `-app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
-| Python `-app certifi` | `certifi/<unix-timestamp>/cacert.pem` — copy of certifi's CA bundle |
+| Python `-app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
@@ -56,7 +56,7 @@ When no backup exists for a store, `restore` refuses before any filesystem write
 
 If the swap rename itself fails after the live tree was moved aside, the previous directory is renamed back. A failed mirror leaves the live directory untouched.
 
-`Restore` honors an explicit path (`trustprune restore -file …` / the store `where` argument). Empty `where` uses the latest backup under `~/.trustprune/linux/` or the legacy `~/.cert-manage/linux/`; the primary path wins for duplicate basenames.
+`Restore` honors an explicit backup path (`trustprune restore -backup …` or `trustprune restore -file …` / the store `where` argument). Empty `where` uses the latest backup under `~/.trustprune/linux/` or the legacy `~/.cert-manage/linux/`; the primary path wins for duplicate basenames.
 
 ## NSS: full file set
 
@@ -77,17 +77,19 @@ NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile
 4. On any staging or swap failure, rolls live files back from the aside directory and removes the temp dirs.
 5. On success, removes the temp and aside directories. If either cleanup fails, restore still succeeds and prints a warning naming the kept path (remaining contents may be incomplete), matching Linux restore behavior for `.restore-old`.
 
-A failed stage leaves the live profile files untouched. Restore from a **legacy single file** uses the same stage-then-swap path onto `cert9.db` (or `cert8.db` if the backup basename contains `cert8`). Explicit `-file` / `where` is honored.
+A failed stage leaves the live profile files untouched. Restore from a **legacy single file** uses the same stage-then-swap path onto `cert9.db` (or `cert8.db` if the backup basename contains `cert8`). Explicit `-backup` / `-file` / `where` is honored.
 
 ## Java
 
-Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/trustprune/java/` on Darwin). Restore copies the chosen backup over the live keystore (`SudoCopyFile` when permissions require it). Explicit restore `-file` is honored as the backup source. For list/backup/connect, `-app java -file <cacerts>` overrides trust-store search and uses that keystore file instead of `JAVA_HOME` discovery.
+Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/trustprune/java/` on Darwin) and writes a `.source` sidecar recording the keystore path. Restore copies the chosen backup over the live keystore (`SudoCopyFile` when permissions require it).
+
+`-app java -file <cacerts>` overrides trust-store search on `list`, `backup`, `connect`, and `restore` (the keystore to operate on, not the backup). Use `-backup <path>` to restore a specific `.bck` file. Restore into a different path than the backup recorded is refused before any write unless `-force` is given. Latest-backup selection prefers the newest `.bck` whose recorded source matches the target keystore.
 
 ## Darwin notes
 
 - System root keychain is SIP-protected and is not rewritten.
 - Backup exports certificates from the **login** keychain only under `darwin/<unix-timestamp>/login.keychain/<sha256>.crt`.
-- Restore clears “Never Trust” overrides for Apple system roots where applicable, then re-adds missing login-keychain certs from the chosen backup. Empty `where` uses the latest backup; `-file` / `where` may be the timestamp directory or the `login.keychain` directory itself.
+- Restore clears “Never Trust” overrides for Apple system roots where applicable, then re-adds missing login-keychain certs from the chosen backup. Empty `where` uses the latest backup; `-backup` / `-file` / `where` may be the timestamp directory or the `login.keychain` directory itself.
 
 ## Darwin `-app ssl` (`/etc/ssl/cert.pem`)
 
@@ -101,16 +103,16 @@ Restore and other writers install via a sibling temp directory:
 4. If `<dst>.restore-old` already exists before a restore, refuse with an error naming that path (do not delete it).
 5. After a successful swap, a failed aside cleanup warns on stderr naming the kept path and still returns success.
 
-Explicit `-file` / `where` is honored (PEM file or backup directory containing `cert.pem`).
+Explicit `-backup` / `-file` / `where` is honored (PEM file or backup directory containing `cert.pem`).
 
 
 ## Python certifi (`-app certifi`)
 
-Backup copies the live certifi CA bundle into `~/.trustprune/certifi/<unix-timestamp>/cacert.pem` (or `~/Library/trustprune/certifi/...` on Darwin). Backup directories use exclusive `Mkdir` and bump the unix-second on collision.
+Backup copies the live certifi CA bundle into `~/.trustprune/certifi/<unix-timestamp>/cacert.pem` (or `~/Library/trustprune/certifi/...` on Darwin) and writes a `source` file in that directory recording the bundle path. Backup directories use exclusive `Mkdir` and bump the unix-second on collision.
 
-Restore and other writers use the same atomic sibling-temp install as `-app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). An empty allowlist result is refused. Restore with no backup returns an error before any filesystem write (dry-run included).
+Restore and other writers use the same atomic sibling-temp install as `-app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). An empty allowlist result is refused. Restore with no backup returns an error before any filesystem write (dry-run included). Restore into a different path than the backup recorded is refused before any write unless `-force` is given. Latest-backup selection prefers the newest directory whose recorded source matches the target bundle.
 
-Path discovery matches `docs/usage.md`: on `list`/`backup`/`connect`, `-file` overrides the bundle; Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. For `add`/`allowlist`/`restore`, `-file` is the command input (cert, allowlist, or backup source) — put the venv's `python` first on `PATH` to select that venv's certifi.
+Path discovery matches `docs/usage.md`: on `list`/`backup`/`connect`/`restore`, `-file` overrides the bundle; Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. For `add`/`allowlist`, `-file` is the command input (cert or allowlist) — put the venv's `python` first on `PATH` to select that venv's certifi. For restore, `-backup` selects the backup source.
 
 ## OpenSSL (`-app openssl`)
 
@@ -119,7 +121,7 @@ Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolutio
 - **PEM file** (for example `/etc/ssl/certs/ca-certificates.crt`): backup copies into `openssl/<unix-timestamp>/ca-bundle.pem`. Restore and other writers use the same atomic sibling-temp install as `-app ssl`. An empty allowlist result is refused.
 - **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then runs `c_rehash` if that binary is available.
 
-Restore with no backup refuses before any filesystem write (dry-run included). Explicit `-file` / `where` is honored.
+Restore with no backup refuses before any filesystem write (dry-run included). Explicit `-backup` / `-file` / `where` is honored.
 
 ## Windows
 

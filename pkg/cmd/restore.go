@@ -16,16 +16,53 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-func RestoreForApp(app, path string) error {
-	s, err := store.ForApp(app)
+// Restore runs restore for app (empty app is the platform store).
+//
+// file and backup are the CLI -file and -backup values:
+//   - For java and certifi, -file is the store to restore into (same as
+//     backup/list) and -backup is the backup source (empty means latest).
+//   - For every other store, -file and -backup both name the backup source.
+func Restore(app, file, backup string) error {
+	storeFile, backupPath, err := restoreArgs(app, file, backup)
 	if err != nil {
 		return err
 	}
-	err = s.Restore(path)
+	if strings.TrimSpace(app) == "" {
+		return RestoreForPlatform(backupPath)
+	}
+	if storeFile != "" {
+		return RestoreForAppWithFile(app, storeFile, backupPath)
+	}
+	return RestoreForApp(app, backupPath)
+}
+
+// restoreArgs maps CLI -file / -backup onto a store override and a backup
+// source. See Restore for the per-app meanings.
+func restoreArgs(app, file, backup string) (storeFile, backupPath string, err error) {
+	app = strings.ToLower(strings.TrimSpace(app))
+	file = strings.TrimSpace(file)
+	backup = strings.TrimSpace(backup)
+	switch app {
+	case "java", "certifi":
+		return file, backup, nil
+	default:
+		if file != "" && backup != "" && file != backup {
+			return "", "", fmt.Errorf("restore: -file and -backup both set (%s vs %s); for this store they both name the backup source — use one", file, backup)
+		}
+		if backup != "" {
+			return "", backup, nil
+		}
+		return "", file, nil
+	}
+}
+
+func restoreStore(s store.Store, where string) error {
+	err := s.Restore(where)
 	if err == nil {
 		if store.DryRun() {
 			fmt.Println("dry-run: no changes made")
@@ -36,14 +73,22 @@ func RestoreForApp(app, path string) error {
 	return err
 }
 
-func RestoreForPlatform(path string) error {
-	err := store.Platform().Restore(path)
-	if err == nil {
-		if store.DryRun() {
-			fmt.Println("dry-run: no changes made")
-		} else {
-			fmt.Println("Restore completed successfully")
-		}
+func RestoreForApp(app, path string) error {
+	s, err := store.ForApp(app)
+	if err != nil {
+		return err
 	}
-	return err
+	return restoreStore(s, path)
+}
+
+func RestoreForAppWithFile(app, filePath, backupPath string) error {
+	s, err := store.ForAppWithFile(app, filePath)
+	if err != nil {
+		return err
+	}
+	return restoreStore(s, backupPath)
+}
+
+func RestoreForPlatform(path string) error {
+	return restoreStore(store.Platform(), path)
 }

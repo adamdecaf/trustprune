@@ -30,8 +30,9 @@ import (
 )
 
 const (
-	certifiBackupDir      = "certifi"
-	certifiBackupFilename = "cacert.pem"
+	certifiBackupDir        = "certifi"
+	certifiBackupFilename   = "cacert.pem"
+	certifiBackupSourceName = "source"
 )
 
 // certifiPythonWhere is the discovery probe used by findCertPath. Tests swap it.
@@ -78,7 +79,8 @@ func CertifiStore() Store {
 }
 
 // CertifiStoreAt returns a certifiStore pointed at path. Intended for tests and
-// for -app certifi -file overrides (one cacert.pem per venv).
+// for -app certifi -file overrides on list/backup/connect/restore (one cacert.pem
+// per venv).
 func CertifiStoreAt(path string) Store {
 	return certifiStore{path: path}
 }
@@ -181,11 +183,25 @@ func (s certifiStore) Backup() error {
 		_ = os.RemoveAll(dir)
 		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
 	}
+	if err := writeCertifiBackupSource(dir, path); err != nil {
+		_ = os.RemoveAll(dir)
+		return err
+	}
 	return nil
 }
 
 func (s certifiStore) GetLatestBackup() (string, error) {
-	dir, err := getLatestStoreBackup(certifiBackupDir)
+	dest := s.path
+	allowUnknown := dest == ""
+	if dest == "" {
+		if p, err := s.findCertPath(); err == nil {
+			dest = p
+		}
+	}
+	if dest != "" {
+		dest = resolveCertifiCertPath(dest)
+	}
+	dir, err := latestCertifiBackupFor(dest, allowUnknown)
 	if err != nil {
 		return "", fmt.Errorf("getLatestBackup: error getting certifi backup directory err=%w", err)
 	}
@@ -237,9 +253,12 @@ func (s certifiStore) Restore(where string) error {
 	if err != nil {
 		return err
 	}
+	if err := checkCertifiBackupSource(src, path, true, ForceRestore()); err != nil {
+		return err
+	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
-		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -file to a cacert.pem backup", srcFile, err)
+		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -backup to a cacert.pem backup", srcFile, err)
 	}
 	if len(certs) == 0 {
 		return fmt.Errorf("restore source %s contains no certificates; refusing to overwrite %s", srcFile, path)
@@ -287,11 +306,149 @@ func certifiBackupFile(src string) (string, error) {
 	if st.IsDir() {
 		candidate := filepath.Join(src, certifiBackupFilename)
 		if !file.Exists(candidate) {
-			return "", fmt.Errorf("certifi backup dir %s has no %s; pass -file to a PEM backup", src, certifiBackupFilename)
+			return "", fmt.Errorf("certifi backup dir %s has no %s; pass -backup to a PEM backup", src, certifiBackupFilename)
 		}
 		return candidate, nil
 	}
 	return src, nil
+}
+
+// certifiCanonicalPath returns an absolute, cleaned path, following symlinks
+// when they resolve so restore compares the file that would actually be written.
+func certifiCanonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	p = filepath.Clean(p)
+	return resolveCertifiCertPath(p)
+}
+
+func sameCertifiPath(recorded, dest string) bool {
+	return certifiCanonicalPath(recorded) == certifiCanonicalPath(dest)
+}
+
+func certifiBackupSourceFile(src string) string {
+	st, err := os.Stat(src)
+	if err == nil && st.IsDir() {
+		return filepath.Join(src, certifiBackupSourceName)
+	}
+	if filepath.Base(src) == certifiBackupFilename {
+		return filepath.Join(filepath.Dir(src), certifiBackupSourceName)
+	}
+	return src + "." + certifiBackupSourceName
+}
+
+func writeCertifiBackupSource(dir, storePath string) error {
+	path := filepath.Join(dir, certifiBackupSourceName)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(certifiCanonicalPath(storePath) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
+}
+
+func readCertifiBackupSource(src string) (string, error) {
+	b, err := os.ReadFile(certifiBackupSourceFile(src))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// checkCertifiBackupSource refuses a restore whose backup was taken from a
+// different bundle than dest. Backups without a recorded source are allowed
+// only when allowUnknown is set. force skips a path mismatch.
+func checkCertifiBackupSource(backup, dst string, allowUnknown, force bool) error {
+	recorded, err := readCertifiBackupSource(backup)
+	if err != nil {
+		return fmt.Errorf("reading source of certifi backup %s: %w", backup, err)
+	}
+	if recorded == "" {
+		if allowUnknown || force {
+			return nil
+		}
+		return fmt.Errorf("certifi backup %s has no recorded store path; pass it with restore -backup to use it", backup)
+	}
+	if sameCertifiPath(recorded, dst) {
+		return nil
+	}
+	if force {
+		return nil
+	}
+	return fmt.Errorf("refusing restore: certifi backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, dst)
+}
+
+// latestCertifiBackupFor returns the newest certifi backup directory recorded
+// for storePath. Backups without a recorded source are considered only when
+// allowUnknown is true. Empty storePath only matches unknown-source backups.
+func latestCertifiBackupFor(storePath string, allowUnknown bool) (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	dirs := []string{filepath.Join(primaryBackupParent(uhome), certifiBackupDir)}
+	if lp := legacyBackupParent(uhome); lp != "" {
+		dirs = append(dirs, filepath.Join(lp, certifiBackupDir))
+	}
+
+	best, bestTS := "", int64(-1)
+	for _, d := range dirs {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+		for _, ent := range ents {
+			if !ent.IsDir() {
+				continue
+			}
+			ts, ok := backupBasenameUnix(ent.Name())
+			if !ok {
+				continue
+			}
+			if ts < bestTS {
+				continue
+			}
+			path := filepath.Join(d, ent.Name())
+			if !file.Exists(filepath.Join(path, certifiBackupFilename)) {
+				continue
+			}
+			recorded, err := readCertifiBackupSource(path)
+			if err != nil {
+				return "", err
+			}
+			match := false
+			switch {
+			case recorded != "" && storePath != "" && sameCertifiPath(recorded, storePath):
+				match = true
+			case recorded == "" && allowUnknown:
+				match = true
+			}
+			if !match {
+				continue
+			}
+			if ts == bestTS && best != "" {
+				continue
+			}
+			best, bestTS = path, ts
+		}
+	}
+	return best, nil
 }
 
 func (s certifiStore) findCertPath() (string, error) {

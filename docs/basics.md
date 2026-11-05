@@ -190,4 +190,11 @@ Backups can be used as restore points.
 ```
 # Restore from the latest backup
 $ trustprune restore -app chrome
+
+# Java / certifi: -file is the store to restore into (same as backup/list)
+$ trustprune restore -app java -file /path/to/cacerts
+$ trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
+
+# Explicit backup source (all stores)
+$ trustprune restore -backup /path/to/backup
 ```

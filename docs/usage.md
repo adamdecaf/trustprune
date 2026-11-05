@@ -66,6 +66,7 @@ Capture the current trust store so you can restore later. Allowlisting refuses t
 trustprune backup
 trustprune backup -app java
 trustprune backup -app java -file /path/to/cacerts   # Java keystore override; backup records its source keystore
+trustprune backup -app certifi -file /path/to/venv/.../cacert.pem
 trustprune backup -app chrome
 trustprune backup -app firefox
 trustprune backup -app openssl
@@ -82,25 +83,31 @@ See [Backup and restore](backup-restore.md) for where files land.
 
 ## restore
 
-Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, Darwin platform (login-keychain backup dir), `-app ssl`, and `-app openssl`).
+Revert to a backup. With no `-backup` (and no `-file` on stores other than java/certifi), uses the latest backup for that store.
 
 If no backup exists, `restore` (and `restore -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For app stores the hint is `trustprune backup -app <name>`.
 
+For **java** and **certifi**, `-file` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `-backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `-force` is given.
+
 ```bash
 trustprune restore
-trustprune restore -file /path/to/backup
+trustprune restore -backup /path/to/backup
+trustprune restore -file /path/to/backup          # platform, NSS, ssl, openssl: backup source
 trustprune restore -app java
-trustprune restore -app java -file /path/to/cacerts.bck
+trustprune restore -app java -file /path/to/cacerts
+trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
+trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
 trustprune restore -app chrome
 trustprune restore -app openssl
-trustprune restore -app certifi
 trustprune restore -app java -dry-run
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Restore that application's store |
-| `-file <path>` | Explicit backup path (directory or file, depending on the store) |
+| `-file <path>` | Java/certifi: store to restore into. Other stores: explicit backup path (directory or file) |
+| `-backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
+| `-force` | Allow restoring a backup into a different store path than it was taken from (java and certifi) |
 | `-dry-run` | Print the plan without writing |
 
 
@@ -114,6 +121,7 @@ trustprune backup -app ssl
 trustprune allowlist -app ssl -file allowlist.yaml -dry-run
 trustprune allowlist -app ssl -file allowlist.yaml
 trustprune restore -app ssl
+trustprune restore -app ssl -backup ~/Library/trustprune/ssl/<timestamp>/cert.pem
 trustprune restore -app ssl -file ~/Library/trustprune/ssl/<timestamp>/cert.pem
 ```
 
@@ -128,12 +136,12 @@ Python's [certifi](https://github.com/certifi/python-certifi) package ships a Mo
 
 Path discovery (first existing wins):
 
-1. `-file <cacert.pem>` override on `list`, `backup`, and `connect` (one bundle per venv)
+1. `-file <cacert.pem>` override on `list`, `backup`, `connect`, and `restore` (one bundle per venv)
 2. `python3 -c 'import certifi; print(certifi.where())'` (then `python`)
 3. The same probe against `pip._vendor.certifi`
 4. Common `site-packages/certifi/cacert.pem` fallbacks
 
-On `add`, `allowlist`, and `restore`, `-file` keeps its usual meaning (certificate to import, allowlist YAML/JSON, or backup source). To target a specific venv for those commands, put that venv's `python` first on `PATH` so discovery selects its certifi.
+On `add` and `allowlist`, `-file` keeps its usual meaning (certificate to import, or allowlist YAML/JSON). To target a specific venv for those commands, put that venv's `python` first on `PATH` so discovery selects its certifi. For `restore`, pass `-file` as the venv's `cacert.pem` (same as `backup` / `list`); use `-backup` to pick a specific backup.
 
 Some Linux distros patch certifi so `where()` returns the system CA bundle (for example `/etc/ssl/certs/ca-certificates.crt`). That path is still managed as a PEM file. Upstream installs keep a dedicated `cacert.pem` beside the package.
 
@@ -141,9 +149,11 @@ Some Linux distros patch certifi so `where()` returns the system CA bundle (for 
 trustprune list -app certifi
 trustprune list -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
 trustprune backup -app certifi
+trustprune backup -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
 trustprune allowlist -app certifi -file allowlist.yaml -dry-run
 trustprune allowlist -app certifi -file allowlist.yaml
 trustprune restore -app certifi
+trustprune restore -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
 ```
 
 Writes reuse the same atomic sibling-temp install as `-app ssl` / `-app openssl` (copy aside to `.restore-old`, refuse a leftover aside, refuse an empty allowlist result). Restore with no backup refuses before any filesystem write.
@@ -246,7 +256,7 @@ trustprune connect -url https://example.com
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
-| `-file <keystore>` | Java only: load that keystore instead of searching `JAVA_HOME` (same override as `list` / `backup`) |
+| `-file <keystore>` | Java/certifi: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
 | `-url <url>` | URL to connect to, instead of the positional argument (e.g. `-url https://example.com`) |
 
 The URL must use the `https` scheme.

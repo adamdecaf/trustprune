@@ -16,7 +16,7 @@ Trust should be earned, not defaulted.
 This project was renamed from **cert-manage** to **trustprune**. The repository is now at [github.com/adamdecaf/trustprune](https://github.com/adamdecaf/trustprune) (old GitHub URLs redirect).
 
 - The primary CLI binary is `trustprune`. A `cert-manage` alias remains through **0.2.x** and prints a short rename notice on stderr when invoked under that name.
-- New backups are written under `~/.trustprune/` (or `~/Library/trustprune/` on Darwin). Existing backups under `~/.cert-manage/` or `~/Library/cert-manage/` are still discovered read-only for restore; nothing is moved, renamed, or deleted from the old tree. When both trees have entries, the newest basename wins (primary path preferred on ties). Prefer an explicit `restore -file` path if you mix legacy NSS filename layouts.
+- New backups are written under `~/.trustprune/` (or `~/Library/trustprune/` on Darwin). Existing backups under `~/.cert-manage/` or `~/Library/cert-manage/` are still discovered read-only for restore; nothing is moved, renamed, or deleted from the old tree. When both trees have entries, the newest basename wins (primary path preferred on ties). Prefer an explicit `restore -backup` (or `restore -file` on NSS/platform) path if you mix legacy NSS filename layouts.
 
 ## 30-second quickstart
 
@@ -68,7 +68,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | Level | Platform | Notes |
 |-------|----------|--------|
 | **Supported** | Linux (Alpine, Debian, Ubuntu, Rocky, Fedora/RHEL, Arch) | System CA dir list, add, allowlist, backup, restore (see Safety) |
-| **Partial** | Darwin / macOS | Keychain-backed list/add/allowlist/backup/restore; system roots are SIP-protected; restore honors `-file` / `where` for login-keychain backups |
+| **Partial** | Darwin / macOS | Keychain-backed list/add/allowlist/backup/restore; system roots are SIP-protected; restore honors `-backup` / `-file` / `where` for login-keychain backups |
 | **List-only** | Windows | `list` works (PowerShell export of machine stores); add, backup, allowlist, and restore are not implemented yet |
 
 ### Applications
@@ -78,7 +78,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
-| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-file` overrides the bundle on list/backup/connect (put the venv's python first on `PATH` for add/allowlist/restore). |
+| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-file` overrides the bundle on list/backup/connect/restore (put the venv's python first on `PATH` for add/allowlist). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
 | **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`-app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. Darwin `/etc/ssl/cert.pem` stays `-app ssl`. |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
 
@@ -91,7 +91,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
 3. **Preview with `-dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `-dry-run` to print the plan without writing to any store.
 
-Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact, and `-file` / `where` is honored on Linux, Java, and NSS. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
+Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `-backup` (and `-file` on platform/NSS/ssl/openssl). For java and certifi, restore `-file` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `-force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-backup` / `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 
 ## Install
 
@@ -139,7 +139,9 @@ trustprune add -file cert.pem -app java
 trustprune backup
 trustprune allowlist -file urls.yaml
 trustprune restore                 # latest backup
-trustprune restore -file <path>    # explicit backup path
+trustprune restore -backup <path>  # explicit backup path
+trustprune restore -file <path>    # platform/NSS/ssl/openssl: explicit backup path
+trustprune restore -app java -file /path/to/cacerts   # java/certifi: store to restore into
 
 # Generate an allowlist
 trustprune gen-allowlist -out allowlist.yaml -from firefox

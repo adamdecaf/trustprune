@@ -346,7 +346,7 @@ func TestJavaBackupRestoreRoundTrip(t *testing.T) {
 }
 
 func TestJavaRestore_HonorsWherePath(t *testing.T) {
-	// Restore(where) must copy the provided file (CLI -file), not only GetLatestBackup().
+	// Restore(where) must copy the provided file (CLI -backup), not only GetLatestBackup().
 	layouts := activeJavaLayouts()
 	if len(layouts) == 0 {
 		t.Skip("no java home layouts configured")
