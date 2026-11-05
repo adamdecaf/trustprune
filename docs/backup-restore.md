@@ -37,9 +37,11 @@ Parent directory (created as needed):
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
-## Restore with no backup
+## Restore or allowlist with no backup
 
 When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (app stores such as firefox, chrome, ssl, openssl, and certifi suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
+
+`allowlist` does the same: with no backup for the target store it refuses before any filesystem write (dry-run included, so no plan is printed), prints the same `ERROR: no backup for <store> in <dir>; run: trustprune backup` message (or `trustprune backup -app <name>` for `-app` stores, including java, ssl, openssl, and certifi), and exits 1.
 
 ## Linux: temp-dir swap and rollback
 

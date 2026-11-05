@@ -46,6 +46,10 @@ var (
 	// ErrNoBackupMade is returned if no backup of a certificate store can be found
 	ErrNoBackupMade = errors.New("unable to make backup of store")
 
+	// ErrNoBackupFound is wrapped by GetLatestBackup implementations that
+	// report a missing backup as an error rather than an empty path.
+	ErrNoBackupFound = errors.New("no backup found")
+
 	backupDirPerms os.FileMode = file.TempDirPermissions
 )
 
@@ -243,6 +247,25 @@ func errNoBackupCmd(store, name, backupCmd string) error {
 		parent = "~/Library/trustprune"
 	}
 	return fmt.Errorf("no backup for %s in %s/%s; run: %s", store, parent, name, backupCmd)
+}
+
+// NoBackupError is the error the allowlist command returns, before any
+// write, when no backup exists for a store. app is the -app name, or "" for
+// the platform store. It matches the wording Restore uses.
+func NoBackupError(app string) error {
+	app = strings.ToLower(strings.TrimSpace(app))
+	if app == "" {
+		return errNoBackup(runtime.GOOS, runtime.GOOS)
+	}
+	name := app
+	switch {
+	case app == "java":
+		name = javaCertManageDir
+	case app == "chrome" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows"):
+		// Chrome wraps the platform store here, so backups land in its dir.
+		name = runtime.GOOS
+	}
+	return errNoBackupCmd(app, name, "trustprune backup -app "+app)
 }
 
 // primaryBackupParent is where new backups are written.

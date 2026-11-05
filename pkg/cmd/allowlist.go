@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 
@@ -23,57 +24,42 @@ import (
 )
 
 func AllowlistForApp(app, path string) error {
-	al, err := allowlist.FromFile(path)
-	if err != nil {
-		return err
-	}
-
 	s, err := store.ForApp(app)
 	if err != nil {
 		return err
 	}
-
-	// check for a backup
-	latest, err := s.GetLatestBackup()
-	if err != nil {
-		return fmt.Errorf("can't get latest %s backup err=%w", app, err)
-	}
-	if latest == "" {
-		return fmt.Errorf("no backup for %s found", app)
-	}
-
-	err = s.Remove(al)
-	if err != nil {
-		return err
-	}
-
-	if store.DryRun() {
-		fmt.Println("dry-run: no changes made")
-	} else {
-		fmt.Println("Allowlist completed successfully")
-	}
-	return nil
+	return allowlistStore(s, app, path)
 }
 
 func AllowlistForPlatform(path string) error {
+	return allowlistStore(store.Platform(), "", path)
+}
+
+// allowlistStore applies the allowlist at path to s. app is the -app name, or
+// "" for the platform store. With no backup it refuses before any write,
+// dry-run included.
+func allowlistStore(s store.Store, app, path string) error {
 	al, err := allowlist.FromFile(path)
 	if err != nil {
 		return err
 	}
 
-	s := store.Platform()
-
-	// check for backup
+	label := app
+	if label == "" {
+		label = runtime.GOOS
+	}
 	latest, err := s.GetLatestBackup()
+	if errors.Is(err, store.ErrNoBackupFound) {
+		return store.NoBackupError(app)
+	}
 	if err != nil {
-		return fmt.Errorf("can't get latest backup for %s err=%w", runtime.GOOS, err)
+		return fmt.Errorf("can't check for a %s backup: %w", label, err)
 	}
 	if latest == "" {
-		return fmt.Errorf("no %s backup found", runtime.GOOS)
+		return store.NoBackupError(app)
 	}
 
-	err = s.Remove(al)
-	if err != nil {
+	if err := s.Remove(al); err != nil {
 		return err
 	}
 

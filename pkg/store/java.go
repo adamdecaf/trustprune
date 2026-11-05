@@ -399,7 +399,7 @@ func latestJavaBackupFor(keystore string, allowUnknown bool) (string, error) {
 		}
 	}
 	if best == "" {
-		return "", fmt.Errorf("store/java: no backup found for keystore %s", keystore)
+		return "", fmt.Errorf("store/java: %w for keystore %s", ErrNoBackupFound, keystore)
 	}
 	return best, nil
 }
