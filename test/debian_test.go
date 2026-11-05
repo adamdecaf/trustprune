@@ -31,3 +31,11 @@ func TestDebian__java(t *testing.T) {
 	img := Dockerfile("envs/debian")
 	javaSuite(t, img)
 }
+
+func TestDebian__certifi(t *testing.T) {
+	t.Parallel()
+
+	img := Dockerfile("envs/debian")
+	certifiSuite(t, img)
+}
+

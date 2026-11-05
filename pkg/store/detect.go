@@ -44,6 +44,8 @@ func DetectStatuses() []Status {
 
 func detectApp(name string) Status {
 	switch name {
+	case "certifi":
+		return detectCertifi()
 	case "chrome":
 		return detectChrome()
 	case "firefox":
@@ -57,6 +59,16 @@ func detectApp(name string) Status {
 	default:
 		return Status{Name: name}
 	}
+}
+
+func detectCertifi() Status {
+	s := Status{Name: "certifi"}
+	path, err := certifiStore{}.findCertPath()
+	if err == nil && path != "" {
+		s.Found = true
+		s.Path = path
+	}
+	return s
 }
 
 func detectSSL() Status {

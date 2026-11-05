@@ -46,6 +46,7 @@ func TestFormatAppsHelpLineFreshCache(t *testing.T) {
 	withTempAppsCache(t)
 
 	statuses := []Status{
+		{Name: "certifi", Found: true, Path: "/tmp/certifi"},
 		{Name: "chrome", Found: true, Path: "/tmp/chrome"},
 		{Name: "firefox", Found: false},
 		{Name: "java", Found: true, Path: "/tmp/java"},
@@ -60,6 +61,7 @@ func TestFormatAppsHelpLineFreshCache(t *testing.T) {
 	got := FormatAppsHelpLine()
 	// Platform is omitted from the help line; apps show found/not found.
 	for _, part := range []string{
+		"certifi (found)",
 		"chrome (found)",
 		"firefox (not found)",
 		"java (found)",
@@ -81,6 +83,7 @@ func TestFormatAppsHelpLineStaleCache(t *testing.T) {
 	payload, err := json.Marshal(appsCacheFile{
 		SavedAt: time.Now().UTC().Add(-appsCacheTTL - time.Hour),
 		Statuses: []Status{
+			{Name: "certifi", Found: true, Path: "/tmp/certifi"},
 			{Name: "chrome", Found: true, Path: "/tmp/chrome"},
 			{Name: "firefox", Found: true, Path: "/tmp/ff"},
 			{Name: "java", Found: true, Path: "/tmp/java"},

@@ -33,12 +33,13 @@ Parent directory (created as needed):
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem`, or a mirror of a hashed cert directory |
 | Darwin `-app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
+| Python `-app certifi` | `certifi/<unix-timestamp>/cacert.pem` — copy of certifi's CA bundle |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
 ## Restore with no backup
 
-When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (app stores such as firefox, chrome, ssl, and openssl suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
+When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (app stores such as firefox, chrome, ssl, openssl, and certifi suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
 
 ## Linux: temp-dir swap and rollback
 
@@ -99,6 +100,15 @@ Restore and other writers install via a sibling temp directory:
 5. After a successful swap, a failed aside cleanup warns on stderr naming the kept path and still returns success.
 
 Explicit `-file` / `where` is honored (PEM file or backup directory containing `cert.pem`).
+
+
+## Python certifi (`-app certifi`)
+
+Backup copies the live certifi CA bundle into `~/.trustprune/certifi/<unix-timestamp>/cacert.pem` (or `~/Library/trustprune/certifi/...` on Darwin). Backup directories use exclusive `Mkdir` and bump the unix-second on collision.
+
+Restore and other writers use the same atomic sibling-temp install as `-app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). An empty allowlist result is refused. Restore with no backup returns an error before any filesystem write (dry-run included).
+
+Path discovery matches `docs/usage.md`: `-file` override, Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. Use `-app certifi -file <cacert.pem>` to target a specific venv.
 
 ## OpenSSL (`-app openssl`)
 

@@ -35,6 +35,7 @@ var (
 
 	// Define a mapping between -app and the Store instance
 	appStores = map[string]Store{
+		"certifi": CertifiStore(),
 		"chrome":  ChromeStore(),
 		"firefox": FirefoxStore(),
 		"java":    JavaStore(),
@@ -140,17 +141,22 @@ func ForApp(app string) (Store, error) {
 }
 
 // ForAppWithFile returns a Store for app, optionally overriding the trust-store
-// path with filePath. Today only java uses filePath (keystore override); other
-// apps ignore it and behave like ForApp. Empty filePath is ForApp.
+// path with filePath. java uses it as a keystore override; certifi uses it as a
+// cacert.pem override (one bundle per venv). Other apps reject a non-empty
+// filePath. Empty filePath is ForApp.
 func ForAppWithFile(app, filePath string) (Store, error) {
 	app = strings.ToLower(app)
 	if strings.TrimSpace(filePath) == "" {
 		return ForApp(app)
 	}
-	if app == "java" {
+	switch app {
+	case "java":
 		return JavaStoreAt(filePath), nil
+	case "certifi":
+		return CertifiStoreAt(filePath), nil
+	default:
+		return nil, fmt.Errorf("-file with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
 	}
-	return nil, fmt.Errorf("-file with -app %s is only supported for java (keystore override)", app)
 }
 
 // getCertManageDir returns the fs location (always creating first) where a specific
