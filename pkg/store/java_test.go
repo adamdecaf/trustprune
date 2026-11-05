@@ -171,8 +171,12 @@ func TestJavaStoreAt_OverridesSearch(t *testing.T) {
 func TestJavaStoreAt_RejectsDirectory(t *testing.T) {
 	dir := t.TempDir()
 	s := JavaStoreAt(dir).(javaStore)
-	if _, err := s.keystorePath(); err == nil {
+	_, err := s.keystorePath()
+	if err == nil {
 		t.Fatal("expected error for directory keystore path")
+	}
+	if !strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("expected directory error, got %v", err)
 	}
 }
 
