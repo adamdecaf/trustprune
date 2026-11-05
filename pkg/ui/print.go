@@ -71,45 +71,66 @@ func getPrinter(name string) (printer, bool) {
 	return p, ok
 }
 
+// tableColumnWidth caps the SUBJECT and ISSUER columns of table output.
+const tableColumnWidth = 40
+
+// tableMaxLineWidth is the widest a non-verbose table line can be: two capped
+// name columns plus KEY, DAYS and the fingerprint preview.
+const tableMaxLineWidth = 2*tableColumnWidth + 40
+
+// truncateColumn shortens s to at most n runes, ending with an ellipsis when cut.
+func truncateColumn(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
+}
+
 // tablePrinter outputs a nicely formatted table of the certs found. This uses golang's
 // native text/tabwriter package to align based on the rows given to it.
 type tablePrinter struct {
 	verbose bool
 	path    string
+	now     time.Time // zero means time.Now()
 }
 
 func (tablePrinter) close() {}
 func (p tablePrinter) write(fd io.Writer, certs []*x509.Certificate) error {
 	w := tabwriter.NewWriter(fd, 0, 0, 1, ' ', 0)
-	now := time.Now()
+	now := p.now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	if p.verbose {
-		fmt.Fprintln(w, "Subject\tIssuer\tKEY\tDAYS\tSHA256 Fingerprint\tSerial\tPath\tNot Before\tNot After")
+		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256 FINGERPRINT\tSERIAL\tPATH\tNOT BEFORE\tNOT AFTER")
 	} else {
-		fmt.Fprintln(w, "Subject\tIssuer\tKEY\tDAYS\tSHA256 Fingerprint\tNot Before\tNot After")
+		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256 FINGERPRINT")
 	}
 
 	rows := make([]string, len(certs))
 	for i := range certs {
 		fingerprint := certutil.GetHexSHA256Fingerprint(*certs[i])
-		c1 := certutil.StringifyPKIXName(certs[i].Subject)
-		c2 := certutil.StringifyPKIXName(certs[i].Issuer)
+		subject := certutil.StringifyPKIXName(certs[i].Subject)
+		issuer := certutil.StringifyPKIXName(certs[i].Issuer)
+		c1 := truncateColumn(subject, tableColumnWidth)
+		c2 := "="
+		if issuer != subject {
+			c2 = truncateColumn(issuer, tableColumnWidth)
+		}
 		key := certutil.FormatKeyLabel(certs[i])
 		days := fmt.Sprintf("%d", certutil.DaysUntilExpiry(certs[i], now))
-		fp := fingerprint
-		if !p.verbose {
-			fp = fingerprint[:fingerprintPreviewLength]
-		}
-		c5 := certs[i].NotBefore.Format("2006-01-02")
-		c6 := certs[i].NotAfter.Format("2006-01-02")
 		if p.verbose {
 			serial := certs[i].SerialNumber.String()
 			path := p.path
 			if path == "" {
 				path = "-"
 			}
-			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fp, serial, path, c5, c6)
+			c5 := certs[i].NotBefore.Format("2006-01-02")
+			c6 := certs[i].NotAfter.Format("2006-01-02")
+			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fingerprint, serial, path, c5, c6)
 		} else {
-			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fp, c5, c6)
+			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fingerprint[:fingerprintPreviewLength])
 		}
 	}
 
