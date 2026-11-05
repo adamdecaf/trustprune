@@ -103,7 +103,8 @@ type Store interface {
 	// dry-run; it never falls back to a system default state.
 	//
 	// Optionally, this can take a specific filepath to use as the
-	// restore point. This may not be supported on all stores.
+	// restore point (the backup source; CLI -backup, and -file on stores
+	// other than java/certifi). This may not be supported on all stores.
 	//
 	// Note: It is strongly advised that any additional certs installed
 	// be verified are still properly installed and working after
@@ -146,8 +147,8 @@ func ForApp(app string) (Store, error) {
 
 // ForAppWithFile returns a Store for app, optionally overriding the trust-store
 // path with filePath. java uses it as a keystore override; certifi uses it as a
-// cacert.pem override (one bundle per venv). Other apps reject a non-empty
-// filePath. Empty filePath is ForApp.
+// cacert.pem override (one bundle per venv). Used by list/backup/connect/restore
+// -file. Other apps reject a non-empty filePath. Empty filePath is ForApp.
 func ForAppWithFile(app, filePath string) (Store, error) {
 	app = strings.ToLower(app)
 	if strings.TrimSpace(filePath) == "" {

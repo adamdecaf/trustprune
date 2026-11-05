@@ -41,6 +41,12 @@ var (
 	// -file is used to specify an input file path
 	flagFile = fs.String("file", "", "")
 
+	// -backup selects the backup source for restore (distinct from -file)
+	flagBackup = fs.String("backup", "", "")
+
+	// -force allows restore into a different store path than the backup came from
+	flagForce = fs.Bool("force", false, "")
+
 	// -url is used to specify an input URL
 	flagURL = fs.String("url", "", "")
 
@@ -86,7 +92,7 @@ SUB-COMMANDS
 
   list          List the currently installed and trusted certificates
 
-  restore       Revert the certificate trust back to, optionally takes -file <path>
+  restore       Revert the certificate trust back to, optionally takes -backup <path>
 
   version       Show the version of trustprune
 
@@ -95,8 +101,10 @@ APPS
 
 FLAGS
   -app <name>      The name of an application which to perform the given command on.
+  -backup <path>   Backup to restore from (restore command)
   -dry-run         Preview add/backup/restore/allowlist changes without writing to stores
   -file <path>     Local file path
+  -force           Allow restore into a different store path than the backup came from
   -from <type(s)>  Which sources to capture urls from. Comma separated list. (Options: browser, browsers, chrome, firefox, safari, file)
   -help            Show this help dialog
   -out <path>      Output file path, used by gen-allowlist
@@ -180,6 +188,7 @@ func main() {
 		Verbose: *flagVerbose,
 	}
 	store.SetDryRun(*flagDryRun)
+	store.SetForceRestore(*flagForce)
 
 	// Build up sub-commands
 	commands := make(map[string]*command)
@@ -372,21 +381,29 @@ APPS
 	}
 	commands["restore"] = &command{
 		fn: func() error {
-			return cmd.RestoreForPlatform(*flagFile)
+			return cmd.Restore("", *flagFile, *flagBackup)
 		},
 		appfn: func(a string) error {
-			return cmd.RestoreForApp(a, *flagFile)
+			return cmd.Restore(a, *flagFile, *flagBackup)
 		},
-		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-file <path>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-file <path>] [-backup <path>] [-force] [-dry-run]
 
   Restore certificates from the latest backup
     trustprune restore
 
-  Restore certificates for the platform from a file
+  Restore the platform store from an explicit backup
+    trustprune restore -backup <path>
     trustprune restore -file <path>
 
-  Restore certificates for an application from the latest backup
+  Restore an application from its latest matching backup
     trustprune restore -app java
+
+  Java and certifi: -file is the store to restore into (same as backup/list).
+  -backup selects the backup source. A backup taken from a different path is
+  refused before any write unless -force is given.
+    trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
+    trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
+    trustprune restore -app java -file /other/cacerts -backup <backup> -force
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),

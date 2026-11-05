@@ -19,6 +19,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -79,6 +80,80 @@ func TestJavaRestore_RefusesOtherKeystoreBackup(t *testing.T) {
 	got, _ := os.ReadFile(b)
 	if !bytes.Equal(got, []byte("ORIG-"+b)) {
 		t.Fatalf("keystore b was modified: %q", got)
+	}
+}
+
+func TestJavaRestore_CrossPathRefuseForceAndSamePath(t *testing.T) {
+	a, b := javaSourceTestHome(t)
+	sA := JavaStoreAt(a)
+	sB := JavaStoreAt(b)
+	SetDryRun(false)
+	SetForceRestore(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetForceRestore(false)
+	})
+
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupA, err := sA.GetLatestBackup()
+	if err != nil || backupA == "" {
+		t.Fatalf("latest A: %q err=%v", backupA, err)
+	}
+
+	beforeB, err := os.ReadFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dry := range []bool{false, true} {
+		t.Run("refuse dry="+strconv.FormatBool(dry), func(t *testing.T) {
+			SetDryRun(dry)
+			SetForceRestore(false)
+			err := sB.Restore(backupA)
+			if err == nil || !strings.Contains(err.Error(), "refusing restore") {
+				t.Fatalf("expected refusal, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "-force") {
+				t.Fatalf("error should mention -force: %v", err)
+			}
+			got, err := os.ReadFile(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, beforeB) {
+				t.Fatalf("cross-path restore mutated target: %q", got)
+			}
+		})
+	}
+
+	SetDryRun(false)
+	SetForceRestore(false)
+	if err := os.WriteFile(a, []byte("MUTATED"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sA.Restore(""); err != nil {
+		t.Fatalf("same-path restore: %v", err)
+	}
+	gotA, err := os.ReadFile(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, []byte("ORIG-"+a)) {
+		t.Fatalf("same-path restore mismatch: %q", gotA)
+	}
+
+	SetForceRestore(true)
+	if err := sB.Restore(backupA); err != nil {
+		t.Fatalf("forced restore: %v", err)
+	}
+	gotB, err := os.ReadFile(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotB, []byte("ORIG-"+a)) {
+		t.Fatalf("forced restore mismatch: %q", gotB)
 	}
 }
 

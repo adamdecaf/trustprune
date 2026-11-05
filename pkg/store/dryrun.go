@@ -26,9 +26,10 @@ import (
 )
 
 var (
-	dryRunMu  sync.Mutex
-	dryRun    bool
-	dryRunOut io.Writer = os.Stdout
+	dryRunMu     sync.Mutex
+	dryRun       bool
+	dryRunOut    io.Writer = os.Stdout
+	forceRestore bool
 )
 
 // SetDryRun enables or disables dry-run mode for store mutations.
@@ -45,6 +46,21 @@ func DryRun() bool {
 	dryRunMu.Lock()
 	defer dryRunMu.Unlock()
 	return dryRun
+}
+
+// SetForceRestore allows Restore to write a backup into a different store path
+// than the one recorded when the backup was taken (java and certifi).
+func SetForceRestore(v bool) {
+	dryRunMu.Lock()
+	defer dryRunMu.Unlock()
+	forceRestore = v
+}
+
+// ForceRestore reports whether cross-path restores are allowed.
+func ForceRestore() bool {
+	dryRunMu.Lock()
+	defer dryRunMu.Unlock()
+	return forceRestore
 }
 
 // SetDryRunOutput sets the writer used for dry-run plans. Pass nil to reset
