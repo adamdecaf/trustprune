@@ -25,7 +25,7 @@ Linux picks the first `cadir` whose bundle file exists. Backups of the Linux CA 
 | **Supported** | `java` | `cacerts` under `JAVA_HOME` (`lib/security/cacerts` or `jre/lib/security/cacerts`). Linux also probes `/usr/bin/java`, `/etc/alternatives/java`, `/usr/lib/jvm/default-jvm`. Darwin uses `/usr/libexec/java_home`, each `*/Contents/Home` under `/Library/Java/JavaVirtualMachines/`, and Homebrew OpenJDK prefixes. Windows requires a usable `JAVA_HOME` (no extra install-path probes). `-app java -file <cacerts>` overrides search for list/backup/connect. | list, add, allowlist, backup, restore |
 | **Partial** | `chrome` | **Linux:** NSS DB at `~/.pki/nssdb`. **Darwin / Windows:** wraps the platform store (Chrome uses the OS trust store). | Full NSS ops on Linux when the DB exists; otherwise platform behavior |
 | **Partial** | `firefox` | NSS profile dirs matching `~/.mozilla/firefox/*.default` (Linux) or `~/Library/Application Support/Firefox/Profiles/*.default` (Darwin). Uses `cert9.db` or legacy `cert8.db`. | list/add/allowlist/backup/restore via NSS when a profile is found |
-| **Stub** | `openssl` | Cert paths probed: `/etc/ssl/certs/ca-certificates.crt`, `/usr/local/etc/openssl/certs`. Rehash: `/usr/bin/c_rehash`, `/usr/local/opt/openssl/bin/c_rehash`. | **Add** (write + `c_rehash`) only; List, Backup, and Remove return empty / no-op. `restore` with no `-file` exits 1 (`no backup for openssl; restore is not supported for this store`); a non-empty `-file` is a no-op success |
+| **Supported** | `openssl` | First existing path wins: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, then `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew OpenSSL cert dirs (`/usr/local/etc/openssl/certs`, `/opt/homebrew/etc/openssl/certs`, and `openssl@3` / `openssl@1.1` variants), then `git config --get http.sslCAInfo` (best-effort). Darwin `/etc/ssl/cert.pem` is **not** an openssl default (use `-app ssl`). Rehash: `c_rehash` when present (`/usr/bin/c_rehash`, Homebrew openssl prefixes). | list, add, allowlist (Remove), backup, restore, `-dry-run` for both PEM **files** (atomic sibling-temp install, refuse empty bundle) and OpenSSL **cert directories** (`*.pem`/`*.crt`, directory swap, `c_rehash` after add; rehash after remove/restore if available) |
 | **Supported (Darwin)** | `ssl` | `/etc/ssl/cert.pem` — the PEM bundle curl, git, python3, ruby, perl, and openssl CLI tools read on macOS. Apple's keychain blocks do not apply here ([eMudhra / HT149555](https://support.apple.com/en-us/149555)). Not available as a store on Linux/Windows. | list, add, allowlist (Remove), backup, restore, `-dry-run`; atomic sibling-temp install (copy aside to `.restore-old`, refuse leftover aside, exclusive backup dirs); list/add/allowlist parse negative-serial certs via a cryptobyte fallback (no GODEBUG); other unparsable PEM blocks get a stderr warning and are kept in original order on rewrite; warns when the live file differs from the last trustprune write (typical after a macOS update restores Apple's copy) |
 
 ### NSS profile files
@@ -46,7 +46,7 @@ NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/
 | Linux / Windows | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
 | Darwin | `~/Library/trustprune/` (read-only fallback `~/Library/cert-manage/`) |
 
-Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`.
+Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`, `openssl/`.
 
 ## Future stores
 
