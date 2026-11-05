@@ -72,6 +72,7 @@ trustprune backup -app firefox
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Back up that application's store instead of the platform |
+| `-file <keystore>` | Java only: back up that keystore file instead of searching `JAVA_HOME` |
 | `-dry-run` | Print what would be backed up; creates nothing |
 
 See [Backup and restore](backup-restore.md) for where files land.
@@ -183,12 +184,14 @@ Attempt an HTTPS connection using the platform store or an app store. Useful aft
 ```bash
 trustprune connect https://example.com
 trustprune connect -app java https://example.com
+trustprune connect -app java -file /path/to/cacerts https://example.com
 trustprune connect -url https://example.com
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
+| `-file <keystore>` | Java only: load that keystore instead of searching `JAVA_HOME` (same override as `list` / `backup`) |
 | `-url <url>` | URL to connect to, instead of the positional argument (e.g. `-url https://example.com`) |
 
 The URL must use the `https` scheme.

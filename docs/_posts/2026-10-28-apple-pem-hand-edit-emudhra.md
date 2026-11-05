@@ -71,4 +71,7 @@ On Linux, that path covers the platform CA directory and refresh tools. On Darwi
 
 Apple's PEM recipe is an honest interim for a real hole in macOS CLI trust. It also shows what "just edit the bundle" costs: silent reverts, brittle scripts, and no plan you can review before you write. Prefer a tool that dry-runs, backs up, restores, and applies the same policy on every store you actually use. That is safer than hand-editing a PEM under pressure—not a guarantee that nothing will break.
 
+
+**Correction (5 November 2026).** Since this post was published, [issue #257](https://github.com/adamdecaf/trustprune/issues/257) closed: Darwin `/etc/ssl/cert.pem` is managed with `-app ssl` (list, backup, allowlist, restore, `-dry-run`). Darwin platform restore also honors `-file` / `where` for the login-keychain backup directory. The paragraphs above that said PEM management was only tracked in #257, and that Darwin platform restore always used the latest backup, are stale as of that date; leave them as the Oct 28 snapshot and prefer the current [usage](../usage.md) and [platforms](../platforms.md) docs.
+
 Changing CA trust stores can break TLS, cut off access and reduce security, so back up first and proceed at your own risk. trustprune is provided as is, with no warranty, under the Apache License 2.0, and its authors and contributors accept no liability.

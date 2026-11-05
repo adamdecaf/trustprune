@@ -78,7 +78,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
-| **Stub** | OpenSSL | Add / rehash paths exist; list, backup, remove, and restore are no-ops |
+| **Stub** | OpenSSL | Add / rehash paths exist; list, backup, and remove are no-ops. `restore` with no `-file` exits 1 (`no backup for openssl; restore is not supported for this store`); a non-empty `-file` is a no-op success |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
 
 

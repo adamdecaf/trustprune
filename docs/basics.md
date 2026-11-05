@@ -24,6 +24,9 @@ Connection to https://google.com passed!
 $ ./trustprune connect -app java https://google.com
 Connection to https://google.com passed!
 
+$ ./trustprune connect -app java -file /path/to/cacerts https://google.com
+Connection to https://google.com passed!
+
 $ ./trustprune connect -url https://google.com
 Connection to https://google.com passed!
 ```
@@ -160,7 +163,7 @@ trusted_certificates:
 
 ### Web
 
-`trustprune` can present certificates on a local web page with `-ui web` passed to any command.
+`trustprune` can present certificates on a local web page with `-ui web` on `list` only (other commands ignore `-ui`).
 
 ```
 $ trustprune list -app java -ui web
