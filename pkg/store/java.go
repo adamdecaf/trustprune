@@ -17,6 +17,7 @@ package store
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -35,9 +36,17 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
+const (
+	keystoreTamperedMessage = "Keystore was tampered with, or password was incorrect"
+)
+
 var (
 	defaultKeystorePassword = "changeit"
 	javaCertManageDir       = "java"
+
+	// keytoolTimeout bounds every keytool process so a password prompt or a
+	// hung child cannot block forever. Tests override this to a short duration.
+	keytoolTimeout = 30 * time.Second
 )
 
 type javaStore struct {
@@ -79,6 +88,9 @@ func validateJavaKeystoreFile(path string) (string, error) {
 	}
 	if st.IsDir() {
 		return "", fmt.Errorf("store/java: keystore path %s is a directory, need the cacerts file", path)
+	}
+	if !st.Mode().IsRegular() {
+		return "", fmt.Errorf("store/java: keystore path %s is not a regular file", path)
 	}
 	if st.Size() == 0 {
 		return "", fmt.Errorf("store/java: keystore %s is empty", path)
@@ -583,23 +595,8 @@ func (k keytool) addCertificate(where string, alias string) error {
 		"-alias", alias,
 		"-noprompt",
 	}
-	cmd := exec.Command("keytool", args...)
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if err != nil {
-		if debug {
-			fmt.Printf("Command was: %s\n", strings.Join(cmd.Args, " "))
-			fmt.Printf("Stdout:\n%s\n", stdout.String())
-			fmt.Printf("Stderr:\n%s\n", stderr.String())
-		}
-		return err
-	}
-	return nil
+	_, err = k.runKeytool(kpath, args, false)
+	return err
 }
 
 // expandSymlink takes in a symlink which refers to the `java` cli tool
@@ -693,7 +690,6 @@ func (k keytool) getKeystorePath() (string, error) {
 }
 
 func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
-	// `keytool` gets installed onto PATH, so no need to search for it
 	kpath, err := k.getKeystorePath()
 	if err != nil {
 		return nil, err
@@ -705,23 +701,7 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 		"-keystore", kpath,
 		"-noprompt",
 	}, extraArgs...)
-	cmd := exec.Command("keytool", args...)
-
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	err = cmd.Run()
-	if err != nil {
-		if debug {
-			fmt.Printf("Command was: %s\n", strings.Join(cmd.Args, " "))
-			fmt.Printf("Stdout:\n%s\n", stdout.String())
-			fmt.Printf("Stderr:\n%s\n", stderr.String())
-		}
-		return nil, err
-	}
-	return stdout.Bytes(), nil
+	return k.runKeytool(kpath, args, false)
 }
 
 func (k keytool) getCertificates() ([]*x509.Certificate, error) {
@@ -845,25 +825,83 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 	}
 
 	args := []string{
-		"keytool",
 		"-delete",
 		"-alias", alias,
 		"-keystore", kpath,
 		"-storepass", defaultKeystorePassword,
 		"-noprompt",
 	}
+	useSudo := runtime.GOOS != "windows" && os.Getuid() != 0
+	_, err := k.runKeytool(kpath, args, useSudo)
+	return err
+}
 
-	var cmd *exec.Cmd
-	if runtime.GOOS == "windows" || os.Getuid() == 0 {
-		// already root
-		cmd = exec.Command(args[0], args[1:]...)
-	} else {
-		cmd = exec.Command("sudo", args...)
+// keytoolBin prefers $JAVA_HOME/bin/keytool so a temp JAVA_HOME can supply a
+// stub, then falls back to PATH.
+func (k keytool) keytoolBin() string {
+	home := strings.TrimSpace(k.javahome)
+	if home == "" {
+		return "keytool"
 	}
+	candidates := []string{filepath.Join(home, "bin", "keytool")}
+	if runtime.GOOS == "windows" {
+		candidates = []string{
+			filepath.Join(home, "bin", "keytool.exe"),
+			filepath.Join(home, "bin", "keytool.bat"),
+			filepath.Join(home, "bin", "keytool.cmd"),
+			filepath.Join(home, "bin", "keytool"),
+		}
+	}
+	for _, p := range candidates {
+		if st, err := os.Stat(p); err == nil && !st.IsDir() {
+			return p
+		}
+	}
+	return "keytool"
+}
 
-	var stdout bytes.Buffer
+func ensureKeytoolNonInteractive(args []string) []string {
+	hasNoprompt, hasStorepass := false, false
+	for _, a := range args {
+		switch a {
+		case "-noprompt":
+			hasNoprompt = true
+		case "-storepass":
+			hasStorepass = true
+		}
+	}
+	if !hasStorepass {
+		args = append(args, "-storepass", defaultKeystorePassword)
+	}
+	if !hasNoprompt {
+		args = append(args, "-noprompt")
+	}
+	return args
+}
+
+// runKeytool validates kpath, then runs keytool with a timeout and no stdin
+// so it can never block on a password prompt.
+func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, error) {
+	if _, err := validateJavaKeystoreFile(kpath); err != nil {
+		return nil, err
+	}
+	args = ensureKeytoolNonInteractive(args)
+
+	ctx, cancel := context.WithTimeout(context.Background(), keytoolTimeout)
+	defer cancel()
+
+	bin := k.keytoolBin()
+	var cmd *exec.Cmd
+	if useSudo {
+		cmd = exec.CommandContext(ctx, "sudo", append([]string{bin}, args...)...)
+	} else {
+		cmd = exec.CommandContext(ctx, bin, args...)
+	}
+	// nil Stdin is the null device; keytool must never inherit a TTY.
+	cmd.Stdin = nil
+
+	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
-	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
@@ -873,7 +911,31 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 			fmt.Printf("Stdout:\n%s\n", stdout.String())
 			fmt.Printf("Stderr:\n%s\n", stderr.String())
 		}
-		return fmt.Errorf("%v when running keytool -delete %s", err.Error(), strings.TrimSpace(stdout.String()))
+		return stdout.Bytes(), wrapKeytoolError(err, stdout.String(), stderr.String(), errors.Is(ctx.Err(), context.DeadlineExceeded))
 	}
-	return nil
+	return stdout.Bytes(), nil
+}
+
+func wrapKeytoolError(err error, stdout, stderr string, timedOut bool) error {
+	detail := strings.TrimSpace(stderr)
+	if detail == "" {
+		detail = strings.TrimSpace(stdout)
+	}
+	if timedOut {
+		if detail != "" {
+			return fmt.Errorf("store/java: keytool timed out after %s: %s", keytoolTimeout, detail)
+		}
+		return fmt.Errorf("store/java: keytool timed out after %s", keytoolTimeout)
+	}
+	combined := stdout + "\n" + stderr
+	if strings.Contains(combined, keystoreTamperedMessage) {
+		if detail == "" {
+			detail = keystoreTamperedMessage
+		}
+		return fmt.Errorf("store/java: wrong keystore password: %s", detail)
+	}
+	if detail != "" {
+		return fmt.Errorf("store/java: keytool: %w: %s", err, detail)
+	}
+	return fmt.Errorf("store/java: keytool: %w", err)
 }
