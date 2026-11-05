@@ -225,11 +225,17 @@ func backupParentDisplay() string {
 // errNoBackup is returned by Restore when no backup exists for a store. It is
 // raised before any filesystem write (including under -dry-run).
 func errNoBackup(store, name string) error {
+	return errNoBackupCmd(store, name, "trustprune backup")
+}
+
+// errNoBackupCmd is errNoBackup with a custom suggested backup command, used by
+// app stores (e.g. "trustprune backup -app firefox").
+func errNoBackupCmd(store, name, backupCmd string) error {
 	parent := "~/.trustprune"
 	if runtime.GOOS == "darwin" {
 		parent = "~/Library/trustprune"
 	}
-	return fmt.Errorf("no backup for %s in %s/%s; run: trustprune backup", store, parent, name)
+	return fmt.Errorf("no backup for %s in %s/%s; run: %s", store, parent, name, backupCmd)
 }
 
 // primaryBackupParent is where new backups are written.

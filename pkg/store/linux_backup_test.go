@@ -527,6 +527,12 @@ func TestLinuxRestore_NoBackupRefusesBeforeWrite(t *testing.T) {
 			}
 			if got := snapshotTreeMeta(t, home); len(got) != len(beforeHome) {
 				t.Fatalf("HOME changed: before=%v after=%v", beforeHome, got)
+			} else {
+				for k, v := range beforeHome {
+					if got[k] != v {
+						t.Fatalf("HOME path %s changed", k)
+					}
+				}
 			}
 			if _, err := os.Stat(s.ca.dir + ".restore-tmp"); !os.IsNotExist(err) {
 				t.Fatalf("restore-tmp created: %v", err)
