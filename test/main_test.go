@@ -68,7 +68,7 @@ func TestCertManage_help(t *testing.T) {
 	}
 
 	// sub-command, but no args
-	subCommands := []string{"add", "gen-allowlist", "allowlist"}
+	subCommands := []string{"add", "allowlist"}
 	for i := range subCommands {
 		out, err := run(t, subCommands[i])
 		if err != nil && !strings.Contains(err.Error(), "exit status 1") {
@@ -104,13 +104,14 @@ func TestCertManage_help(t *testing.T) {
 	// hidden aliases still invoke the same commands and share allowlist help
 	aliases := []struct {
 		name string
+		args []string
 		want string
 	}{
-		{"whitelist", subCmdUsage("allowlist")},
-		{"gen-whitelist", subCmdUsage("gen-allowlist")},
+		{"whitelist", nil, subCmdUsage("allowlist")},
+		{"gen-whitelist", []string{"-out", filepath.Join(t.TempDir(), "allowlist.yaml")}, subCmdUsage("gen-allowlist")},
 	}
 	for i := range aliases {
-		out, err := run(t, aliases[i].name)
+		out, err := run(t, append([]string{aliases[i].name}, aliases[i].args...)...)
 		if err != nil && !strings.Contains(err.Error(), "exit status 1") {
 			t.Errorf("alias %q, err=%v", aliases[i].name, err)
 		}
@@ -196,5 +197,18 @@ func TestCertManage_aliasNotice(t *testing.T) {
 	}
 	if stdout.Len() == 0 {
 		t.Fatal("expected version on stdout")
+	}
+}
+
+func TestCertManage_genAllowlistNoFlags(t *testing.T) {
+	out, err := run(t, "gen-allowlist")
+	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
+		t.Fatalf("expected exit status 2, got err=%v output=%q", err, out)
+	}
+	if !strings.Contains(out, "ERROR: -out is required") {
+		t.Errorf("expected -out error, got %q", out)
+	}
+	if strings.Contains(out, "Usage: trustprune gen-allowlist") {
+		t.Errorf("expected no usage text, got %q", out)
 	}
 }

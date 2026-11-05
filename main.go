@@ -280,7 +280,11 @@ APPS
 	}
 	genAllowlistCmd := &command{
 		fn: func() error {
-			if *flagOutFile == "" || (*flagFrom == "" && *flagFile == "") {
+			if *flagOutFile == "" {
+				fmt.Println("ERROR: -out is required")
+				os.Exit(2)
+			}
+			if *flagFrom == "" && *flagFile == "" {
 				callForHelp = true
 				return nil
 			}
