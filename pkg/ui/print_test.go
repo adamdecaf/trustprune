@@ -17,12 +17,15 @@ package ui
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
@@ -125,5 +128,64 @@ func TestTablePrinterIncludesKeyAndDays(t *testing.T) {
 	}
 	if !strings.Contains(out, "RSA-") {
 		t.Fatalf("missing KEY value:\n%s", out)
+	}
+}
+
+const tableGoldenPath = "testdata/table.golden"
+
+var updateGolden = flag.Bool("update", false, "rewrite golden files")
+
+func TestTablePrinterGoldenWidth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bs, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certs, err := certutil.Decode(bs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	p := tablePrinter{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	if err := p.write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+
+	if *updateGolden {
+		if err := os.MkdirAll("testdata", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(tableGoldenPath, []byte(out), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(tableGoldenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Fatalf("table output differs from %s (run with -update):\n%s", tableGoldenPath, out)
+	}
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if !strings.HasPrefix(lines[0], "SUBJECT ") || !strings.Contains(lines[0], "ISSUER") {
+		t.Fatalf("headers not uppercase: %q", lines[0])
+	}
+	for i, line := range lines {
+		if n := utf8.RuneCountInString(strings.TrimRight(line, " ")); n > tableMaxLineWidth {
+			t.Errorf("line %d is %d wide (max %d): %q", i, n, tableMaxLineWidth, line)
+		}
+	}
+}
+
+func TestTruncateColumn(t *testing.T) {
+	if got := truncateColumn("short", 40); got != "short" {
+		t.Errorf("got %q", got)
+	}
+	long := strings.Repeat("a", 50)
+	got := truncateColumn(long, 40)
+	if utf8.RuneCountInString(got) != 40 || !strings.HasSuffix(got, "…") {
+		t.Errorf("got %q", got)
 	}
 }

@@ -64,14 +64,14 @@ Certificate
 ...
 ```
 
-`-format table` prints an aligned table. Columns are Subject, Issuer, KEY, DAYS, SHA256 Fingerprint (16-character preview), Not Before, and Not After. Pass `-v` for the full fingerprint, serial, and source or store path (`-` for URLs).
+`-format table` prints an aligned table with uppercase headers: SUBJECT, ISSUER, KEY, DAYS, and SHA256 FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). Pass `-v` for the full fingerprint, serial, source or store path (`-` for URLs), and the NOT BEFORE and NOT AFTER dates.
 
 ```
 $ trustprune list -format table
-Subject                                                                 Issuer                                                                  KEY       DAYS SHA256 Fingerprint Not Before Not After
-AC RAIZ FNMT-RCM SERVIDORES SEGUROS                                     AC RAIZ FNMT-RCM SERVIDORES SEGUROS                                     ECDSA-384 6258 554153b13d2cf9dd   2018-12-20 2043-12-20
-ACCVRAIZ1                                                               ACCVRAIZ1                                                               RSA-4096  1521 9a6ec012e1a7da9d   2011-05-05 2030-12-31
-Actalis Authentication Root CA                                          Actalis Authentication Root CA                                          RSA-4096  1421 55926084ec963a64   2011-09-22 2030-09-22
+SUBJECT                                  ISSUER KEY       DAYS SHA256 FINGERPRINT
+EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516
+Entrust Root Certification Authority     =      RSA-2048  330  73c176434f1bc6d5
+Entrust Root Certification Authority - … =      ECDSA-384 4369 02ed0eb28c14da45
 ...
 ```
 
