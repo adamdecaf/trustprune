@@ -80,9 +80,25 @@ func opensslStoreAt(path string) opensslStore {
 
 func (s opensslStore) certPath() (string, error) {
 	if s.path != "" {
-		return s.path, nil
+		return resolveOpenSSLCertPath(s.path), nil
 	}
-	return s.findCertPath()
+	p, err := s.findCertPath()
+	if err != nil {
+		return "", err
+	}
+	return resolveOpenSSLCertPath(p), nil
+}
+
+// resolveOpenSSLCertPath follows symlinks so writes update the real file.
+// On RHEL/Fedora, ca-bundle.crt is often a symlink into the ca-trust tree;
+// renaming over the link would replace it with a regular file and break
+// later update-ca-trust refreshes. If resolution fails, return path unchanged.
+func resolveOpenSSLCertPath(path string) string {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil || resolved == "" {
+		return path
+	}
+	return resolved
 }
 
 func (s opensslStore) Add(certs []*x509.Certificate) error {
@@ -127,6 +143,9 @@ func (s opensslStore) addToDir(dir string, certs []*x509.Certificate) error {
 		}
 		reportDryRun("add certificates to", "openssl", dir, details...)
 		return nil
+	}
+	if len(certs) > 0 && findCRehash() == "" {
+		return errors.New("unable to find openssl c_rehash binary")
 	}
 	for i := range certs {
 		fp := certutil.GetHexSHA256Fingerprint(*certs[i])
@@ -316,21 +335,76 @@ func (s opensslStore) removeFromDir(dir string, al allowlist.Allowlist) error {
 		reportDryRun("remove certificates from", "openssl", dir, details...)
 		return nil
 	}
+
+	// Stage the pruned tree, then swap. A mid-loop failure must not leave the
+	// live directory half-pruned (same safety as restoreDir).
+	tmp := dir + ".restore-tmp"
+	aside := dir + ".restore-old"
+	if _, err := os.Lstat(aside); err == nil {
+		return fmt.Errorf("previous restore left %s; inspect it and remove it, then rerun", aside)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", aside, err)
+	}
+	if err := os.RemoveAll(tmp); err != nil {
+		return err
+	}
+	if err := file.MirrorDir(dir, tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+		return err
+	}
 	for _, it := range plan {
 		if len(it.removed) == 0 {
 			continue
 		}
+		rel, err := filepath.Rel(dir, it.path)
+		if err != nil {
+			_ = os.RemoveAll(tmp)
+			return err
+		}
+		staged := filepath.Join(tmp, rel)
 		if len(it.kept.Certs) == 0 && it.kept.Skipped == 0 {
-			if err := os.Remove(it.path); err != nil {
+			if err := os.Remove(staged); err != nil {
+				_ = os.RemoveAll(tmp)
 				return err
 			}
 			continue
 		}
-		if err := certutil.ToFileEntries(it.path, it.kept.Entries); err != nil {
+		if err := certutil.ToFileEntries(staged, it.kept.Entries); err != nil {
+			_ = os.RemoveAll(tmp)
 			return err
 		}
 	}
-	return s.rehash(dir, false)
+	if err := renameAside(dir, aside); err != nil {
+		_ = os.RemoveAll(tmp)
+		return err
+	}
+	if err := renameDir(tmp, dir); err != nil {
+		_ = os.RemoveAll(tmp)
+		if rerr := renameDir(aside, dir); rerr != nil {
+			fmt.Fprintf(os.Stderr, "store/openssl: previous cert directory moved aside to %s\n", aside)
+			return fmt.Errorf("%w (previous openssl cert dir still at %s)", err, aside)
+		}
+		return err
+	}
+	if err := s.rehash(dir, false); err != nil {
+		failed := dir + ".restore-failed"
+		_ = os.RemoveAll(failed)
+		if rerr := renameDir(dir, failed); rerr != nil {
+			fmt.Fprintf(os.Stderr, "store/openssl: previous cert directory moved aside to %s\n", aside)
+			return fmt.Errorf("%w (previous openssl cert dir still at %s)", err, aside)
+		}
+		if rerr := renameDir(aside, dir); rerr != nil {
+			_ = renameDir(failed, dir)
+			fmt.Fprintf(os.Stderr, "store/openssl: previous cert directory moved aside to %s\n", aside)
+			return fmt.Errorf("failed to restore previous openssl cert dir from %s: %w", aside, errors.Join(err, rerr))
+		}
+		_ = os.RemoveAll(failed)
+		return err
+	}
+	if err := os.RemoveAll(aside); err != nil {
+		fmt.Fprintf(os.Stderr, "store/openssl: warning: could not fully remove %s after allowlist: %v (remaining contents may be incomplete)\n", aside, err)
+	}
+	return nil
 }
 
 func (s opensslStore) Restore(where string) error {
@@ -423,9 +497,12 @@ func (s opensslStore) restoreDir(src, dst string) error {
 	aside := dst + ".restore-old"
 	liveExists := file.Exists(dst)
 	if liveExists {
-		if err := os.RemoveAll(aside); err != nil {
+		if _, err := os.Lstat(aside); err == nil {
 			_ = os.RemoveAll(tmp)
-			return err
+			return fmt.Errorf("previous restore left %s; inspect it and remove it, then rerun", aside)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			_ = os.RemoveAll(tmp)
+			return fmt.Errorf("stat %s: %w", aside, err)
 		}
 		if err := renameAside(dst, aside); err != nil {
 			_ = os.RemoveAll(tmp)

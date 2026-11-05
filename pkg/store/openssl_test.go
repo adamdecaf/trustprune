@@ -784,6 +784,76 @@ func TestOpenSSLStore_RestoreDryRunDoesNotWrite(t *testing.T) {
 	}
 }
 
+func TestOpenSSLStore_CertPathResolvesSymlink(t *testing.T) {
+	isolateOpenSSLLookup(t)
+	s, path, certs := opensslFileEnv(t)
+	link := filepath.Join(filepath.Dir(path), "ca-bundle-link.crt")
+	if err := os.Symlink(path, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+	linked := opensslStoreAt(link)
+	got, err := linked.certPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(got) != filepath.Clean(want) {
+		t.Fatalf("certPath=%q, want resolved %q", got, want)
+	}
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	SetDryRun(false)
+	if err := linked.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := linked.Remove(keep); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("symlink was replaced by a regular file")
+	}
+	resolved, err := filepath.EvalSymlinks(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(resolved) != filepath.Clean(want) {
+		t.Fatalf("link no longer points at target: %q vs %q", resolved, want)
+	}
+	_ = s
+}
+
+func TestOpenSSLStore_DirRestoreRefusesLeftoverAside(t *testing.T) {
+	isolateOpenSSLLookup(t)
+	s, dir, _ := opensslDirEnv(t)
+	SetDryRun(false)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	aside := dir + ".restore-old"
+	if err := os.Mkdir(aside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(aside, "keep.crt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := s.Restore("")
+	if err == nil {
+		t.Fatal("expected error for leftover .restore-old")
+	}
+	if !strings.Contains(err.Error(), ".restore-old") {
+		t.Fatalf("error should name leftover aside, got %v", err)
+	}
+	if _, err := os.Lstat(aside); err != nil {
+		t.Fatalf("leftover aside was deleted: %v", err)
+	}
+}
+
 func TestOpenSSLStore_DirRestoreRejectsFileWhere(t *testing.T) {
 	s, dir, certs := opensslDirEnv(t)
 	pem := filepath.Join(t.TempDir(), "bundle.pem")
