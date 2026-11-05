@@ -56,6 +56,10 @@ var (
 	// escalate. Tests replace it with a wrapper; never a reason to call real
 	// sudo from unit tests.
 	keytoolSudoPath = "sudo"
+
+	// findTimeoutBin locates coreutils `timeout` so a sudo-wrapped keytool can
+	// be killed as root. Tests override this.
+	findTimeoutBin = defaultFindTimeoutBin
 )
 
 type javaStore struct {
@@ -888,6 +892,39 @@ func ensureKeytoolNonInteractive(args []string) []string {
 	return args
 }
 
+func defaultFindTimeoutBin() string {
+	p, err := exec.LookPath("timeout")
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// keytoolTimeoutSecs is keytoolTimeout rounded up to whole seconds, minimum 1,
+// for `timeout -s KILL <secs>`.
+func keytoolTimeoutSecs() int {
+	d := keytoolTimeout
+	if d < time.Second {
+		return 1
+	}
+	secs := int(d / time.Second)
+	if d%time.Second != 0 {
+		secs++
+	}
+	return secs
+}
+
+func sudoKeytoolArgs(bin string, args []string) (sudoArgs []string, usedRootTimeout bool) {
+	sudoArgs = []string{"-n"}
+	if tbin := findTimeoutBin(); tbin != "" {
+		sudoArgs = append(sudoArgs, tbin, "-s", "KILL", strconv.Itoa(keytoolTimeoutSecs()))
+		usedRootTimeout = true
+	}
+	sudoArgs = append(sudoArgs, bin)
+	sudoArgs = append(sudoArgs, args...)
+	return sudoArgs, usedRootTimeout
+}
+
 // runKeytool validates kpath, then runs keytool with a timeout and no stdin
 // so it can never block on a password prompt.
 func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, error) {
@@ -900,9 +937,12 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	defer cancel()
 
 	bin := k.keytoolBin()
+	usedRootTimeout := false
 	var cmd *exec.Cmd
 	if useSudo {
-		cmd = exec.CommandContext(ctx, keytoolSudoPath, append([]string{bin}, args...)...)
+		var sudoArgs []string
+		sudoArgs, usedRootTimeout = sudoKeytoolArgs(bin, args)
+		cmd = exec.CommandContext(ctx, keytoolSudoPath, sudoArgs...)
 	} else {
 		cmd = exec.CommandContext(ctx, bin, args...)
 	}
@@ -922,21 +962,33 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 			fmt.Printf("Stdout:\n%s\n", stdout.String())
 			fmt.Printf("Stderr:\n%s\n", stderr.String())
 		}
-		return stdout.Bytes(), wrapKeytoolError(err, stdout.String(), stderr.String(), errors.Is(ctx.Err(), context.DeadlineExceeded))
+		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		if !timedOut && usedRootTimeout {
+			var ee *exec.ExitError
+			if errors.As(err, &ee) && ee.ExitCode() == 124 {
+				timedOut = true
+			}
+		}
+		rootMayStillRun := useSudo && !usedRootTimeout && timedOut
+		return stdout.Bytes(), wrapKeytoolError(err, stdout.String(), stderr.String(), timedOut, rootMayStillRun)
 	}
 	return stdout.Bytes(), nil
 }
 
-func wrapKeytoolError(err error, stdout, stderr string, timedOut bool) error {
+func wrapKeytoolError(err error, stdout, stderr string, timedOut, rootMayStillRun bool) error {
 	detail := strings.TrimSpace(stderr)
 	if detail == "" {
 		detail = strings.TrimSpace(stdout)
 	}
 	if timedOut {
-		if detail != "" {
-			return fmt.Errorf("store/java: keytool timed out after %s: %s", keytoolTimeout, detail)
+		msg := fmt.Sprintf("store/java: keytool timed out after %s", keytoolTimeout)
+		if rootMayStillRun {
+			msg += "; keytool may still be running as root"
 		}
-		return fmt.Errorf("store/java: keytool timed out after %s", keytoolTimeout)
+		if detail != "" {
+			return fmt.Errorf("%s: %s", msg, detail)
+		}
+		return errors.New(msg)
 	}
 	combined := stdout + "\n" + stderr
 	if strings.Contains(combined, keystoreTamperedMessage) {

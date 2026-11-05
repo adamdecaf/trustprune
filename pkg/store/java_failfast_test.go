@@ -45,10 +45,12 @@ func javaFailFastEnv(t *testing.T) string {
 	orig := ktool
 	origTimeout := keytoolTimeout
 	origSudo := keytoolSudoPath
+	origFindTimeout := findTimeoutBin
 	t.Cleanup(func() {
 		ktool = orig
 		keytoolTimeout = origTimeout
 		keytoolSudoPath = origSudo
+		findTimeoutBin = origFindTimeout
 	})
 	ktool = keytool{
 		javahome:              javaHome,
@@ -158,6 +160,24 @@ exit 1`)
 	}
 	if strings.Contains(err.Error(), "is a directory") || strings.Contains(err.Error(), "has no cacerts") {
 		t.Fatalf("wrong-password error must be distinct: %v", err)
+	}
+}
+
+func TestKeytoolTimeoutSecs(t *testing.T) {
+	orig := keytoolTimeout
+	t.Cleanup(func() { keytoolTimeout = orig })
+
+	keytoolTimeout = 400 * time.Millisecond
+	if g := keytoolTimeoutSecs(); g != 1 {
+		t.Errorf("400ms: got %d, want 1", g)
+	}
+	keytoolTimeout = 30 * time.Second
+	if g := keytoolTimeoutSecs(); g != 30 {
+		t.Errorf("30s: got %d, want 30", g)
+	}
+	keytoolTimeout = 30*time.Second + time.Millisecond
+	if g := keytoolTimeoutSecs(); g != 31 {
+		t.Errorf("30s+1ms: got %d, want 31", g)
 	}
 }
 
