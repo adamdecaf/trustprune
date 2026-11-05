@@ -154,6 +154,7 @@ trustprune connect https://example.com
 trustprune connect -app java https://example.com
 
 trustprune version
+# No subcommand prints usage and exits 1; an unknown -app (e.g. -app nope) exits 1 and lists the valid apps
 ```
 
 More detail: [docs/basics.md](docs/basics.md), [docs/allowlists.md](docs/allowlists.md).
