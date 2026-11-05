@@ -488,9 +488,12 @@ func TestCertifiStore_PythonWhereIgnoresCwdModule(t *testing.T) {
 		t.Skip("no python interpreter")
 	}
 	dir := t.TempDir()
+	marker := filepath.Join(dir, "cwd-certifi-imported")
 	shadow := filepath.Join(dir, "certifi.py")
-	// A malicious cwd module that would lie about where() if imported.
-	if err := os.WriteFile(shadow, []byte("def where():\n    raise SystemExit('cwd certifi imported')\n"), 0o644); err != nil {
+	// Shadow module that writes a marker at import time so a successful
+	// empty/fallback result cannot hide that the cwd module ran.
+	src := fmt.Sprintf("open(%q, 'w').write('imported')\ndef where():\n    raise SystemExit('cwd certifi imported')\n", marker)
+	if err := os.WriteFile(shadow, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	old, err := os.Getwd()
@@ -503,6 +506,11 @@ func TestCertifiStore_PythonWhereIgnoresCwdModule(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chdir(old) })
 
 	got := lookupCertifiWhere()
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatalf("cwd certifi.py was imported (marker %s exists)", marker)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("stat marker: %v", err)
+	}
 	// Either empty (no system certifi) or a real path — never the raised exit.
 	if got != "" && !fileExistsForTest(got) {
 		t.Fatalf("lookupCertifiWhere returned non-file %q (cwd module may have been imported)", got)
