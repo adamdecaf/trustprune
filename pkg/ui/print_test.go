@@ -131,6 +131,8 @@ func TestTablePrinterIncludesKeyAndDays(t *testing.T) {
 	}
 }
 
+const tableGoldenPath = "testdata/table.golden"
+
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
 func TestTablePrinterGoldenWidth(t *testing.T) {
@@ -150,21 +152,20 @@ func TestTablePrinterGoldenWidth(t *testing.T) {
 	}
 	out := buf.String()
 
-	golden := filepath.Join("testdata", "table.golden")
 	if *updateGolden {
 		if err := os.MkdirAll("testdata", 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(golden, []byte(out), 0o644); err != nil {
+		if err := os.WriteFile(tableGoldenPath, []byte(out), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(tableGoldenPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out != string(want) {
-		t.Fatalf("table output differs from %s (run with -update):\n%s", golden, out)
+	if out != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Fatalf("table output differs from %s (run with -update):\n%s", tableGoldenPath, out)
 	}
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
