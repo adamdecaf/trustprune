@@ -301,8 +301,10 @@ func (s linuxStore) removeWithBlocklist(al allowlist.Allowlist) error {
 	}
 
 	snapshot := s.ca.blocklist + ".allowlist-old"
-	if err := os.RemoveAll(snapshot); err != nil {
-		return err
+	if _, err := os.Lstat(snapshot); err == nil {
+		return fmt.Errorf("previous allowlist left %s; inspect it and remove it, then rerun", snapshot)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat %s: %w", snapshot, err)
 	}
 	existed := file.Exists(s.ca.blocklist)
 	if existed {

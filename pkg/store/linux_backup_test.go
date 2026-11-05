@@ -677,6 +677,41 @@ func TestLinuxRemove_BlocklistDryRunMakesNoWrites(t *testing.T) {
 	}
 }
 
+func TestLinuxRemove_BlocklistRefusesLeftoverSnapshot(t *testing.T) {
+	s := linuxBlocklistTestStore(t)
+	aside := s.ca.blocklist + ".allowlist-old"
+	if err := os.MkdirAll(aside, 0755); err != nil {
+		t.Fatal(err)
+	}
+	leftover := []byte("previous-snapshot-contents\n")
+	if err := os.WriteFile(filepath.Join(aside, "kept.crt"), leftover, 0644); err != nil {
+		t.Fatal(err)
+	}
+	beforeBlock := snapshotDir(t, s.ca.blocklist)
+	beforeAside := snapshotDir(t, aside)
+	beforeAll, err := os.ReadFile(s.ca.all)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.Remove(allowlist.Allowlist{})
+	if err == nil {
+		t.Fatal("expected refusal when .allowlist-old already exists")
+	}
+	if !strings.Contains(err.Error(), aside) || !strings.Contains(err.Error(), "inspect it and remove it") {
+		t.Fatalf("error should name leftover snapshot path, got %v", err)
+	}
+	assertDirSnapshotEqual(t, s.ca.blocklist, beforeBlock)
+	assertDirSnapshotEqual(t, aside, beforeAside)
+	afterAll, err := os.ReadFile(s.ca.all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeAll, afterAll) {
+		t.Fatal("refused Remove mutated bundle")
+	}
+}
+
 func TestLinuxRemove_BlocklistRefreshFailureRollsBack(t *testing.T) {
 	s := linuxBlocklistTestStore(t)
 	marker := filepath.Join(s.ca.blocklist, "pre-existing.crt")

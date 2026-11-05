@@ -1,6 +1,6 @@
 FROM fedora:latest
 
-RUN dnf install -y ca-certificates curl python3 python3-pip python3-setuptools && \
+RUN dnf install -y ca-certificates curl diffutils python3 python3-pip python3-setuptools && \
     (dnf install -y java-21-openjdk-devel || dnf install -y java-25-openjdk-devel || dnf install -y java-latest-openjdk-devel) && \
     dnf clean all && \
     ln -sfn "$(dirname "$(dirname "$(readlink -f "$(command -v javac)")")")" /usr/lib/jvm/java-home && \
