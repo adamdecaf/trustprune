@@ -369,8 +369,9 @@ func TestCertifiStore_GetInfo(t *testing.T) {
 	if info.Name != "certifi" {
 		t.Fatalf("name=%q", info.Name)
 	}
-	if info.Path != path {
-		t.Fatalf("path=%q want %q", info.Path, path)
+	want := mustEvalSymlinks(t, path)
+	if info.Path != want {
+		t.Fatalf("path=%q want %q", info.Path, want)
 	}
 	if info.Version == "" {
 		t.Fatal("expected version/size")
@@ -444,8 +445,9 @@ func TestCertifiStore_StoreAtIgnoresDiscovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != path {
-		t.Fatalf("storeAt should ignore discovery, got %s want %s", got, path)
+	want := mustEvalSymlinks(t, path)
+	if got != want {
+		t.Fatalf("storeAt should ignore discovery, got %s want %s", got, want)
 	}
 }
 
@@ -475,7 +477,8 @@ func TestForAppWithFile_Certifi(t *testing.T) {
 		t.Fatal(err)
 	}
 	info := st.GetInfo()
-	if info.Path != path {
-		t.Fatalf("path=%q want %q", info.Path, path)
+	want := mustEvalSymlinks(t, path)
+	if info.Path != want {
+		t.Fatalf("path=%q want %q", info.Path, want)
 	}
 }
