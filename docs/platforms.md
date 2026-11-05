@@ -12,11 +12,12 @@ Status matches what the code on `master` does today.
 | Status | Platform | Store paths (as used in code) | Operations |
 |--------|----------|-------------------------------|------------|
 | **Supported** | Linux (Debian/Ubuntu/Alpine/Gentoo layout) | CA dir `/usr/share/ca-certificates`; add dir `/usr/local/share/ca-certificates`; bundle `/etc/ssl/certs/ca-certificates.crt`; refresh `/usr/sbin/update-ca-certificates` | list, add, allowlist (Remove), backup, restore |
-| **Supported** | Linux (Fedora/RHEL/CentOS layout) | Anchors `/etc/pki/ca-trust/source/anchors`; bundle `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`; refresh `/usr/bin/update-ca-trust` | same |
+| **Supported** | Linux (Fedora/RHEL/CentOS/Rocky layout) | CA dir `/etc/pki/ca-trust/source`; add dir `/etc/pki/ca-trust/source/anchors`; bundle `/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem`; allowlist writes distrust PEMs to `/etc/pki/ca-trust/source/blocklist`; refresh `/usr/bin/update-ca-trust` | same |
+| **Supported** | Linux (Arch layout) | CA dir `/etc/ca-certificates/trust-source`; add dir `/etc/ca-certificates/trust-source/anchors`; bundle `/etc/ca-certificates/extracted/tls-ca-bundle.pem`; allowlist writes distrust PEMs to `/etc/ca-certificates/trust-source/blocklist`; refresh `/usr/bin/update-ca-trust` | same |
 | **Partial** | Darwin / macOS | System roots `/System/Library/Keychains/SystemRootCertificates.keychain` (SIP-protected); system keychain `/Library/Keychains/System.keychain`; login `~/Library/Keychains/login.keychain` (or `login.keychain-db`). CLI PEM bundle is a separate store: `-app ssl` → `/etc/ssl/cert.pem` (see Applications). | list, add, allowlist, backup, restore; system roots are not rewritten; restore honors `-file` / `where` for the login-keychain backup path |
 | **List-only** | Windows | Machine stores via PowerShell: `Cert:\LocalMachine\My`, `Root`, `Trust`, `CA`, `AuthRoot` | `list` only; Add, Backup, Remove (allowlist), and Restore are no-ops |
 
-Linux picks the first `cadir` whose bundle file exists. Backups of the Linux CA **directory** go under `~/.trustprune/linux/<unix-timestamp>/`.
+Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RHEL/Rocky, Arch, then Debian/Ubuntu/Alpine. Fedora and Arch also ship `/etc/ssl/certs/ca-certificates.crt` as a compatibility symlink, so their unique bundle paths are checked first. Backups of the Linux CA **directory** go under `~/.trustprune/linux/<unix-timestamp>/`.
 
 ## Applications
 
@@ -56,7 +57,6 @@ Researched but not yet supported:
 - Container images
 - Thunderbird and Chromium browsers on NSS
 - BSD stores
-- p11-kit distros
 - Node
 - Registry CAs
 - .NET

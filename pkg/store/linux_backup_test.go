@@ -25,6 +25,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 // linuxTestStore builds a linuxStore whose CA paths and backup destination
@@ -92,7 +95,10 @@ func installPassthroughSudo(t *testing.T) {
 
 func refuseSystemCAPaths(t *testing.T, s linuxStore) {
 	t.Helper()
-	for _, p := range []string{s.ca.dir, s.ca.add, s.ca.all} {
+	for _, p := range []string{s.ca.dir, s.ca.add, s.ca.all, s.ca.blocklist} {
+		if p == "" {
+			continue
+		}
 		cleaned := filepath.Clean(p)
 		if strings.HasPrefix(cleaned, "/etc/") || strings.HasPrefix(cleaned, "/usr/") {
 			t.Fatalf("refusing to run against system CA path %s", p)
@@ -538,5 +544,117 @@ func TestLinuxRestore_NoBackupRefusesBeforeWrite(t *testing.T) {
 				t.Fatalf("restore-tmp created: %v", err)
 			}
 		})
+	}
+}
+
+// linuxBlocklistTestStore is a p11-kit-style cadir: distrust files go in
+// blocklist/, the live bundle is `all`, and refresh is a no-op. All paths
+// are under t.TempDir().
+func linuxBlocklistTestStore(t *testing.T) linuxStore {
+	t.Helper()
+
+	caRoot := t.TempDir()
+	caDir := filepath.Join(caRoot, "source")
+	caAdd := filepath.Join(caDir, "anchors")
+	caBlock := filepath.Join(caDir, "blocklist")
+	caAll := filepath.Join(caRoot, "tls-ca-bundle.pem")
+	for _, dir := range []string{caDir, caAdd, caBlock} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	installPassthroughSudo(t)
+
+	example, err := os.ReadFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := os.ReadFile(filepath.Join("..", "..", "testdata", "localcert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(caAll, append(append([]byte{}, example...), local...), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := linuxStore{
+		ca: cadir{
+			add:       caAdd,
+			dir:       caDir,
+			all:       caAll,
+			refresh:   "/bin/true",
+			blocklist: caBlock,
+		},
+	}
+	refuseSystemCAPaths(t, s)
+	return s
+}
+
+func TestLinuxRemove_BlocklistWritesDistrustFiles(t *testing.T) {
+	s := linuxBlocklistTestStore(t)
+	certs, err := certutil.FromFile(s.ca.all)
+	if err != nil || len(certs) != 2 {
+		t.Fatalf("bundle certs: n=%d err=%v", len(certs), err)
+	}
+	keep := certutil.GetHexSHA256Fingerprint(*certs[0])
+	drop := certutil.GetHexSHA256Fingerprint(*certs[1])
+
+	if err := s.Remove(allowlist.Allowlist{Fingerprints: []string{keep}}); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+
+	entries, err := os.ReadDir(s.ca.blocklist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("blocklist entries=%d, want 1", len(entries))
+	}
+	wantName := drop + ".crt"
+	if entries[0].Name() != wantName {
+		t.Fatalf("blocklist file %s, want %s", entries[0].Name(), wantName)
+	}
+	got, err := certutil.FromFile(filepath.Join(s.ca.blocklist, wantName))
+	if err != nil || len(got) != 1 {
+		t.Fatalf("read blocklist cert: n=%d err=%v", len(got), err)
+	}
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != drop {
+		t.Fatal("blocklist cert fingerprint mismatch")
+	}
+
+	// Bundle file is not rewritten; p11-kit refresh regenerates it.
+	still, err := certutil.FromFile(s.ca.all)
+	if err != nil || len(still) != 2 {
+		t.Fatalf("bundle should be unchanged without a real refresh, n=%d err=%v", len(still), err)
+	}
+}
+
+func TestLinuxRemove_BlocklistDryRunMakesNoWrites(t *testing.T) {
+	s := linuxBlocklistTestStore(t)
+	beforeBlock := snapshotDir(t, s.ca.blocklist)
+	beforeDir := snapshotDir(t, s.ca.dir)
+	beforeAll, err := os.ReadFile(s.ca.all)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	buf := enableDryRunCapture(t)
+	if err := s.Remove(allowlist.Allowlist{}); err != nil {
+		t.Fatalf("Remove dry-run: %v", err)
+	}
+	if !strings.Contains(buf.String(), "blocklist directory") {
+		t.Fatalf("dry-run plan missing blocklist directory: %q", buf.String())
+	}
+	assertDirSnapshotEqual(t, s.ca.blocklist, beforeBlock)
+	assertDirSnapshotEqual(t, s.ca.dir, beforeDir)
+	afterAll, err := os.ReadFile(s.ca.all)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(beforeAll, afterAll) {
+		t.Fatal("dry-run Remove mutated bundle")
 	}
 }

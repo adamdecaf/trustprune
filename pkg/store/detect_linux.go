@@ -19,16 +19,14 @@ package store
 
 func detectPlatform() Status {
 	s := Status{Name: "platform"}
-	for _, ca := range cadirs {
-		if ca.empty() {
-			continue
-		}
-		s.Found = true
-		s.Path = ca.all
-		if s.Path == "" {
-			s.Path = ca.dir
-		}
+	ca, ok := selectCadir(cadirs)
+	if !ok {
 		return s
+	}
+	s.Found = true
+	s.Path = ca.all
+	if s.Path == "" {
+		s.Path = ca.dir
 	}
 	return s
 }
