@@ -625,6 +625,24 @@ func TestLinuxRemove_BlocklistWritesDistrustFiles(t *testing.T) {
 		t.Fatal("blocklist cert fingerprint mismatch")
 	}
 
+	dirInfo, err := os.Stat(s.ca.blocklist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dirInfo.Mode().Perm() != linuxPublicDirPerms {
+		t.Fatalf("blocklist dir mode=%o, want %o", dirInfo.Mode().Perm(), linuxPublicDirPerms)
+	}
+	fileInfo, err := os.Stat(filepath.Join(s.ca.blocklist, wantName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fileInfo.Mode().Perm() != linuxPublicFilePerms {
+		t.Fatalf("blocklist file mode=%o, want %o", fileInfo.Mode().Perm(), linuxPublicFilePerms)
+	}
+	if fileExists(t, s.ca.blocklist+".allowlist-old") {
+		t.Errorf("snapshot left behind after successful allowlist: %s", s.ca.blocklist+".allowlist-old")
+	}
+
 	// Bundle file is not rewritten; p11-kit refresh regenerates it.
 	still, err := certutil.FromFile(s.ca.all)
 	if err != nil || len(still) != 2 {
@@ -656,5 +674,31 @@ func TestLinuxRemove_BlocklistDryRunMakesNoWrites(t *testing.T) {
 	}
 	if !bytes.Equal(beforeAll, afterAll) {
 		t.Fatal("dry-run Remove mutated bundle")
+	}
+}
+
+func TestLinuxRemove_BlocklistRefreshFailureRollsBack(t *testing.T) {
+	s := linuxBlocklistTestStore(t)
+	marker := filepath.Join(s.ca.blocklist, "pre-existing.crt")
+	if err := os.WriteFile(marker, []byte("KEEP-BLOCKLIST-MARKER\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotDir(t, s.ca.blocklist)
+	s.ca.refresh = "/bin/false"
+
+	err := s.Remove(allowlist.Allowlist{})
+	if err == nil {
+		t.Fatal("expected Remove to fail when refresh returns non-zero")
+	}
+	assertDirSnapshotEqual(t, s.ca.blocklist, before)
+	got, err := os.ReadFile(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "KEEP-BLOCKLIST-MARKER\n" {
+		t.Fatalf("pre-existing blocklist file mutated: %q", got)
+	}
+	if fileExists(t, s.ca.blocklist+".allowlist-old") {
+		t.Errorf("snapshot left behind after rollback: %s", s.ca.blocklist+".allowlist-old")
 	}
 }

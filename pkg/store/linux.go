@@ -91,6 +91,11 @@ var (
 	}
 
 	linuxBackupDir = "linux"
+
+	// Public p11-kit trust-source modes. Distro blocklist dirs are 0755
+	// and the PEM overlays must be world-readable for p11-kit clients.
+	linuxPublicDirPerms  os.FileMode = 0o755
+	linuxPublicFilePerms os.FileMode = 0o644
 )
 
 type linuxStore struct {
@@ -295,17 +300,64 @@ func (s linuxStore) removeWithBlocklist(al allowlist.Allowlist) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(s.ca.blocklist, backupDirPerms); err != nil {
+	snapshot := s.ca.blocklist + ".allowlist-old"
+	if err := os.RemoveAll(snapshot); err != nil {
 		return err
+	}
+	existed := file.Exists(s.ca.blocklist)
+	if existed {
+		if err := file.MirrorDir(s.ca.blocklist, snapshot); err != nil {
+			_ = os.RemoveAll(snapshot)
+			return err
+		}
+	}
+
+	rollback := func() error {
+		if existed {
+			if err := os.RemoveAll(s.ca.blocklist); err != nil {
+				return err
+			}
+			if err := file.MirrorDir(snapshot, s.ca.blocklist); err != nil {
+				return err
+			}
+		} else if err := os.RemoveAll(s.ca.blocklist); err != nil {
+			return err
+		}
+		return os.RemoveAll(snapshot)
+	}
+
+	fail := func(err error) error {
+		if rerr := rollback(); rerr != nil {
+			fmt.Printf("store/linux: previous blocklist moved aside to %s\n", snapshot)
+			return fmt.Errorf("%w (previous blocklist still at %s)", err, snapshot)
+		}
+		return err
+	}
+
+	if err := os.MkdirAll(s.ca.blocklist, linuxPublicDirPerms); err != nil { //nolint:gosec // G301: p11-kit trust-source blocklist is a public system CA directory
+		return fail(err)
+	}
+	if err := os.Chmod(s.ca.blocklist, linuxPublicDirPerms); err != nil {
+		return fail(err)
 	}
 	for i := range removed {
 		fp := certutil.GetHexSHA256Fingerprint(*removed[i])
 		path := filepath.Join(s.ca.blocklist, fmt.Sprintf("%s.crt", fp))
 		if err := certutil.ToFile(path, removed[i:i+1]); err != nil {
-			return err
+			return fail(err)
+		}
+		if err := os.Chmod(path, linuxPublicFilePerms); err != nil {
+			return fail(err)
 		}
 	}
-	return s.rebundleCerts()
+
+	if err := s.rebundleCerts(); err != nil {
+		return fail(err)
+	}
+	if err := os.RemoveAll(snapshot); err != nil {
+		fmt.Printf("store/linux: warning: could not fully remove %s after allowlist: %v (remaining contents may be incomplete)\n", snapshot, err)
+	}
+	return nil
 }
 
 func (s linuxStore) Restore(where string) error {
