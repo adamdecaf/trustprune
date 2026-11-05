@@ -109,6 +109,15 @@ func skipIfNoCRehash(t *testing.T) {
 	}
 }
 
+func mustEvalSymlinks(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(%s): %v", path, err)
+	}
+	return resolved
+}
+
 func TestStoreOpenSSL__paths(t *testing.T) {
 	err := exec.Command("openssl", "version").Run()
 	if err != nil {
@@ -578,12 +587,12 @@ func TestOpenSSLStore_FileVsDirectoryPathModes(t *testing.T) {
 	}
 
 	info := fileStore.GetInfo()
-	if info.Path != filePath {
-		t.Fatalf("file GetInfo.Path=%q want %s", info.Path, filePath)
+	if info.Path != mustEvalSymlinks(t, filePath) {
+		t.Fatalf("file GetInfo.Path=%q want %s", info.Path, mustEvalSymlinks(t, filePath))
 	}
 	info = dirStore.GetInfo()
-	if info.Path != dirPath {
-		t.Fatalf("dir GetInfo.Path=%q want %s", info.Path, dirPath)
+	if info.Path != mustEvalSymlinks(t, dirPath) {
+		t.Fatalf("dir GetInfo.Path=%q want %s", info.Path, mustEvalSymlinks(t, dirPath))
 	}
 }
 
@@ -694,8 +703,8 @@ func TestOpenSSLStore_StoreAtIgnoresEnv(t *testing.T) {
 func TestOpenSSLStore_GetInfo(t *testing.T) {
 	s, path, _ := opensslFileEnv(t)
 	info := s.GetInfo()
-	if info.Path != path {
-		t.Fatalf("Path=%q want %s", info.Path, path)
+	if info.Path != mustEvalSymlinks(t, path) {
+		t.Fatalf("Path=%q want %s", info.Path, mustEvalSymlinks(t, path))
 	}
 	if info.Name == "" {
 		t.Fatal("Name should be set")
