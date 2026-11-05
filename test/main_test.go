@@ -19,10 +19,16 @@ func TestCertManage_help(t *testing.T) {
 		return fmt.Sprintf("Usage: trustprune %s ", name)
 	}
 
-	// no args, fs.Usage()
+	// no args, fs.Usage() and exit 1
 	out, err := run(t)
-	if err != nil {
-		t.Error(err)
+	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
+		t.Errorf("expected exit status 1 with no sub-command, got err=%v", err)
+	}
+	if strings.Contains(out, "\n\n  ") {
+		t.Error("expected no blank lines between SUB-COMMANDS entries")
+	}
+	if !strings.Contains(out, "Restore certificate trust from a backup") {
+		t.Error("expected fixed restore description")
 	}
 	if !strings.Contains(out, usage) {
 		t.Error("expected Usage() text")
@@ -91,6 +97,18 @@ func TestCertManage_help(t *testing.T) {
 				t.Errorf("sub-command %q, expected sub-command usage", subCommands[i])
 			}
 		}
+	}
+
+	out, err = run(t, "list", "-app", "nope")
+	if err == nil {
+		t.Error("expected list -app nope to fail")
+	}
+	if !strings.Contains(out, "valid apps: ") || !strings.Contains(out, "java") {
+		t.Errorf("expected valid apps in error, got %q", out)
+	}
+	out, _ = run(t, "list", "-h")
+	if !strings.Contains(out, "-out ") {
+		t.Error("expected -out documented in list help")
 	}
 
 	out, err = run(t, "list", "-h")
