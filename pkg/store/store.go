@@ -258,8 +258,12 @@ func NoBackupError(app string) error {
 		return errNoBackup(runtime.GOOS, runtime.GOOS)
 	}
 	name := app
-	if app == "java" {
+	switch {
+	case app == "java":
 		name = javaCertManageDir
+	case app == "chrome" && (runtime.GOOS == "darwin" || runtime.GOOS == "windows"):
+		// Chrome wraps the platform store here, so backups land in its dir.
+		name = runtime.GOOS
 	}
 	return errNoBackupCmd(app, name, "trustprune backup -app "+app)
 }

@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
@@ -82,6 +84,18 @@ func allowlistNoBackupEnv(t *testing.T) (home, storeDir, alPath string) {
 	return home, storeDir, alPath
 }
 
+// noWriteStore delegates reads to a real store and records, without
+// performing, any Remove call.
+type noWriteStore struct {
+	store.Store
+	removed bool
+}
+
+func (s *noWriteStore) Remove(allowlist.Allowlist) error {
+	s.removed = true
+	return errors.New("Remove must not be called in this test")
+}
+
 func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 	apps := []string{"certifi", "chrome", "firefox", "java", "openssl", "ssl", ""}
 	for _, app := range apps {
@@ -109,11 +123,19 @@ func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 				beforeStore := treeSnapshot(t, storeDir)
 				beforeAl := treeSnapshot(t, filepath.Dir(alPath))
 
-				var err error
+				// Wrap the real store so its backup lookup runs, but any write
+				// (Remove) is caught instead of reaching a system, Java or
+				// browser store if the guard ever regresses.
+				var inner store.Store
 				if app == "" {
-					err = AllowlistForPlatform(alPath)
+					inner = store.Platform()
 				} else {
-					err = AllowlistForApp(app, alPath)
+					inner, _ = store.ForApp(app)
+				}
+				g := &noWriteStore{Store: inner}
+				err := allowlistStore(g, app, alPath)
+				if g.removed {
+					t.Fatal("Remove was called with no backup")
 				}
 				if err == nil {
 					t.Fatal("expected an error with no backup")
