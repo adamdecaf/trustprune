@@ -67,6 +67,7 @@ trustprune backup -app java
 trustprune backup -app java -file /path/to/cacerts   # Java keystore override; backup records its source keystore
 trustprune backup -app chrome
 trustprune backup -app firefox
+trustprune backup -app openssl
 ```
 
 | Flag | Meaning |
@@ -78,9 +79,9 @@ See [Backup and restore](backup-restore.md) for where files land.
 
 ## restore
 
-Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, Darwin platform (login-keychain backup dir), and `-app ssl`).
+Revert to a backup. With no `-file`, uses the latest backup for that store. With `-file`, passes that path into the store's `Restore` (honored on Linux, Java, NSS, Darwin platform (login-keychain backup dir), `-app ssl`, and `-app openssl`).
 
-If no backup exists, `restore` (and `restore -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For browser apps the hint is `trustprune backup -app <name>`.
+If no backup exists, `restore` (and `restore -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For app stores the hint is `trustprune backup -app <name>`.
 
 ```bash
 trustprune restore
@@ -88,6 +89,7 @@ trustprune restore -file /path/to/backup
 trustprune restore -app java
 trustprune restore -app java -file /path/to/cacerts.bck
 trustprune restore -app chrome
+trustprune restore -app openssl
 trustprune restore -app java -dry-run
 ```
 
@@ -114,6 +116,29 @@ trustprune restore -app ssl -file ~/Library/trustprune/ssl/<timestamp>/cert.pem
 Writes stage into a sibling temp dir, copy the live file aside to `.restore-old`, then rename over the destination (sudo when needed); a leftover `.restore-old` is refused rather than deleted. An empty allowlist result is refused. After a successful write, trustprune records a content hash; if a later macOS update restores Apple's copy, `list -app ssl` prints a one-line warning. Re-apply with `backup -app ssl` then `allowlist -app ssl -file …`, or `restore -app ssl` to put back your pruned backup.
 
 PEM parsing uses Go's `x509.ParseCertificate`, then a `cryptobyte` fallback that reads subject, issuer, serial, and validity (so Apple's negative-serial roots list and allowlist like any other cert, without GODEBUG). Blocks that still cannot be read print a warning to stderr naming the PEM block and are skipped for list; `add` and `allowlist` write those raw PEM blocks back unchanged in their original order.
+
+## OpenSSL CA bundles (`-app openssl`)
+
+curl, git, and the OpenSSL libraries read a PEM bundle or a hashed cert directory — not the Darwin keychain and not always the same file as the Linux platform store. Manage that location with `-app openssl`.
+
+Path resolution uses the first existing of:
+
+1. `SSL_CERT_FILE` (if set)
+2. `CURL_CA_BUNDLE` (if set)
+3. Distro/Homebrew defaults (`/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew `.../etc/openssl/certs` and `openssl@3` / `openssl@1.1` variants)
+4. `git config --get http.sslCAInfo` (best-effort; git errors are ignored)
+
+Darwin `/etc/ssl/cert.pem` is **not** selected as an openssl default. Use `-app ssl` for that file.
+
+```bash
+trustprune list -app openssl
+trustprune backup -app openssl
+trustprune allowlist -app openssl -file allowlist.yaml -dry-run
+trustprune allowlist -app openssl -file allowlist.yaml
+trustprune restore -app openssl
+```
+
+A PEM file is rewritten like `-app ssl` (atomic install, refuse empty bundle). A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and `c_rehash` runs after add (required) and after remove/restore when the binary is present.
 
 
 ## allowlist

@@ -140,23 +140,16 @@ func TestDetectJavaWithTempKeystore(t *testing.T) {
 }
 
 func TestDetectOpenSSLWithTempPath(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("openssl store unsupported on windows")
-	}
+	isolateOpenSSLLookup(t)
 
-	dir, err := os.MkdirTemp("", "cert-manage-openssl-detect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(dir)
-
+	dir := t.TempDir()
 	bundle := filepath.Join(dir, "ca-certificates.crt")
 	if err := os.WriteFile(bundle, []byte("x"), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	orig := openSSLCertPaths
-	defer func() { openSSLCertPaths = orig }()
+	t.Cleanup(func() { openSSLCertPaths = orig })
 	openSSLCertPaths = []string{bundle}
 
 	st := detectOpenSSL()

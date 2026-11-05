@@ -31,12 +31,13 @@ Parent directory (created as needed):
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` (filename taken from the keystore basename) |
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
+| OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem`, or a mirror of a hashed cert directory |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
 
 ## Restore with no backup
 
-When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (browser apps suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
+When no backup exists for a store, `restore` refuses before any filesystem write (dry-run included), prints `ERROR: no backup for <store> in <dir>; run: trustprune backup` (app stores such as firefox, chrome, ssl, and openssl suggest `trustprune backup -app <name>`), and exits 1. There is no fallback to a system default state.
 
 ## Linux: temp-dir swap and rollback
 
@@ -97,6 +98,15 @@ Restore and other writers install via a sibling temp directory:
 5. After a successful swap, a failed aside cleanup warns on stderr naming the kept path and still returns success.
 
 Explicit `-file` / `where` is honored (PEM file or backup directory containing `cert.pem`).
+
+## OpenSSL (`-app openssl`)
+
+Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolution (first existing wins): `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then `git config --get http.sslCAInfo`. Darwin `/etc/ssl/cert.pem` is never chosen as the openssl default; that file is `-app ssl`.
+
+- **PEM file** (for example `/etc/ssl/certs/ca-certificates.crt`): backup copies into `openssl/<unix-timestamp>/ca-bundle.pem`. Restore and other writers use the same atomic sibling-temp install as `-app ssl`. An empty allowlist result is refused.
+- **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then runs `c_rehash` if that binary is available.
+
+Restore with no backup refuses before any filesystem write (dry-run included). Explicit `-file` / `where` is honored.
 
 ## Windows
 
