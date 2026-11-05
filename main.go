@@ -79,21 +79,13 @@ func init() {
 		fmt.Printf(`Usage of trustprune version %s
 SUB-COMMANDS
   add           Add certificate(s) to a store
-
   allowlist     Remove trust from certificates which do not match the allowlist in <path>
-
   apps          List supported apps and whether each store was found
-
   backup        Take a backup of the specified certificate store
-
   connect       Attempt to load a remote URL with the platform (or app) store
-
   gen-allowlist Create an allowlist from various sources
-
   list          List the currently installed and trusted certificates
-
-  restore       Revert the certificate trust back to, optionally takes -backup <path>
-
+  restore       Restore certificate trust from a backup (optionally -backup <path>)
   version       Show the version of trustprune
 
 APPS
@@ -167,10 +159,10 @@ func main() {
 		}
 	}()
 
-	// Just show help if there aren't enough arguments to do anything
+	// Show help and exit non-zero if no sub-command was given
 	if len(os.Args) < 2 {
 		fs.Usage()
-		return
+		os.Exit(1)
 	}
 	_ = fs.Parse(os.Args[1:])
 	if len(os.Args) == 2 && calledHelp() {
@@ -370,6 +362,9 @@ FORMATTING
 
   Show the certificates on a local webpage (Default: %s, Options: %s)
     trustprune list -ui web
+
+  Write the report to a file instead of stdout (-out <path>, used by -format observatory)
+    trustprune list -format observatory -out report.yaml
 
 APPS
   Supported apps: %s`,
