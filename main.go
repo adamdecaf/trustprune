@@ -247,6 +247,7 @@ APPS
   Backup a certificate store. This can be done for the platform or a given app.
 
   Java: -file <cacerts> overrides trust-store search and backs up that keystore.
+  Certifi: -file <cacert.pem> overrides discovery and backs up that bundle.
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -321,7 +322,7 @@ APPS
 			return cmd.ListCertsForPlatform(cfg)
 		},
 		appfn: func(a string) error {
-			// -app java -file <cacerts> overrides trust-store search (#126).
+			// -app java -file <cacerts> or -app certifi -file <cacert.pem> overrides discovery.
 			if *flagFile != "" {
 				return cmd.ListCertsForAppWithFile(a, *flagFile, cfg)
 			}

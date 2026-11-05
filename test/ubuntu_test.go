@@ -32,6 +32,14 @@ func TestUbuntu__java(t *testing.T) {
 	javaSuite(t, img)
 }
 
+func TestUbuntu__certifi(t *testing.T) {
+	t.Parallel()
+
+	img := Dockerfile("envs/ubuntu")
+	certifiSuite(t, img)
+}
+
+
 func TestUbuntu__firefox(t *testing.T) {
 	t.Skip("firefox distro coverage is not wired up yet")
 	t.Parallel()

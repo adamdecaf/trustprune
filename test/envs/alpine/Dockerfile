@@ -1,6 +1,8 @@
 FROM alpine:3.21
 
-RUN apk add --no-cache ca-certificates curl openjdk21-jdk
+RUN apk add --no-cache ca-certificates curl openjdk21-jdk python3 py3-pip && \
+    python3 -m venv /opt/trustprune-certifi && \
+    /opt/trustprune-certifi/bin/pip install --no-cache-dir certifi
 ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 

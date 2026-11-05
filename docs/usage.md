@@ -7,7 +7,7 @@ title: Usage
 
 Global flags work with the subcommands that accept them. Add `-dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes (files, certificates by subject and SHA-256, refresh commands) without writing to any store.
 
-Supported `-app` values: `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`).
+Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`).
 
 
 ## apps
@@ -29,6 +29,7 @@ Default terse output looks like:
 chrome    found      /home/you/.pki/nssdb
 firefox   not-found  -
 java      not-found  -
+certifi   found      /path/to/site-packages/certifi/cacert.pem
 openssl   found      /etc/ssl/certs/ca-certificates.crt
 ssl       not-found  -
 platform  found      /etc/ssl/certs/ca-certificates.crt
@@ -68,12 +69,13 @@ trustprune backup -app java -file /path/to/cacerts   # Java keystore override; b
 trustprune backup -app chrome
 trustprune backup -app firefox
 trustprune backup -app openssl
+trustprune backup -app certifi
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Back up that application's store instead of the platform |
-| `-file <keystore>` | Java only: back up that keystore file instead of searching `JAVA_HOME` |
+| `-file <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery. |
 | `-dry-run` | Print what would be backed up; creates nothing |
 
 See [Backup and restore](backup-restore.md) for where files land.
@@ -91,6 +93,7 @@ trustprune restore -app java
 trustprune restore -app java -file /path/to/cacerts.bck
 trustprune restore -app chrome
 trustprune restore -app openssl
+trustprune restore -app certifi
 trustprune restore -app java -dry-run
 ```
 
@@ -117,6 +120,33 @@ trustprune restore -app ssl -file ~/Library/trustprune/ssl/<timestamp>/cert.pem
 Writes stage into a sibling temp dir, copy the live file aside to `.restore-old`, then rename over the destination (sudo when needed); a leftover `.restore-old` is refused rather than deleted. An empty allowlist result is refused. After a successful write, trustprune records a content hash; if a later macOS update restores Apple's copy, `list -app ssl` prints a one-line warning. Re-apply with `backup -app ssl` then `allowlist -app ssl -file …`, or `restore -app ssl` to put back your pruned backup.
 
 PEM parsing uses Go's `x509.ParseCertificate`, then a `cryptobyte` fallback that reads subject, issuer, serial, and validity (so Apple's negative-serial roots list and allowlist like any other cert, without GODEBUG). Blocks that still cannot be read print a warning to stderr naming the PEM block and are skipped for list; `add` and `allowlist` write those raw PEM blocks back unchanged in their original order.
+
+
+## Python certifi (`-app certifi`)
+
+Python's [certifi](https://github.com/certifi/python-certifi) package ships a Mozilla CA bundle (`cacert.pem`) used by requests and many other libraries. Manage that bundle with `-app certifi`.
+
+Path discovery (first existing wins):
+
+1. `-file <cacert.pem>` override on `list`, `backup`, and `connect` (one bundle per venv)
+2. `python3 -c 'import certifi; print(certifi.where())'` (then `python`)
+3. The same probe against `pip._vendor.certifi`
+4. Common `site-packages/certifi/cacert.pem` fallbacks
+
+On `add`, `allowlist`, and `restore`, `-file` keeps its usual meaning (certificate to import, allowlist YAML/JSON, or backup source). To target a specific venv for those commands, put that venv's `python` first on `PATH` so discovery selects its certifi.
+
+Some Linux distros patch certifi so `where()` returns the system CA bundle (for example `/etc/ssl/certs/ca-certificates.crt`). That path is still managed as a PEM file. Upstream installs keep a dedicated `cacert.pem` beside the package.
+
+```
+trustprune list -app certifi
+trustprune list -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
+trustprune backup -app certifi
+trustprune allowlist -app certifi -file allowlist.yaml -dry-run
+trustprune allowlist -app certifi -file allowlist.yaml
+trustprune restore -app certifi
+```
+
+Writes reuse the same atomic sibling-temp install as `-app ssl` / `-app openssl` (copy aside to `.restore-old`, refuse a leftover aside, refuse an empty allowlist result). Restore with no backup refuses before any filesystem write.
 
 ## OpenSSL CA bundles (`-app openssl`)
 

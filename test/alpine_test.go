@@ -31,3 +31,11 @@ func TestAlpine__java(t *testing.T) {
 	img := Dockerfile("envs/alpine")
 	javaSuite(t, img)
 }
+
+func TestAlpine__certifi(t *testing.T) {
+	t.Parallel()
+
+	img := Dockerfile("envs/alpine")
+	certifiSuite(t, img)
+}
+

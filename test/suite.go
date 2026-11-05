@@ -96,3 +96,23 @@ func firefoxSuite(t *testing.T, img *dockerfile, total, after string) {
 		fmt.Println("Firefox end")
 	}
 }
+
+func certifiSuite(t *testing.T, img *dockerfile) {
+	if debug {
+		fmt.Println("Certifi start")
+	}
+
+	// Distro images install a venv with upstream certifi at /opt/trustprune-certifi.
+	// Put it first on PATH so discovery hits a real cacert.pem, not a distro-patched
+	// where() that points at the system CA bundle.
+	img.Run("sh", "-c", `export PATH=/opt/trustprune-certifi/bin:$PATH; test -f "$(python3 -c 'import certifi; print(certifi.where())')"; total=$(/bin/trustprune list -count -app certifi); echo "$total" > /tmp/ctotal; echo "certifi certs=$total path=$(python3 -c 'import certifi; print(certifi.where())')"; test "$total" -gt 10`)
+	img.Run("sh", "-c", `export PATH=/opt/trustprune-certifi/bin:$PATH; /bin/trustprune backup -app certifi; test "$(ls -1 ~/.trustprune/certifi | wc -l | tr -d ' ')" -ge 1`)
+	img.Run("sh", "-c", `export PATH=/opt/trustprune-certifi/bin:$PATH; /bin/trustprune allowlist -app certifi -file /allowlist.json; after=$(/bin/trustprune list -count -app certifi); test "$after" -lt "$(cat /tmp/ctotal)"`)
+	img.Run("sh", "-c", `export PATH=/opt/trustprune-certifi/bin:$PATH; /bin/trustprune restore -app certifi; test "$(/bin/trustprune list -count -app certifi)" -eq "$(cat /tmp/ctotal)"`)
+	img.Run("sh", "-c", `export PATH=/opt/trustprune-certifi/bin:$PATH; /bin/trustprune add -file /localcert.pem -app certifi; test "$(/bin/trustprune list -count -app certifi)" -eq $(( $(cat /tmp/ctotal) + 1 ))`)
+	img.SuccessT(t)
+
+	if debug {
+		fmt.Println("Certifi end")
+	}
+}

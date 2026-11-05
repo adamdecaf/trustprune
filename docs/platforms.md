@@ -22,6 +22,7 @@ Linux picks the first `cadir` whose bundle file exists. Backups of the Linux CA 
 
 | Status | App (`-app`) | Store paths | Operations |
 |--------|--------------|-------------|------------|
+| **Supported** | `certifi` | Python certifi CA bundle. Discovery: `-file` override on list/backup/connect; then for each interpreter (`python3` then `python`; on Windows `python` then `python3` then `py`) try `import certifi; print(certifi.where())` and, before the next interpreter, that same interpreter's `pip._vendor.certifi`; then common `site-packages/certifi/cacert.pem` fallbacks (put the venv's python first on `PATH` for add/allowlist/restore). Distro-patched certifi may point at the system CA bundle. | list, add, allowlist (Remove), backup, restore, `-dry-run`; atomic sibling-temp install shared with `-app ssl`/`openssl` (refuse leftover `.restore-old`, refuse empty bundle, exclusive backup dirs under `certifi/<timestamp>/cacert.pem`) |
 | **Supported** | `java` | `cacerts` under `JAVA_HOME` (`lib/security/cacerts` or `jre/lib/security/cacerts`). Linux also probes `/usr/bin/java`, `/etc/alternatives/java`, `/usr/lib/jvm/default-jvm`. Darwin uses `/usr/libexec/java_home`, each `*/Contents/Home` under `/Library/Java/JavaVirtualMachines/`, and Homebrew OpenJDK prefixes. Windows requires a usable `JAVA_HOME` (no extra install-path probes). `-app java -file <cacerts>` overrides search for list/backup/connect. | list, add, allowlist, backup, restore |
 | **Partial** | `chrome` | **Linux:** NSS DB at `~/.pki/nssdb`. **Darwin / Windows:** wraps the platform store (Chrome uses the OS trust store). | Full NSS ops on Linux when the DB exists; otherwise platform behavior |
 | **Partial** | `firefox` | NSS profile dirs matching `~/.mozilla/firefox/*.default` (Linux) or `~/Library/Application Support/Firefox/Profiles/*.default` (Darwin). Uses `cert9.db` or legacy `cert8.db`. | list/add/allowlist/backup/restore via NSS when a profile is found |
@@ -46,7 +47,7 @@ NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/
 | Linux / Windows | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
 | Darwin | `~/Library/trustprune/` (read-only fallback `~/Library/cert-manage/`) |
 
-Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`, `openssl/`.
+Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`, `openssl/`, `certifi/`.
 
 ## Future stores
 

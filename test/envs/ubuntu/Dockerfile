@@ -3,9 +3,11 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl openjdk-21-jdk-headless && \
+    apt-get install -y --no-install-recommends ca-certificates curl openjdk-21-jdk-headless python3 python3-venv python3-pip && \
     rm -rf /var/lib/apt/lists/* && \
-    ln -sfn "$(dirname "$(dirname "$(readlink -f "$(which javac)")")")" /usr/lib/jvm/java-home
+    ln -sfn "$(dirname "$(dirname "$(readlink -f "$(which javac)")")")" /usr/lib/jvm/java-home && \
+    python3 -m venv /opt/trustprune-certifi && \
+    /opt/trustprune-certifi/bin/pip install --no-cache-dir certifi
 ENV JAVA_HOME=/usr/lib/jvm/java-home
 ENV PATH="${JAVA_HOME}/bin:${PATH}"
 
