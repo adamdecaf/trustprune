@@ -118,6 +118,9 @@ func (s opensslStore) Remove(al allowlist.Allowlist) error {
 }
 
 func (s opensslStore) Restore(where string) error {
+	if where == "" {
+		return fmt.Errorf("no backup for openssl; restore is not supported for this store")
+	}
 	if DryRun() {
 		details := []string{}
 		if where != "" {

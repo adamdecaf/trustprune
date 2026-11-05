@@ -307,6 +307,9 @@ func (s windowsStore) Remove(al allowlist.Allowlist) error {
 }
 
 func (s windowsStore) Restore(where string) error {
+	if where == "" {
+		return fmt.Errorf("no backup for windows; restore is not supported for this store")
+	}
 	if DryRun() {
 		details := []string{}
 		if where != "" {
