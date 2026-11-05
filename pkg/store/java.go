@@ -43,7 +43,7 @@ var (
 type javaStore struct {
 	// keystoreOverride, when set, is the cacerts (or other) keystore file to
 	// use instead of searching JAVA_HOME / platform install paths. CLI -file
-	// with -app java sets this for list/backup/connect.
+	// with -app java sets this for list/backup/connect/restore.
 	keystoreOverride string
 }
 
@@ -327,8 +327,8 @@ func readJavaBackupSource(backup string) (string, error) {
 
 // checkJavaBackupSource refuses a restore whose backup was taken from a
 // different keystore than dst. Backups without a recorded source are allowed
-// only when allowUnknown is set.
-func checkJavaBackupSource(backup, dst string, allowUnknown bool) error {
+// only when allowUnknown is set. force skips a path mismatch.
+func checkJavaBackupSource(backup, dst string, allowUnknown, force bool) error {
 	recorded, err := readJavaBackupSource(backup)
 	if err != nil {
 		return fmt.Errorf("store/java: reading source of backup %s: %w", backup, err)
@@ -337,12 +337,18 @@ func checkJavaBackupSource(backup, dst string, allowUnknown bool) error {
 		if allowUnknown {
 			return nil
 		}
-		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -file to use it", backup)
+		if force {
+			return nil
+		}
+		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -backup to use it", backup)
 	}
-	if !sameJavaKeystore(recorded, dst) {
-		return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s", backup, recorded, dst)
+	if sameJavaKeystore(recorded, dst) {
+		return nil
 	}
-	return nil
+	if force {
+		return nil
+	}
+	return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, dst)
 }
 
 func (s javaStore) GetLatestBackup() (string, error) {
@@ -523,9 +529,10 @@ func (s javaStore) Restore(where string) error {
 			return err
 		}
 	}
-	// Never copy a backup over a different keystore than it came from. An
-	// explicit backup without a recorded source is the operator's choice.
-	if err := checkJavaBackupSource(src, dst, true); err != nil {
+	// Never copy a backup over a different keystore than it came from unless
+	// -force is set. An explicit backup without a recorded source is the
+	// operator's choice.
+	if err := checkJavaBackupSource(src, dst, true, ForceRestore()); err != nil {
 		return err
 	}
 
@@ -553,7 +560,7 @@ type keytool struct {
 	relativeKeystorePaths []string
 
 	// explicitKeystore, when set, skips JAVA_HOME / install-path search and
-	// uses this file directly (CLI -file with -app java).
+	// uses this file directly (CLI -file with -app java on list/backup/connect/restore).
 	explicitKeystore string
 }
 

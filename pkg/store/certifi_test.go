@@ -521,3 +521,151 @@ func fileExistsForTest(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+func certifiTwoBundles(t *testing.T) (pathA, pathB string) {
+	t.Helper()
+	certifiTestHome(t)
+	certsA, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil || len(certsA) < 2 {
+		t.Fatalf("load lots.crt: len=%d err=%v", len(certsA), err)
+	}
+	certsB := extraExampleCert(t)
+	dir := t.TempDir()
+	pathA = filepath.Join(dir, "a", "cacert.pem")
+	pathB = filepath.Join(dir, "b", "cacert.pem")
+	for _, p := range []string{pathA, pathB} {
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		refuseIfSystemCertifi(t, p)
+	}
+	if err := certutil.ToFile(pathA, certsA); err != nil {
+		t.Fatal(err)
+	}
+	if err := certutil.ToFile(pathB, certsB); err != nil {
+		t.Fatal(err)
+	}
+	return pathA, pathB
+}
+
+func assertNoCertifiRestoreWrite(t *testing.T, path string, before []byte) {
+	t.Helper()
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatalf("target %s bytes changed", path)
+	}
+	for _, leftover := range []string{path + ".restore-tmp", path + ".restore-old"} {
+		if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+			t.Fatalf("created %s: %v", leftover, err)
+		}
+	}
+}
+
+func TestCertifiStore_BackupRecordsSource(t *testing.T) {
+	pathA, _ := certifiTwoBundles(t)
+	s := certifiStore{path: pathA}
+	SetDryRun(false)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("latest backup: %q err=%v", latest, err)
+	}
+	got, err := readCertifiBackupSource(latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != certifiCanonicalPath(pathA) {
+		t.Fatalf("recorded source %q want %q", got, certifiCanonicalPath(pathA))
+	}
+}
+
+func TestCertifiStore_RestoreCrossPathRefuseForceAndSamePath(t *testing.T) {
+	pathA, pathB := certifiTwoBundles(t)
+	sA := certifiStore{path: pathA}
+	sB := certifiStore{path: pathB}
+	SetDryRun(false)
+	SetForceRestore(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetForceRestore(false)
+	})
+
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := sB.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupA, err := sA.GetLatestBackup()
+	if err != nil || backupA == "" {
+		t.Fatalf("latest A: %q err=%v", backupA, err)
+	}
+	backupB, err := sB.GetLatestBackup()
+	if err != nil || backupB == "" {
+		t.Fatalf("latest B: %q err=%v", backupB, err)
+	}
+	if backupA == backupB {
+		t.Fatal("GetLatestBackup should return the backup recorded for each store path")
+	}
+
+	beforeB, err := os.ReadFile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dry := range []bool{false, true} {
+		t.Run(fmt.Sprintf("refuse dry=%v", dry), func(t *testing.T) {
+			SetDryRun(dry)
+			SetForceRestore(false)
+			err := sB.Restore(backupA)
+			if err == nil {
+				t.Fatal("expected cross-path restore to refuse")
+			}
+			if !strings.Contains(err.Error(), "refusing restore") {
+				t.Fatalf("expected refusing restore, got %v", err)
+			}
+			if !strings.Contains(err.Error(), "-force") {
+				t.Fatalf("error should mention -force: %v", err)
+			}
+			assertNoCertifiRestoreWrite(t, pathB, beforeB)
+		})
+	}
+
+	SetDryRun(false)
+	SetForceRestore(false)
+
+	originalA, err := os.ReadFile(filepath.Join(backupA, certifiBackupFilename))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(pathA, []byte("MUTATED-CERTIFI\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := sA.Restore(""); err != nil {
+		t.Fatalf("same-path restore: %v", err)
+	}
+	gotA, err := os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, originalA) {
+		t.Fatal("same-path restore did not restore backup bytes")
+	}
+
+	SetForceRestore(true)
+	if err := sB.Restore(backupA); err != nil {
+		t.Fatalf("forced restore: %v", err)
+	}
+	gotB, err := os.ReadFile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotB, originalA) {
+		t.Fatal("forced restore did not copy backup into the other path")
+	}
+}
