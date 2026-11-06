@@ -30,11 +30,10 @@ var (
 	srv *http.Server
 	wg  sync.WaitGroup
 
-
 	doneTpl = `<!doctype html>
 <html>
 <head>
-  <title>cert-manage</title>
+  <title>trustprune</title>
 </head>
 <body>
   <h3>All Done!</h3>

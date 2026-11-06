@@ -23,6 +23,10 @@ import (
 )
 
 func Open() error {
+	addr := server.Address()
+	// Always print the URL so headless / no-browser environments can open it.
+	fmt.Printf("Web UI: %s\n", addr)
+
 	var command string
 	switch runtime.GOOS {
 	case "darwin":
@@ -32,14 +36,16 @@ func Open() error {
 	}
 
 	if command != "" {
-		cmd := exec.Command(command, server.Address())
+		cmd := exec.Command(command, addr)
 		_, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Printf("ERROR: while loading ui, err=%v\n", err)
+			fmt.Printf("Could not open a browser (%v). Open the URL above manually.\n", err)
+			// Keep serving: headless hosts and locked-down desktops still need the URL.
+			return nil
 		}
-		return err
+		return nil
 	}
 
-	fmt.Printf("WARN: ui not supported on %s yet\n", runtime.GOOS)
+	fmt.Printf("WARN: automatic browser open not supported on %s yet; open the URL above\n", runtime.GOOS)
 	return nil
 }
