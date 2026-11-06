@@ -60,8 +60,13 @@ done
 stub="${site}/whitelists.html"
 check_refresh() {
   local body="$1" label="$2"
-  if ! grep -Eqi 'http-equiv=["''']?refresh["''']?[^>]*url=allowlists\.html' <<<"$body"     && ! grep -Eqi 'url=allowlists\.html' <<<"$body"; then
+  # Require the meta refresh target, not just the word "allowlists".
+  if ! grep -Fqi 'url=allowlists.html' <<<"$body"; then
     echo "FAIL $label missing meta refresh to allowlists.html"
+    return 1
+  fi
+  if ! grep -Fqi 'http-equiv="refresh"' <<<"$body" && ! grep -Fqi "http-equiv='refresh'" <<<"$body" && ! grep -Fqi 'http-equiv=refresh' <<<"$body"; then
+    echo "FAIL $label missing http-equiv=refresh"
     return 1
   fi
   echo "OK   $label meta refresh → allowlists.html"
