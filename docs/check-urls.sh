@@ -26,7 +26,7 @@ paths=(
 fail=0
 for path in "${paths[@]}"; do
   if [[ -n "$base" ]]; then
-    code=$(curl -sS -o /dev/null -w '%{http_code}' "${base}${path}" || echo err)
+    code=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' "${base}${path}" || echo err)
     if [[ "$code" != "200" ]]; then
       echo "FAIL $code ${base}${path}"
       fail=1
@@ -59,7 +59,7 @@ done
 # Redirect stub must mention allowlists
 stub="${site}/whitelists.html"
 if [[ -n "$base" ]]; then
-  body=$(curl -sS "${base}/whitelists.html" || true)
+  body=$(curl -sS --connect-timeout 10 --max-time 30 "${base}/whitelists.html" || true)
   if ! grep -qi 'allowlists' <<<"$body"; then
     echo "FAIL whitelists stub missing allowlists reference"
     fail=1
