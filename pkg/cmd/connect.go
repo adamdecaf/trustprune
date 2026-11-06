@@ -42,7 +42,7 @@ func ConnectWithAppStore(uri *url.URL, app string) error {
 func ConnectWithAppStoreFile(uri *url.URL, app, filePath string) error {
 	st, err := store.ForAppWithFile(app, filePath)
 	if err != nil {
-		return fmt.Errorf("problem finding %s: %w", app, err)
+		return err
 	}
 	certs, err := st.List(&store.ListOptions{
 		Trusted: true,

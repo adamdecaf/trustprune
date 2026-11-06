@@ -107,8 +107,7 @@ func ListCertsForPlatform(cfg *ui.Config) error {
 func ListCertsForApp(app string, cfg *ui.Config) error {
 	st, err := store.ForApp(app)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	certificates, err := st.List(&store.ListOptions{
@@ -147,8 +146,7 @@ func createMeta(st store.Store) ui.Meta {
 func ListCertsForAppWithFile(app, filePath string, cfg *ui.Config) error {
 	st, err := store.ForAppWithFile(app, filePath)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 
 	certificates, err := st.List(&store.ListOptions{

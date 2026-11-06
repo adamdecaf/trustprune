@@ -29,6 +29,9 @@ func TestBackupForAppUnknown(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for unknown app")
 	}
+	if !strings.Contains(err.Error(), "unknown app nope-not-an-app (apps:") || !strings.Contains(err.Error(), "java") {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestBackupForAppWithFileCertifiDryRun(t *testing.T) {

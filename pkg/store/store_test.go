@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -334,5 +335,29 @@ func TestGetLatestBackup_NSSMixedUnderTempHome(t *testing.T) {
 	}
 	if got != newer {
 		t.Fatalf("got %s want %s", got, newer)
+	}
+}
+
+func TestForAppUnknown(t *testing.T) {
+	_, err := ForApp("nope")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	wantPrefix := "unknown app nope (apps: "
+	if !strings.HasPrefix(err.Error(), wantPrefix) {
+		t.Fatalf("got %q, want prefix %q", err.Error(), wantPrefix)
+	}
+	if !strings.Contains(err.Error(), "java") {
+		t.Fatalf("expected apps list in %q", err.Error())
+	}
+}
+
+func TestForAppWithFileUnknown(t *testing.T) {
+	_, err := ForAppWithFile("NoPe", "/tmp/x")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.HasPrefix(err.Error(), "unknown app NoPe (apps: ") {
+		t.Fatalf("got %q", err.Error())
 	}
 }

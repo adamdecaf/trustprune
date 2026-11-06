@@ -138,9 +138,10 @@ func GetApps() []string {
 
 // ForApp returns a `Store` instance for the given app
 func ForApp(app string) (Store, error) {
-	s, ok := appStores[strings.ToLower(app)]
+	key := strings.ToLower(app)
+	s, ok := appStores[key]
 	if !ok {
-		return nil, fmt.Errorf("application %q not found; valid apps: %s", app, strings.Join(GetApps(), ", "))
+		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
 	}
 	return s, nil
 }
@@ -150,11 +151,14 @@ func ForApp(app string) (Store, error) {
 // cacert.pem override (one bundle per venv). Used by list/backup/connect/restore
 // -file. Other apps reject a non-empty filePath. Empty filePath is ForApp.
 func ForAppWithFile(app, filePath string) (Store, error) {
-	app = strings.ToLower(app)
+	key := strings.ToLower(app)
 	if strings.TrimSpace(filePath) == "" {
 		return ForApp(app)
 	}
-	switch app {
+	if _, ok := appStores[key]; !ok {
+		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
+	}
+	switch key {
 	case "java":
 		return JavaStoreAt(filePath), nil
 	case "certifi":

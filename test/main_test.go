@@ -103,8 +103,8 @@ func TestCertManage_help(t *testing.T) {
 	if err == nil {
 		t.Error("expected list -app nope to fail")
 	}
-	if !strings.Contains(out, "valid apps: ") || !strings.Contains(out, "java") {
-		t.Errorf("expected valid apps in error, got %q", out)
+	if !strings.Contains(out, "ERROR: unknown app nope (apps:") || !strings.Contains(out, "java") {
+		t.Errorf("expected ERROR: unknown app with apps list, got %q", out)
 	}
 	out, _ = run(t, "list", "-h")
 	if !strings.Contains(out, "-out ") {
