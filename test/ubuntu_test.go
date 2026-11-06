@@ -39,11 +39,3 @@ func TestUbuntu__certifi(t *testing.T) {
 	certifiSuite(t, img)
 }
 
-
-func TestUbuntu__firefox(t *testing.T) {
-	t.Skip("firefox distro coverage is not wired up yet")
-	t.Parallel()
-
-	img := Dockerfile("envs/ubuntu")
-	firefoxSuite(t, img, "1", "1")
-}

@@ -186,7 +186,7 @@ jobs:
             extra+=(-race)
             timeout=5m
           fi
-          go test -count=1 -timeout "$timeout" "${extra[@]}" ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestDocker'
+          go test -count=1 -timeout "$timeout" "${extra[@]}" ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestDocker|TestFirefox|TestChrome'
 
   # Linux distro coverage via Docker. Add a suite name + Dockerfile under
   # test/envs/ to expand. Suites run in parallel so a slow image pull does
@@ -215,6 +215,10 @@ jobs:
             run: TestArch
           - name: docker-smoke
             run: TestDocker
+          - name: firefox
+            run: TestFirefox
+          - name: chrome
+            run: TestChrome
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
