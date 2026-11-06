@@ -38,6 +38,12 @@ ssl       not-found  -
 linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
 
+## Environment
+
+| Variable | Meaning |
+|----------|---------|
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty), used as `-storepass` for every `keytool` call under `-app java`. When unset, the Java default `changeit` is used. No other passwords are guessed. There is no CLI flag for this. |
+
 ## list
 
 Show trusted certificates from the platform store, an app store, a local file, or a remote URL.
