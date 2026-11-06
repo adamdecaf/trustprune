@@ -54,7 +54,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from browser history or URL lists |
-| [apps](docs/usage.md#apps) | List supported app and platform stores with detection status and paths |
+| [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version |
 
 Allowlisting also applies Chromium's certificate blocklist, so certificates in that bundled list are never kept. That behavior cannot be disabled today.

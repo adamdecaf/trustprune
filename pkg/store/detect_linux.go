@@ -17,8 +17,10 @@
 
 package store
 
+import "runtime"
+
 func detectPlatform() Status {
-	s := Status{Name: "platform"}
+	s := Status{Name: runtime.GOOS}
 	ca, ok := selectCadir(cadirs)
 	if !ok {
 		return s

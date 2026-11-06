@@ -52,7 +52,7 @@ func TestFormatAppsHelpLineFreshCache(t *testing.T) {
 		{Name: "java", Found: true, Path: "/tmp/java"},
 		{Name: "openssl", Found: false},
 		{Name: "ssl", Found: false},
-		{Name: "platform", Found: true, Path: "/tmp/platform"},
+		{Name: "linux", Found: true, Path: "/tmp/linux"},
 	}
 	if err := SaveAppStatusesCache(statuses); err != nil {
 		t.Fatal(err)
@@ -72,8 +72,8 @@ func TestFormatAppsHelpLineFreshCache(t *testing.T) {
 			t.Errorf("help line missing %q; got %q", part, got)
 		}
 	}
-	if strings.Contains(got, "platform") {
-		t.Errorf("help line should omit platform, got %q", got)
+	if strings.Contains(got, "linux") {
+		t.Errorf("help line should omit the OS store name, got %q", got)
 	}
 }
 
@@ -123,7 +123,7 @@ func TestSaveAndReadFreshAppStatusesRoundTrip(t *testing.T) {
 
 	want := []Status{
 		{Name: "chrome", Found: true, Path: "/tmp/c"},
-		{Name: "platform", Found: false},
+		{Name: "linux", Found: false},
 	}
 	if err := SaveAppStatusesCache(want); err != nil {
 		t.Fatal(err)

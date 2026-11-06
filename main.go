@@ -219,17 +219,19 @@ APPS
 		},
 		help: `Usage: trustprune apps [-format json]
 
-  List every supported application store plus the platform store, and show
-  whether each was found on this machine along with its store path.
+  List every supported application store plus the system store (named for the
+  OS: linux, darwin, or windows — matching backup paths under ~/.trustprune/<os>/),
+  and show whether each was found on this machine along with its store path.
 
   Detection is read-only and never modifies certificate stores.
 
-  Default output is one aligned line per store:
+  Default output is a header row then one aligned line per store:
+    APP       STATUS     PATH
     chrome    found      /home/you/.pki/nssdb
     firefox   not-found  -
-    platform  found      /etc/ssl/certs/ca-certificates.crt
+    linux     found      /etc/ssl/certs/ca-certificates.crt
 
-  JSON output:
+  JSON output (same fields; the system store name is the OS name, not "platform"):
     trustprune apps -format json
 `,
 	}

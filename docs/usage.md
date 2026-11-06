@@ -14,7 +14,7 @@ Running `trustprune` with no subcommand prints the usage text and exits with sta
 
 ## apps
 
-List every supported application store plus the platform store. For each one, show whether it was found on this machine and the store path. Detection is read-only. Running `apps` also refreshes a 24-hour cache under the user cache directory so `-help` can list which apps were found without probing again.
+List every supported application store plus the system store. The system store is named for the OS (`linux`, `darwin`, or `windows`), matching backup paths under `~/.trustprune/<os>/` (or `~/Library/trustprune/<os>/` on Darwin). For each store, show whether it was found on this machine and the store path. Detection is read-only. Running `apps` also refreshes a 24-hour cache under the user cache directory so `-help` can list which apps were found without probing again.
 
 ```bash
 trustprune apps
@@ -23,18 +23,19 @@ trustprune apps -format json
 
 | Flag | Meaning |
 |------|---------|
-| `-format json` | Emit a JSON array of `{name, found, path}` objects (default is one aligned line per store) |
+| `-format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
 
 Default terse output looks like:
 
 ```text
+APP       STATUS     PATH
 chrome    found      /home/you/.pki/nssdb
 firefox   not-found  -
 java      not-found  -
 certifi   found      /path/to/site-packages/certifi/cacert.pem
 openssl   found      /etc/ssl/certs/ca-certificates.crt
 ssl       not-found  -
-platform  found      /etc/ssl/certs/ca-certificates.crt
+linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
 
 ## list
