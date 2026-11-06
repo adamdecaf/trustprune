@@ -98,7 +98,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `-app …` when targeting an app) before any allowlist.
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
 3. **Preview with `-dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `-dry-run` to print the plan without writing to any store.
-4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root /bin/sh -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
+4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
 
 Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `-backup` (and `-file` on platform/NSS/ssl/openssl). For java and certifi, restore `-file` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `-force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-backup` / `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 

@@ -19,7 +19,9 @@ package file
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -80,8 +82,6 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 		switch name {
 		case "su":
 			return "/bin/su", nil
-		case "sh":
-			return "/bin/sh", nil
 		case "true":
 			return "/usr/bin/true", nil
 		default:
@@ -92,12 +92,54 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// su root /bin/sh -c '<quoted argv>'
-	if len(cmd.Args) != 5 || cmd.Args[0] != "/bin/su" || cmd.Args[1] != "root" || cmd.Args[2] != "/bin/sh" || cmd.Args[3] != "-c" {
+	// su root -c '<quoted argv>' ( -c after login → shell, not FreeBSD class)
+	if len(cmd.Args) != 4 || cmd.Args[0] != "/bin/su" || cmd.Args[1] != "root" || cmd.Args[2] != "-c" {
 		t.Fatalf("args=%v", cmd.Args)
 	}
-	if !strings.Contains(cmd.Args[4], "/usr/bin/true") || !strings.Contains(cmd.Args[4], `'x y'`) {
-		t.Fatalf("su payload=%q", cmd.Args[4])
+	if !strings.Contains(cmd.Args[3], "/usr/bin/true") || !strings.Contains(cmd.Args[3], `'x y'`) {
+		t.Fatalf("su payload=%q", cmd.Args[3])
+	}
+}
+
+func TestElevatedCommand_suExecutesPayload(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	payload := filepath.Join(dir, "payload.sh")
+	if err := os.WriteFile(payload, []byte("#!/bin/sh\n echo ok > '"+marker+"'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	suPath := filepath.Join(dir, "su")
+	// Emulate FreeBSD/Darwin/Linux post-login args: su root -c '<cmd>'
+	suScript := "#!/bin/sh\n" +
+		"if [ \"$1\" != \"root\" ] || [ \"$2\" != \"-c\" ] || [ -z \"$3\" ]; then\n" +
+		"\techo \"bad su args: $*\" >&2\n" +
+		"\texit 2\n" +
+		"fi\n" +
+		"exec /bin/sh -c \"$3\"\n"
+	if err := os.WriteFile(suPath, []byte(suScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withElevateHooks(t, func() int { return 1000 }, func(name string) (string, error) {
+		switch name {
+		case "su":
+			return suPath, nil
+		case payload:
+			return payload, nil
+		default:
+			return "", exec.ErrNotFound
+		}
+	})
+	cmd, err := ElevatedCommand(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("run: %v out=%s", err, out)
+	}
+	b, err := os.ReadFile(marker)
+	if err != nil || strings.TrimSpace(string(b)) != "ok" {
+		t.Fatalf("marker=%q err=%v", b, err)
 	}
 }
 

@@ -51,14 +51,11 @@ func ElevatedCommand(args ...string) (*exec.Cmd, error) {
 		return elevateCommand(sudo, argv...), nil
 	}
 	if su, err := elevateLookPath("su"); err == nil {
-		// FreeBSD su(1) treats -c as a login class, not a shell command.
-		// Run via `su root /bin/sh -c '...'` so Linux and FreeBSD agree.
+		// Place -c after the login name so FreeBSD/Darwin pass it to the
+		// target login shell (FreeBSD su -c *before* login is a class).
+		// Linux util-linux likewise forwards post-login args to the shell.
 		// absArgv already resolved argv[0] for PATH-resetting environments.
-		sh := "/bin/sh"
-		if p, err := elevateLookPath("sh"); err == nil {
-			sh = p
-		}
-		return elevateCommand(su, "root", sh, "-c", posixJoin(argv)), nil
+		return elevateCommand(su, "root", "-c", posixJoin(argv)), nil
 	}
 	return nil, fmt.Errorf("need root to run %s; sudo and su not found on PATH (re-run as root, or install sudo/su)", args[0])
 }
