@@ -18,7 +18,7 @@ Status matches what the code on `master` does today.
 | **List-only** | Windows | Machine stores via PowerShell: `Cert:\LocalMachine\My`, `Root`, `Trust`, `CA`, `AuthRoot` | `list` only; Add, Backup, Remove (allowlist), and Restore are no-ops |
 | **Stub (CI)** | FreeBSD | No system CA dir probe yet. `Platform()` is a stub: list returns empty; live add/allowlist/backup/restore return "not implemented". CI runs unit/CLI tests in a FreeBSD guest with an empty HOME so nothing touches guest system trust. | compile + test only; no platform mutations |
 
-Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RHEL/Rocky, Arch, then Debian/Ubuntu/Alpine. Fedora and Arch also ship `/etc/ssl/certs/ca-certificates.crt` as a compatibility symlink, so their unique bundle paths are checked first. Backups of the Linux CA **directory** go under `~/.trustprune/linux/<unix-timestamp>/`.
+Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RHEL/Rocky, Arch, then Debian/Ubuntu/Alpine. Fedora and Arch also ship `/etc/ssl/certs/ca-certificates.crt` as a compatibility symlink, so their unique bundle paths are checked first. Backups of the Linux CA **directory** go under `~/.trustprune/linux/<unix-timestamp>/`. Refresh (`update-ca-certificates` / `update-ca-trust`) and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su`; already-root processes run the command directly (issue #134).
 
 ## Applications
 

@@ -455,14 +455,14 @@ func (s linuxStore) Restore(where string) error {
 	return nil
 }
 
-// Update the certs trust system-wide
+// Update the certs trust system-wide. Escalates via sudo when available,
+// otherwise su, and only when not already root (issue #134).
 func (s linuxStore) rebundleCerts() error {
 	var out bytes.Buffer
 
-	cmd := exec.Command("sudo", s.ca.refresh)
-	if os.Getuid() == 0 {
-		// drop sudo if we're already root
-		cmd = exec.Command(s.ca.refresh)
+	cmd, err := file.ElevatedCommand(s.ca.refresh)
+	if err != nil {
+		return fmt.Errorf("error updating trust status: %w", err)
 	}
 	cmd.Stdout = &out
 
@@ -470,7 +470,7 @@ func (s linuxStore) rebundleCerts() error {
 		fmt.Println("store/linux: updated CA certificates")
 	}
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		return fmt.Errorf("error updating trust status: err=%w, out=%s", err, out.String())
 	}
