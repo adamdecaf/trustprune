@@ -75,13 +75,20 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Level | Application | Notes |
 |-------|-------------|--------|
-| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. |
+| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (no CLI flag; no other passwords are guessed). |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
 | **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-file` overrides the bundle on list/backup/connect/restore (put the venv's python first on `PATH` for add/allowlist). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
 | **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`-app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. Darwin `/etc/ssl/cert.pem` stays `-app ssl`. |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
 
+
+
+## Environment
+
+| Variable | Meaning |
+|----------|---------|
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty), used as `-storepass` for every `keytool` call under `-app java`. When unset, defaults to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
 
 ## Safety
 
