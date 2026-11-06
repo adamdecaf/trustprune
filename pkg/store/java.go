@@ -67,7 +67,7 @@ var (
 // keystorePassword is the effective keystore password for keytool calls.
 // When TRUSTPRUNE_JAVA_STOREPASS is set (non-empty after trim), that value is
 // used; otherwise the Java default "changeit". No other passwords are guessed.
-// Custom passwords are never placed on keytool/sudo argv; see prepareStorepassFlags.
+// Custom passwords are never placed on keytool/sudo argv; see prepareStorepass.
 func keystorePassword() string {
 	if v := strings.TrimSpace(os.Getenv(javaStorePassEnv)); v != "" {
 		return v
@@ -75,52 +75,59 @@ func keystorePassword() string {
 	return defaultKeystorePassword
 }
 
-// prepareStorepassFlags returns keytool argv fragments for the store password.
-// The default "changeit" stays as "-storepass changeit". A custom password
-// (TRUSTPRUNE_JAVA_STOREPASS) uses "-storepass:file <path>" with a 0600 temp
-// file that cleanup removes — so the secret never appears in process or sudo
-// argv. Requires keytool support for -storepass:file (JDK 6+).
-func prepareStorepassFlags() (flags []string, cleanup func(), err error) {
-	cleanup = func() {}
+// prepareStorepass returns keytool argv fragments and optional child env
+// overrides for the store password. The default "changeit" stays as
+// "-storepass changeit". A custom password uses "-storepass:env
+// TRUSTPRUNE_JAVA_STOREPASS" with the trimmed value supplied in the child
+// environment (and sudo --preserve-env) so the secret never appears in
+// process or sudo argv. Prefer :env over :file because keytool's :file
+// reader only takes the first line. Requires keytool -storepass:env (JDK 6+).
+func prepareStorepass() (flags []string, env []string, err error) {
 	pass := keystorePassword()
 	if pass == defaultKeystorePassword {
-		return []string{"-storepass", defaultKeystorePassword}, cleanup, nil
+		return []string{"-storepass", defaultKeystorePassword}, nil, nil
 	}
-	f, err := os.CreateTemp("", "trustprune-jpass-*")
-	if err != nil {
-		return nil, nil, fmt.Errorf("store/java: storepass temp file: %w", err)
-	}
-	path := f.Name()
-	cleanup = func() { _ = os.Remove(path) }
-	if err := f.Chmod(0o600); err != nil {
-		_ = f.Close()
-		cleanup()
-		return nil, nil, fmt.Errorf("store/java: storepass temp chmod: %w", err)
-	}
-	if _, err := f.WriteString(pass); err != nil {
-		_ = f.Close()
-		cleanup()
-		return nil, nil, fmt.Errorf("store/java: storepass temp write: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		cleanup()
-		return nil, nil, fmt.Errorf("store/java: storepass temp close: %w", err)
-	}
-	return []string{"-storepass:file", path}, cleanup, nil
+	return []string{"-storepass:env", javaStorePassEnv},
+		[]string{javaStorePassEnv + "=" + pass}, nil
 }
 
-// redactKeytoolArgs replaces -storepass / -storepass:file values so debug logs
-// never print secrets or temp password paths.
+// redactKeytoolArgs replaces -storepass values so debug logs never print secrets.
+// -storepass:env's next arg is only the env var name (not secret).
 func redactKeytoolArgs(args []string) []string {
 	out := make([]string, len(args))
 	copy(out, args)
 	for i := 0; i < len(out)-1; i++ {
-		switch out[i] {
-		case "-storepass", "-storepass:file":
+		if out[i] == "-storepass" {
 			out[i+1] = "***"
 		}
 	}
 	return out
+}
+
+// environWithOverrides returns base (or os.Environ) with override keys replaced.
+func environWithOverrides(base []string, overrides []string) []string {
+	if len(overrides) == 0 {
+		return base
+	}
+	if base == nil {
+		base = os.Environ()
+	}
+	drop := make(map[string]struct{}, len(overrides))
+	for _, o := range overrides {
+		if i := strings.IndexByte(o, '='); i > 0 {
+			drop[o[:i]] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, e := range base {
+		if i := strings.IndexByte(e, '='); i > 0 {
+			if _, ok := drop[e[:i]]; ok {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return append(out, overrides...)
 }
 
 type javaStore struct {
@@ -931,8 +938,7 @@ func (k keytool) keytoolBin() string {
 	return "keytool"
 }
 
-func ensureKeytoolNonInteractive(args []string) (out []string, cleanup func(), err error) {
-	cleanup = func() {}
+func ensureKeytoolNonInteractive(args []string) (out []string, env []string, err error) {
 	hasNoprompt, hasStorepass := false, false
 	for _, a := range args {
 		switch a {
@@ -944,17 +950,17 @@ func ensureKeytoolNonInteractive(args []string) (out []string, cleanup func(), e
 	}
 	out = append([]string(nil), args...)
 	if !hasStorepass {
-		flags, c, err := prepareStorepassFlags()
+		flags, e, err := prepareStorepass()
 		if err != nil {
 			return nil, nil, err
 		}
-		cleanup = c
+		env = e
 		out = append(out, flags...)
 	}
 	if !hasNoprompt {
 		out = append(out, "-noprompt")
 	}
-	return out, cleanup, nil
+	return out, env, nil
 }
 
 func defaultFindTimeoutBin() string {
@@ -979,8 +985,13 @@ func keytoolTimeoutSecs() int {
 	return secs
 }
 
-func sudoKeytoolArgs(bin string, args []string) (sudoArgs []string, usedRootTimeout bool) {
+func sudoKeytoolArgs(bin string, args []string, preserveEnv []string) (sudoArgs []string, usedRootTimeout bool) {
 	sudoArgs = []string{"-n"}
+	for _, name := range preserveEnv {
+		if name != "" {
+			sudoArgs = append(sudoArgs, "--preserve-env="+name)
+		}
+	}
 	if tbin := findTimeoutBin(); tbin != "" {
 		sudoArgs = append(sudoArgs, tbin, "-s", "KILL", strconv.Itoa(keytoolTimeoutSecs()))
 		usedRootTimeout = true
@@ -990,19 +1001,29 @@ func sudoKeytoolArgs(bin string, args []string) (sudoArgs []string, usedRootTime
 	return sudoArgs, usedRootTimeout
 }
 
+// storepassEnvNames extracts env var names from "-storepass:env NAME" pairs.
+func storepassEnvNames(args []string) []string {
+	var names []string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-storepass:env" && args[i+1] != "" {
+			names = append(names, args[i+1])
+		}
+	}
+	return names
+}
+
 // runKeytool validates kpath, then runs keytool with a timeout and no stdin
 // so it can never block on a password prompt.
 func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, error) {
 	if _, err := validateJavaKeystoreFile(kpath); err != nil {
 		return nil, err
 	}
-	var cleanup func()
 	var err error
-	args, cleanup, err = ensureKeytoolNonInteractive(args)
+	var storeEnv []string
+	args, storeEnv, err = ensureKeytoolNonInteractive(args)
 	if err != nil {
 		return nil, err
 	}
-	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), keytoolTimeout)
 	defer cancel()
@@ -1012,10 +1033,13 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	var cmd *exec.Cmd
 	if useSudo {
 		var sudoArgs []string
-		sudoArgs, usedRootTimeout = sudoKeytoolArgs(bin, args)
+		sudoArgs, usedRootTimeout = sudoKeytoolArgs(bin, args, storepassEnvNames(args))
 		cmd = exec.CommandContext(ctx, keytoolSudoPath, sudoArgs...)
 	} else {
 		cmd = exec.CommandContext(ctx, bin, args...)
+	}
+	if len(storeEnv) > 0 {
+		cmd.Env = environWithOverrides(nil, storeEnv)
 	}
 	// nil Stdin is the null device; keytool must never inherit a TTY.
 	cmd.Stdin = nil

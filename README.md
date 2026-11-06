@@ -76,7 +76,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Level | Application | Notes |
 |-------|-------------|--------|
-| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:file`, not argv; no CLI flag; no other passwords are guessed). |
+| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv; no CLI flag; no other passwords are guessed). |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
 | **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-file` overrides the bundle on list/backup/connect/restore (put the venv's python first on `PATH` for add/allowlist). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
@@ -89,7 +89,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Variable | Meaning |
 |----------|---------|
-| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `-app java`. Custom values are passed via keytool `-storepass:file` (0600 temp file, cleaned up) so the secret is not on the process or sudo command line; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:file` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `-app java`. Custom values are passed via keytool `-storepass:env` (child env + sudo --preserve-env) so the secret is not on the process or sudo command line; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
 
 ## Safety
 

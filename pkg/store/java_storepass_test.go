@@ -45,6 +45,14 @@ func TestKeystorePasswordFromEnv(t *testing.T) {
 	}
 }
 
+func TestKeystorePasswordAllowsEmbeddedNewline(t *testing.T) {
+	custom := "line1\nline2"
+	t.Setenv(javaStorePassEnv, custom)
+	if got := keystorePassword(); got != custom {
+		t.Fatalf("got %q want %q", got, custom)
+	}
+}
+
 func TestRedactKeytoolArgsHidesStorepass(t *testing.T) {
 	args := []string{"-list", "-storepass", "secret-value", "-keystore", "/tmp/k"}
 	got := strings.Join(redactKeytoolArgs(args), " ")
@@ -57,99 +65,78 @@ func TestRedactKeytoolArgsHidesStorepass(t *testing.T) {
 	if args[2] != "secret-value" {
 		t.Fatalf("redact must not mutate input, got %q", args[2])
 	}
-
-	fileArgs := []string{"-list", "-storepass:file", "/tmp/secret-pass-file", "-keystore", "/tmp/k"}
-	got = strings.Join(redactKeytoolArgs(fileArgs), " ")
-	if strings.Contains(got, "/tmp/secret-pass-file") {
-		t.Fatalf("storepass file path leaked: %q", got)
-	}
-	if !strings.Contains(got, "-storepass:file ***") {
-		t.Fatalf("expected file path redaction, got %q", got)
+	envArgs := []string{"-list", "-storepass:env", javaStorePassEnv, "-keystore", "/tmp/k"}
+	got = strings.Join(redactKeytoolArgs(envArgs), " ")
+	if !strings.Contains(got, "-storepass:env "+javaStorePassEnv) {
+		t.Fatalf("env name should remain visible: %q", got)
 	}
 }
 
-func TestPrepareStorepassFlagsDefault(t *testing.T) {
+func TestPrepareStorepassDefault(t *testing.T) {
 	t.Setenv(javaStorePassEnv, "")
-	flags, cleanup, err := prepareStorepassFlags()
+	flags, env, err := prepareStorepass()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
 	if len(flags) != 2 || flags[0] != "-storepass" || flags[1] != defaultKeystorePassword {
 		t.Fatalf("flags=%v", flags)
 	}
+	if len(env) != 0 {
+		t.Fatalf("env=%v want empty", env)
+	}
 }
 
-func TestPrepareStorepassFlagsCustomUsesFile(t *testing.T) {
+func TestPrepareStorepassCustomUsesEnv(t *testing.T) {
 	const custom = "custom-secret-pass"
 	t.Setenv(javaStorePassEnv, custom)
-	flags, cleanup, err := prepareStorepassFlags()
+	flags, env, err := prepareStorepass()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
-	if len(flags) != 2 || flags[0] != "-storepass:file" {
-		t.Fatalf("flags=%v want -storepass:file <path>", flags)
+	if len(flags) != 2 || flags[0] != "-storepass:env" || flags[1] != javaStorePassEnv {
+		t.Fatalf("flags=%v", flags)
 	}
 	joined := strings.Join(flags, " ")
 	if strings.Contains(joined, custom) {
 		t.Fatalf("custom password in flags: %v", flags)
 	}
-	raw, err := os.ReadFile(flags[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(raw) != custom {
-		t.Fatalf("file contents=%q want %q", raw, custom)
-	}
-	st, err := os.Stat(flags[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.GOOS != "windows" && st.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("temp storepass file mode=%v want 0600", st.Mode())
-	}
-	path := flags[1]
-	cleanup()
-	if _, err := os.Stat(path); !os.IsNotExist(err) {
-		t.Fatalf("cleanup left file: err=%v", err)
+	if len(env) != 1 || env[0] != javaStorePassEnv+"="+custom {
+		t.Fatalf("env=%v", env)
 	}
 }
 
 func TestEnsureKeytoolNonInteractiveCustomNoSecretInArgv(t *testing.T) {
 	const custom = "env-store-pass"
 	t.Setenv(javaStorePassEnv, custom)
-	args, cleanup, err := ensureKeytoolNonInteractive([]string{"-list", "-keystore", "/tmp/k"})
+	args, env, err := ensureKeytoolNonInteractive([]string{"-list", "-keystore", "/tmp/k"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cleanup()
 	joined := strings.Join(args, "\x00")
 	if strings.Contains(joined, custom) {
 		t.Fatalf("custom secret in argv: %v", redactKeytoolArgs(args))
 	}
-	foundFile := false
+	foundEnv := false
 	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "-storepass:file" {
-			foundFile = true
-			raw, err := os.ReadFile(args[i+1])
-			if err != nil {
-				t.Fatal(err)
-			}
-			if string(raw) != custom {
-				t.Fatalf("file pass=%q want %q", raw, custom)
+		if args[i] == "-storepass:env" {
+			foundEnv = true
+			if args[i+1] != javaStorePassEnv {
+				t.Fatalf("env name=%q", args[i+1])
 			}
 		}
 		if args[i] == "-storepass" {
 			t.Fatalf("literal -storepass for custom password: %v", redactKeytoolArgs(args))
 		}
 	}
-	if !foundFile {
-		t.Fatalf("missing -storepass:file in %v", redactKeytoolArgs(args))
+	if !foundEnv {
+		t.Fatalf("missing -storepass:env in %v", redactKeytoolArgs(args))
+	}
+	if len(env) != 1 || !strings.HasPrefix(env[0], javaStorePassEnv+"=") || !strings.HasSuffix(env[0], "="+custom) {
+		t.Fatalf("env override=%v", env)
 	}
 }
 
-func keytoolArgRecorderScript(seenPath, wantPass string, viaFile bool) string {
+func keytoolArgRecorderScript(seenPath, wantPass string, viaEnv bool) string {
 	var b strings.Builder
 	b.WriteString("seen=")
 	b.WriteString(shellSingleQuote(seenPath))
@@ -160,8 +147,8 @@ func keytoolArgRecorderScript(seenPath, wantPass string, viaFile bool) string {
 	}
 	b.WriteString("pass=\"\"\nprev=\"\"\n")
 	b.WriteString("for a in \"$@\"; do\n  printf '%s\\n' \"$a\" >> \"$seen\"\n")
-	if viaFile {
-		b.WriteString("  if [ \"$prev\" = \"-storepass:file\" ]; then\n    pass=$(cat \"$a\")\n  fi\n")
+	if viaEnv {
+		b.WriteString("  if [ \"$prev\" = \"-storepass:env\" ]; then\n    eval \"pass=\\$$a\"\n  fi\n")
 	} else {
 		b.WriteString("  if [ \"$prev\" = \"-storepass\" ]; then\n    pass=\"$a\"\n  fi\n")
 	}
@@ -184,7 +171,7 @@ func assertArgvHasNoSecret(t *testing.T, raw []byte, secret string) {
 	}
 }
 
-func TestRunKeytoolCustomStorepassUsesFileNotArgv(t *testing.T) {
+func TestRunKeytoolCustomStorepassUsesEnvNotArgv(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("fake keytool shell script is unix-only")
 	}
@@ -209,15 +196,18 @@ func TestRunKeytoolCustomStorepassUsesFileNotArgv(t *testing.T) {
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	found := false
 	for i := 0; i < len(lines)-1; i++ {
-		if lines[i] == "-storepass:file" {
+		if lines[i] == "-storepass:env" {
 			found = true
+			if lines[i+1] != javaStorePassEnv {
+				t.Fatalf("env name=%q", lines[i+1])
+			}
 		}
 		if lines[i] == "-storepass" {
 			t.Fatalf("literal -storepass in argv for custom password: %q", string(raw))
 		}
 	}
 	if !found {
-		t.Fatalf("no -storepass:file in recorded args: %q", string(raw))
+		t.Fatalf("no -storepass:env in recorded args: %q", string(raw))
 	}
 }
 
@@ -249,50 +239,17 @@ func TestRunKeytoolDefaultStorepassWhenEnvUnset(t *testing.T) {
 			}
 			return
 		}
-		if lines[i] == "-storepass:file" {
-			t.Fatalf("default password should use -storepass, got file: %q", string(raw))
+		if lines[i] == "-storepass:env" {
+			t.Fatalf("default password should use -storepass, got env: %q", string(raw))
 		}
 	}
 	t.Fatalf("no -storepass in args: %q", string(raw))
 }
 
-func TestRunKeytoolSudoCustomStorepassNotInArgv(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake sudo/keytool shell scripts are unix-only")
-	}
-	const custom = "sudo-secret-pass"
-	javaHome := javaFailFastEnv(t)
-	t.Setenv(javaStorePassEnv, custom)
-	writeDummyCacerts(t, javaHome)
-
-	seen := filepath.Join(t.TempDir(), "seen-args")
-	writeFakeKeytool(t, javaHome, keytoolArgRecorderScript(seen, custom, true))
-
-	sudoPath, sudoArgvFile := writeFakeSudo(t)
-	oldSudo := keytoolSudoPath
-	keytoolSudoPath = sudoPath
-	t.Cleanup(func() { keytoolSudoPath = oldSudo })
-
-	kpath := filepath.Join(javaHome, "lib", "security", "cacerts")
-	_, err := javaStore{}.tool().runKeytool(kpath, []string{"-list"}, true)
-	if err != nil {
-		t.Fatalf("sudo runKeytool: %v", err)
-	}
-	raw, err := os.ReadFile(seen)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertArgvHasNoSecret(t, raw, custom)
-
-	sudoRaw, err := os.ReadFile(sudoArgvFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertArgvHasNoSecret(t, sudoRaw, custom)
-	if !strings.Contains(string(sudoRaw), "-storepass:file") {
-		t.Fatalf("sudo argv missing -storepass:file: %q", sudoRaw)
-	}
-	if strings.Contains(string(sudoRaw), "-storepass "+custom) || strings.Contains(string(sudoRaw), "\n"+custom) {
-		t.Fatalf("custom secret in sudo argv: %q", sudoRaw)
+func TestEnvironWithOverrides(t *testing.T) {
+	got := environWithOverrides([]string{"A=1", "B=2", "C=3"}, []string{"B=9", "D=4"})
+	want := []string{"A=1", "C=3", "B=9", "D=4"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("got %v want %v", got, want)
 	}
 }

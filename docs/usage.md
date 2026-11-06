@@ -43,7 +43,7 @@ linux     found      /etc/ssl/certs/ca-certificates.crt
 
 | Variable | Meaning |
 |----------|---------|
-| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `-app java`. Custom values are passed with keytool `-storepass:file` (0600 temp file, removed after the call) so the password never appears in keytool or sudo argv; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:file` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed. There is no CLI flag for this. |
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `-app java`. Custom values are passed with keytool `-storepass:env` (trimmed value in the child environment; sudo uses `--preserve-env`) so the password never appears in keytool or sudo argv; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed. There is no CLI flag for this. |
 
 ## list
 
