@@ -32,6 +32,8 @@ type jsonCert struct {
 	Serial    string `json:"serial"`
 	NotBefore string `json:"not_before"`
 	NotAfter  string `json:"not_after"`
+	Days      int    `json:"days"`
+	Expired   bool   `json:"expired"`
 	KeyType   string `json:"key_type"`
 	KeyBits   int    `json:"key_bits"`
 	IsCA      bool   `json:"is_ca"`
@@ -42,6 +44,7 @@ type jsonCert struct {
 type jsonPrinter struct {
 	meta Meta
 	cfg  *Config
+	now  time.Time // zero means time.Now()
 }
 
 func (jsonPrinter) close() {}
@@ -56,11 +59,16 @@ func (p jsonPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 	if path == "" {
 		path = p.meta.Path
 	}
+	now := p.now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	for _, c := range certs {
 		if c == nil {
 			continue
 		}
 		algo, bits := certutil.PublicKeyInfo(c)
+		days := certutil.DaysUntilExpiry(c, now)
 		out = append(out, jsonCert{
 			SHA256:    certutil.GetHexSHA256Fingerprint(*c),
 			Subject:   certutil.StringifyPKIXName(c.Subject),
@@ -68,6 +76,8 @@ func (p jsonPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 			Serial:    c.SerialNumber.String(),
 			NotBefore: c.NotBefore.UTC().Format(time.RFC3339),
 			NotAfter:  c.NotAfter.UTC().Format(time.RFC3339),
+			Days:      days,
+			Expired:   days < 0,
 			KeyType:   algo,
 			KeyBits:   bits,
 			IsCA:      c.IsCA,

@@ -16,9 +16,15 @@ package ui
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
 	"io"
+	"math/big"
 	"os"
 	"path/filepath"
 	"sort"
@@ -187,5 +193,171 @@ func TestTruncateColumn(t *testing.T) {
 	got := truncateColumn(long, 40)
 	if utf8.RuneCountInString(got) != 40 || !strings.HasSuffix(got, "…") {
 		t.Errorf("got %q", got)
+	}
+}
+
+func TestFormatTableDays(t *testing.T) {
+	cases := []struct {
+		days int
+		want string
+	}{
+		{-100, "expired"},
+		{-1, "expired"},
+		{0, "0!"},
+		{1, "1!"},
+		{42, "42!"},
+		{89, "89!"},
+		{90, "90"},
+		{91, "91"},
+		{1811, "1811"},
+	}
+	for _, tc := range cases {
+		if got := formatTableDays(tc.days); got != tc.want {
+			t.Errorf("formatTableDays(%d)=%q want %q", tc.days, got, tc.want)
+		}
+	}
+}
+
+func mustTestCertWithExpiry(t *testing.T, subject string, notAfter time.Time) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject:      pkix.Name{CommonName: subject},
+		NotBefore:    notAfter.Add(-365 * 24 * time.Hour),
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageCertSign,
+		IsCA:         true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
+}
+
+func TestTablePrinterDaysMarkers(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	certs := []*x509.Certificate{
+		mustTestCertWithExpiry(t, "Expired Root", now.Add(-48*time.Hour)),
+		mustTestCertWithExpiry(t, "Soon Root", now.Add(42*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Far Root", now.Add(200*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Boundary Soon", now.Add(89*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Boundary OK", now.Add(90*24*time.Hour)),
+	}
+
+	var buf bytes.Buffer
+	if err := (tablePrinter{now: now}).write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 6 {
+		t.Fatalf("expected header + 5 rows:\n%s", out)
+	}
+	// Find DAYS column by splitting on runs of spaces after tabwriter
+	wantSubstr := map[string]string{
+		"Expired Root":  "expired",
+		"Soon Root":     "42!",
+		"Far Root":      "200",
+		"Boundary Soon": "89!",
+		"Boundary OK":   "90",
+	}
+	for _, line := range lines[1:] {
+		matched := false
+		for subj, days := range wantSubstr {
+			if strings.Contains(line, subj) {
+				matched = true
+				fields := strings.Fields(line)
+				// SUBJECT may be multi-token; DAYS is immediately before fingerprint (hex)
+				// Layout: SUBJECT ... ISSUER KEY DAYS FINGERPRINT
+				// With self-signed ISSUER is "=".
+				if len(fields) < 5 {
+					t.Fatalf("short line: %q", line)
+				}
+				gotDays := fields[len(fields)-2]
+				if gotDays != days {
+					t.Errorf("%s: DAYS=%q want %q\nline=%q", subj, gotDays, days, line)
+				}
+				delete(wantSubstr, subj)
+				break
+			}
+		}
+		if !matched {
+			t.Errorf("unexpected line: %q", line)
+		}
+	}
+	if len(wantSubstr) != 0 {
+		t.Fatalf("missing rows: %v\n%s", wantSubstr, out)
+	}
+
+	// Verbose keeps numeric days (including negative), no "expired" / "!" markers.
+	buf.Reset()
+	if err := (tablePrinter{now: now, verbose: true}).write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	vout := buf.String()
+	if strings.Contains(vout, "expired") || strings.Contains(vout, "42!") {
+		t.Fatalf("verbose table should keep numeric days:\n%s", vout)
+	}
+	if !strings.Contains(vout, "\t-2\t") && !strings.Contains(vout, " -2 ") {
+		// tabwriter may use spaces; look for the expired cert's day count
+		found := false
+		for _, line := range strings.Split(vout, "\n") {
+			if strings.Contains(line, "Expired Root") && strings.Contains(line, "-2") {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("verbose missing numeric -2 for expired:\n%s", vout)
+		}
+	}
+}
+
+func TestJSONCertDaysAndExpired(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	certs := []*x509.Certificate{
+		mustTestCertWithExpiry(t, "Expired Root", now.Add(-24*time.Hour)),
+		mustTestCertWithExpiry(t, "Soon Root", now.Add(10*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Far Root", now.Add(120*24*time.Hour)),
+	}
+	var buf bytes.Buffer
+	cfg := &Config{Format: "json", SourcePath: "test"}
+	p := jsonPrinter{meta: Meta{Name: "file"}, cfg: cfg, now: now}
+	if err := p.write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	var rows []jsonCert
+	if err := json.Unmarshal(buf.Bytes(), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, buf.Bytes())
+	}
+	if len(rows) != 3 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	bySubj := map[string]jsonCert{}
+	for _, r := range rows {
+		bySubj[r.Subject] = r
+	}
+	ex := bySubj["Expired Root"]
+	if ex.Days >= 0 || !ex.Expired {
+		t.Fatalf("expired row: days=%d expired=%v", ex.Days, ex.Expired)
+	}
+	soon := bySubj["Soon Root"]
+	if soon.Days != 10 || soon.Expired {
+		t.Fatalf("soon row: days=%d expired=%v", soon.Days, soon.Expired)
+	}
+	far := bySubj["Far Root"]
+	if far.Days != 120 || far.Expired {
+		t.Fatalf("far row: days=%d expired=%v", far.Days, far.Expired)
 	}
 }

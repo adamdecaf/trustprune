@@ -65,8 +65,10 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 | `-url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `-count` | Print only the number of certificates |
 | `-format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
-| `-v` | In `table` output, show the full fingerprint, serial, and source or store path (`-` for URLs) |
+| `-v` | In `table` output, show the full fingerprint, serial, source or store path (`-` for URLs), and NOT BEFORE / NOT AFTER. DAYS stays numeric (including negative when expired) |
 | `-ui <type>` | Presentation: `cli` (default) or `web` (local page) |
+
+In non-verbose `table` output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-format json` keeps numeric `days` and adds boolean `expired`.
 
 ## backup
 
