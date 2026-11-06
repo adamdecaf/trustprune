@@ -187,7 +187,7 @@ jobs:
             extra+=(-race)
             timeout=5m
           fi
-          go test -count=1 -timeout "$timeout" "${extra[@]}" ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestDocker|TestFirefox|TestChrome'
+          go test -count=1 -timeout "$timeout" "${extra[@]}" ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestGentoo|TestDocker|TestFirefox|TestChrome'
 
   # Linux distro coverage via Docker. Add a suite name + Dockerfile under
   # test/envs/ to expand. Suites run in parallel so a slow image pull does
@@ -214,6 +214,8 @@ jobs:
             run: TestFedora
           - name: arch
             run: TestArch
+          - name: gentoo
+            run: TestGentoo
           - name: docker-smoke
             run: TestDocker
           - name: firefox
@@ -267,4 +269,4 @@ jobs:
             CGO_ENABLED=0 go test -count=1 -timeout 5m ./pkg/... .
             mkdir -p bin
             CGO_ENABLED=0 go build -trimpath -o "bin/trustprune-freebsd-$(go env GOARCH)" .
-            go test -count=1 -timeout 5m ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestDocker|TestFirefox|TestChrome'
+            go test -count=1 -timeout 5m ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestGentoo|TestDocker|TestFirefox|TestChrome'

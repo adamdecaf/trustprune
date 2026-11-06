@@ -81,7 +81,9 @@ var (
 			refresh:   "/usr/bin/update-ca-trust",
 			blocklist: "/etc/ca-certificates/trust-source/blocklist",
 		},
-		// Debian/Ubuntu/Alpine/Gentoo
+		// Debian/Ubuntu/Alpine/Gentoo (wiki.gentoo.org/wiki/Certificates:
+		// app-misc/ca-certificates + update-ca-certificates; local anchors
+		// live under /usr/local/share/ca-certificates, which may be absent).
 		{
 			add:     "/usr/local/share/ca-certificates",
 			dir:     "/usr/share/ca-certificates",
@@ -129,6 +131,14 @@ func (s linuxStore) Add(certs []*x509.Certificate) error {
 		}
 		reportDryRun("add certificates to", "linux", s.ca.dir, details...)
 		return nil
+	}
+
+	// Gentoo (and a fresh Debian-style layout) may lack the local add
+	// directory until an admin creates it; create it before writing.
+	if len(certs) > 0 {
+		if err := os.MkdirAll(s.ca.add, linuxPublicDirPerms); err != nil { //nolint:gosec // G301: system CA add dir is world-traversable by design
+			return fmt.Errorf("create certificate add directory %s: %w", s.ca.add, err)
+		}
 	}
 
 	// install each certificate
