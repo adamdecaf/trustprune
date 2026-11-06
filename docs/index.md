@@ -1,6 +1,9 @@
 ---
 layout: default
-title: Home
+title: trustprune
+description: >-
+  List, backup, allowlist, and restore CA trust stores on your platform and in
+  apps such as Java, Chrome, and Firefox. Trust should be earned, not defaulted.
 nav_order: 1
 permalink: /
 ---
