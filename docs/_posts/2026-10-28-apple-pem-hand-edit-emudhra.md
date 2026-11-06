@@ -67,11 +67,11 @@ Roll back if HTTPS breaks for a tool you need:
 trustprune restore
 trustprune restore -app ssl
 trustprune restore -app java
-trustprune list
-trustprune connect https://example.com
+trustprune list -app ssl
+trustprune connect -app ssl https://example.com
 ```
 
-On Linux, that path covers the platform CA directory and refresh tools. On Darwin, it covers Keychain-oriented platform operations (restore honors `-backup` / `-file` / `where` for the login-keychain backup directory), the CLI PEM bundle via `-app ssl`, and app stores such as Java and Firefox when they are present. Across machines, the same commands and allowlist file are repeatable only for the operations each store supports. The Windows platform store does not support every operation. Stores that support backups write timestamped entries under `~/.trustprune/` or `~/Library/trustprune/` that you can restore from (older `~/.cert-manage/` / `~/Library/cert-manage/` backups remain readable). Darwin `-app ssl` backups land at `~/Library/trustprune/ssl/<timestamp>/cert.pem`.
+On Linux, that path covers the platform CA directory and refresh tools. On Darwin, it covers Keychain-oriented platform operations (restore honors `-backup` / `-file` for the login-keychain backup directory), the CLI PEM bundle via `-app ssl`, and app stores such as Java and Firefox when they are present. Across machines, the same commands and allowlist file are repeatable only for the operations each store supports. The Windows platform store does not support every operation. Stores that support backups write timestamped entries under `~/.trustprune/` or `~/Library/trustprune/` that you can restore from (older `~/.cert-manage/` / `~/Library/cert-manage/` backups remain readable). Darwin `-app ssl` backups land at `~/Library/trustprune/ssl/<timestamp>/cert.pem`.
 
 Apple's PEM recipe is an honest interim for a real hole in macOS CLI trust. It also shows what "just edit the bundle" costs: silent reverts, brittle scripts, and no plan you can review before you write. Prefer a tool that dry-runs, backs up, restores, and applies the same policy on every store you actually use — including `-app ssl` for `/etc/ssl/cert.pem`. That is safer than hand-editing a PEM under pressure—not a guarantee that nothing will break.
 

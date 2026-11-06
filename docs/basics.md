@@ -35,7 +35,7 @@ Connection to https://google.com passed!
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
-| `-file <keystore>` | Java/certifi: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
+| `-file <keystore>` | With `-app java` or `-app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`). Without `-app`, `-file` is ignored and connect uses the platform store |
 | `-url <url>` | URL to connect to, instead of the positional argument |
 
 ## List
