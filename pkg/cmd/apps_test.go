@@ -29,7 +29,7 @@ func TestPrintAppsTerse(t *testing.T) {
 	statuses := []store.Status{
 		{Name: "chrome", Found: true, Path: "/tmp/chrome-nss"},
 		{Name: "firefox", Found: false, Path: ""},
-		{Name: "platform", Found: true, Path: "/etc/ssl/certs/ca-certificates.crt"},
+		{Name: "linux", Found: true, Path: "/etc/ssl/certs/ca-certificates.crt"},
 	}
 	var buf bytes.Buffer
 	if err := printApps(&buf, statuses, ""); err != nil {
@@ -37,18 +37,24 @@ func TestPrintAppsTerse(t *testing.T) {
 	}
 	out := buf.String()
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("want 3 lines, got %d: %q", len(lines), out)
+	if len(lines) != 4 {
+		t.Fatalf("want 4 lines (header+3), got %d: %q", len(lines), out)
 	}
-	if !strings.Contains(lines[0], "chrome") || !strings.Contains(lines[0], "found") || !strings.Contains(lines[0], "/tmp/chrome-nss") {
-		t.Errorf("chrome line = %q", lines[0])
+	if !strings.HasPrefix(lines[0], "APP") || !strings.Contains(lines[0], "STATUS") || !strings.Contains(lines[0], "PATH") {
+		t.Errorf("header line = %q", lines[0])
 	}
-	if !strings.Contains(lines[1], "firefox") || !strings.Contains(lines[1], "not-found") || !strings.HasSuffix(strings.TrimSpace(lines[1]), "-") {
-		t.Errorf("firefox line = %q", lines[1])
+	if !strings.Contains(lines[1], "chrome") || !strings.Contains(lines[1], "found") || !strings.Contains(lines[1], "/tmp/chrome-nss") {
+		t.Errorf("chrome line = %q", lines[1])
 	}
-	// Names should be padded to the longest ("platform")
-	if !strings.HasPrefix(lines[0], "chrome  ") {
-		t.Errorf("expected chrome padded to platform width, got %q", lines[0])
+	if !strings.Contains(lines[2], "firefox") || !strings.Contains(lines[2], "not-found") || !strings.HasSuffix(strings.TrimSpace(lines[2]), "-") {
+		t.Errorf("firefox line = %q", lines[2])
+	}
+	if !strings.Contains(lines[3], "linux") || !strings.Contains(lines[3], "found") {
+		t.Errorf("os line = %q", lines[3])
+	}
+	// Names should be padded to the longest ("firefox")
+	if !strings.HasPrefix(lines[1], "chrome ") {
+		t.Errorf("expected chrome padded to firefox width, got %q", lines[1])
 	}
 }
 

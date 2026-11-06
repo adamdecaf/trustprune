@@ -92,7 +92,7 @@ func TestDetectStatusesShape(t *testing.T) {
 	statuses := DetectStatuses()
 	apps := GetApps()
 	if len(statuses) != len(apps)+1 {
-		t.Fatalf("want %d statuses (apps+platform), got %d", len(apps)+1, len(statuses))
+		t.Fatalf("want %d statuses (apps+os), got %d", len(apps)+1, len(statuses))
 	}
 	for i, name := range apps {
 		if statuses[i].Name != name {
@@ -100,8 +100,8 @@ func TestDetectStatusesShape(t *testing.T) {
 		}
 	}
 	last := statuses[len(statuses)-1]
-	if last.Name != "platform" {
-		t.Errorf("last status name=%q want platform", last.Name)
+	if last.Name != runtime.GOOS {
+		t.Errorf("last status name=%q want %s", last.Name, runtime.GOOS)
 	}
 }
 

@@ -24,7 +24,7 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-// ListApps prints every supported app store plus the platform store, and
+// ListApps prints every supported app store plus the system/OS store, and
 // whether each was found on this machine. Detection is read-only.
 //
 // format is "json" for a JSON array, or empty/"short" for terse lines.
@@ -44,13 +44,21 @@ func printApps(w io.Writer, statuses []store.Status, format string) error {
 }
 
 func printAppsTerse(w io.Writer, statuses []store.Status) error {
-	maxName := 0
+	const (
+		headerApp    = "APP"
+		headerStatus = "STATUS"
+		headerPath   = "PATH"
+		stateWidth   = len("not-found")
+	)
+	maxName := len(headerApp)
 	for _, s := range statuses {
 		if n := len(s.Name); n > maxName {
 			maxName = n
 		}
 	}
-	const stateWidth = len("not-found")
+	if _, err := fmt.Fprintf(w, "%-*s  %-*s  %s\n", maxName, headerApp, stateWidth, headerStatus, headerPath); err != nil {
+		return fmt.Errorf("writing apps output failed: %w; retry or use -format json", err)
+	}
 	for _, s := range statuses {
 		state := "not-found"
 		path := "-"

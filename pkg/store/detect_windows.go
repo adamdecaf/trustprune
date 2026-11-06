@@ -17,12 +17,14 @@
 
 package store
 
+import "runtime"
+
 func detectPlatform() Status {
 	// Windows always exposes the system certificate stores via certutil /
 	// PowerShell; there is no single on-disk path, so report the Root store
 	// PowerShell path used by windowsStore.
 	return Status{
-		Name:  "platform",
+		Name:  runtime.GOOS,
 		Found: true,
 		Path:  `Cert:\LocalMachine\Root`,
 	}

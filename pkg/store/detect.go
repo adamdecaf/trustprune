@@ -31,7 +31,7 @@ type Status struct {
 }
 
 // DetectStatuses returns status for every supported app (sorted) plus the
-// platform store. Paths come from each store's existing probe logic.
+// system/OS store (named runtime.GOOS). Paths come from each store's existing probe logic.
 func DetectStatuses() []Status {
 	apps := GetApps()
 	out := make([]Status, 0, len(apps)+1)

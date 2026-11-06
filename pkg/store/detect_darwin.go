@@ -17,10 +17,14 @@
 
 package store
 
-import "github.com/adamdecaf/trustprune/pkg/file"
+import (
+	"runtime"
+
+	"github.com/adamdecaf/trustprune/pkg/file"
+)
 
 func detectPlatform() Status {
-	s := Status{Name: "platform"}
+	s := Status{Name: runtime.GOOS}
 	// Prefer the login keychain (where user overrides live), then the
 	// system keychain. The SystemRootCertificates keychain is SIP-protected
 	// and always present on a real Mac.
