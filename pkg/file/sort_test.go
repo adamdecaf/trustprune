@@ -49,8 +49,17 @@ func TestFile__sortFileInfos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	names := make([]string, len(fds))
+	for i := range fds {
+		names[i] = fds[i].Name()
+	}
+	// Shuffle then sort with the package helper to prove ordering is stable.
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	SortNames(names)
 
-	answers := []string{
+	want := []string{
+		"escalate_unix.go",
+		"escalate_unix_test.go",
 		"file.go",
 		"file_test.go",
 		"file_unix.go",
@@ -63,10 +72,12 @@ func TestFile__sortFileInfos(t *testing.T) {
 		"sort.go",
 		"sort_test.go",
 	}
-
-	for i := range fds {
-		if fds[i].Name() != answers[i] {
-			t.Fatalf("idx: %d didn't match, %s vs %s", i, fds[i].Name(), answers[i])
+	if len(names) != len(want) {
+		t.Fatalf("got %d entries %v, want %d %v", len(names), names, len(want), want)
+	}
+	for i := range names {
+		if names[i] != want[i] {
+			t.Fatalf("idx: %d didn't match, %s vs %s (full=%v)", i, names[i], want[i], names)
 		}
 	}
 }

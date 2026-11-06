@@ -34,10 +34,10 @@ import (
 // all live under t.TempDir(). HOME is pointed at a separate temp dir so
 // backups land in $HOME/.trustprune/linux/... rather than the real home.
 //
-// Restore always runs rebundleCerts, which prefixes the refresh command with
-// sudo unless the process is already root. Tests install a PATH-shadowing
-// passthrough sudo so `sudo /bin/true` succeeds without touching the host
-// (this environment's real sudo requires a password).
+// Restore always runs rebundleCerts, which escalates via sudo (or su) unless
+// the process is already root. Tests install a PATH-shadowing passthrough
+// sudo so `sudo /bin/true` succeeds without touching the host (this
+// environment's real sudo requires a password).
 func linuxTestStore(t *testing.T) linuxStore {
 	t.Helper()
 

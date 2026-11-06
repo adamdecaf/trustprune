@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"syscall"
 )
 
@@ -56,20 +55,17 @@ func execCopy(src, dst string) error {
 	return CopyFile(src, dst)
 }
 
-// execSudoCopy drops down to a shell in order to attempt a file copy.
-// This function assumes the paths are valid (and checked) by it's caller
+// execSudoCopy drops down to an elevated shell to copy when the destination
+// is root-owned (or a create needs elevation). Prefers sudo, then su (#134).
 func execSudoCopy(src, dst string) error {
-	var cmd *exec.Cmd
-	if os.Getuid() == 0 {
-		// already root, no need to sudo
-		cmd = exec.Command("cp", src, dst)
-	} else {
-		cmd = exec.Command("sudo", "cp", src, dst)
+	cmd, err := ElevatedCommand("cp", src, dst)
+	if err != nil {
+		return fmt.Errorf("error copying file from %q to %q, err=%w", src, dst, err)
 	}
 
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if stderr.Len() > 0 {
 			return fmt.Errorf("error copying file from %q to %q, err=%w, stderr=%s", src, dst, err, stderr.String())
