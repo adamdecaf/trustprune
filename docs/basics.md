@@ -32,6 +32,12 @@ $ ./trustprune connect -url https://google.com
 Connection to https://google.com passed!
 ```
 
+| Flag | Meaning |
+|------|---------|
+| `-app <name>` | Use that application's certificates for the TLS handshake |
+| `-file <keystore>` | Java/certifi: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
+| `-url <url>` | URL to connect to, instead of the positional argument |
+
 ## List
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `-app` flag.

@@ -95,7 +95,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 Certificate-store edits can break HTTPS for browsers, package managers, and language runtimes. Treat every change as privileged.
 
-1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `-app …` when targeting an app) before any allowlist.
+1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `-app …` when targeting an app) before any allowlist. `restore` (and `restore -dry-run`) with no backup for that store also refuses before any write and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup -app openssl`.
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
 3. **Preview with `-dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `-dry-run` to print the plan without writing to any store.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
