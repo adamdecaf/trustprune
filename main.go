@@ -220,8 +220,9 @@ APPS
 		help: `Usage: trustprune apps [-format json]
 
   List every supported application store plus the system store (named for the
-  OS: linux, darwin, or windows — matching backup paths under ~/.trustprune/<os>/),
-  and show whether each was found on this machine along with its store path.
+  OS: linux, darwin, or windows — matching backup paths under ~/.trustprune/<os>/,
+  or ~/Library/trustprune/<os>/ on Darwin), and show whether each was found on
+  this machine along with its store path.
 
   Detection is read-only and never modifies certificate stores.
 
