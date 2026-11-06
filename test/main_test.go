@@ -173,11 +173,11 @@ func run(t *testing.T, args ...string) (string, error) {
 }
 
 func TestCertManage_aliasNotice(t *testing.T) {
-	cmd := CertManage()
-	if cmd == nil || cmd.command == "" {
+	bin := CertManage()
+	if bin == nil || bin.command == "" {
 		t.Fatal("no trustprune binary path for this platform")
 	}
-	src := cmd.command
+	src := bin.command
 	if _, err := os.Stat(src); err != nil {
 		t.Skipf("built binary missing at %s", src)
 	}
