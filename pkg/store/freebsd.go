@@ -25,7 +25,8 @@ import (
 )
 
 // freebsdStore is a stub until a FreeBSD trust-store backend exists.
-// Mutating ops fail explicitly so callers never treat a no-op as success.
+// Dry-run and GetLatestBackup follow the emptyStore contract so CLI
+// guards still work; live mutating ops fail explicitly.
 type freebsdStore struct{}
 
 func platform() Store {
@@ -40,22 +41,43 @@ func (s freebsdStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
 	return nil, nil
 }
 
-func (s freebsdStore) Add([]*x509.Certificate) error {
+func (s freebsdStore) Add(certs []*x509.Certificate) error {
+	if DryRun() {
+		reportDryRun("add certificates to", "freebsd", "", reportDryRunCerts("add", certs)...)
+		return nil
+	}
 	return fmt.Errorf("freebsd platform store is not implemented")
 }
 
 func (s freebsdStore) Remove(allowlist.Allowlist) error {
+	if DryRun() {
+		reportDryRun("remove certificates from", "freebsd", "")
+		return nil
+	}
 	return fmt.Errorf("freebsd platform store is not implemented")
 }
 
 func (s freebsdStore) Backup() error {
+	if DryRun() {
+		reportDryRun("backup", "freebsd", "")
+		return nil
+	}
 	return fmt.Errorf("freebsd platform store is not implemented")
 }
 
 func (s freebsdStore) GetLatestBackup() (string, error) {
-	return "", fmt.Errorf("freebsd platform store is not implemented")
+	// No backups exist yet; callers (allowlist/restore) treat "" as missing.
+	return "", nil
 }
 
-func (s freebsdStore) Restore(string) error {
+func (s freebsdStore) Restore(where string) error {
+	if DryRun() {
+		details := []string{}
+		if where != "" {
+			details = append(details, fmt.Sprintf("source %s", where))
+		}
+		reportDryRun("restore", "freebsd", "", details...)
+		return nil
+	}
 	return fmt.Errorf("freebsd platform store is not implemented")
 }
