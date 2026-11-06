@@ -40,6 +40,8 @@ const (
 	keystoreTamperedMessage = "Keystore was tampered with, or password was incorrect"
 )
 
+const javaStorePassEnv = "TRUSTPRUNE_JAVA_STOREPASS"
+
 var (
 	defaultKeystorePassword = "changeit"
 	javaCertManageDir       = "java"
@@ -61,6 +63,28 @@ var (
 	// be killed as root. Tests override this.
 	findTimeoutBin = defaultFindTimeoutBin
 )
+
+// keystorePassword is the -storepass value passed to every keytool call.
+// When TRUSTPRUNE_JAVA_STOREPASS is set (non-empty after trim), that value is
+// used; otherwise the Java default "changeit". No other passwords are guessed.
+func keystorePassword() string {
+	if v := strings.TrimSpace(os.Getenv(javaStorePassEnv)); v != "" {
+		return v
+	}
+	return defaultKeystorePassword
+}
+
+// redactKeytoolArgs replaces -storepass values so debug logs never print secrets.
+func redactKeytoolArgs(args []string) []string {
+	out := make([]string, len(args))
+	copy(out, args)
+	for i := 0; i < len(out)-1; i++ {
+		if out[i] == "-storepass" {
+			out[i+1] = "***"
+		}
+	}
+	return out
+}
 
 type javaStore struct {
 	// keystoreOverride, when set, is the cacerts (or other) keystore file to
@@ -603,7 +627,7 @@ func (k keytool) addCertificate(where string, alias string) error {
 	args := []string{
 		"-importcert",
 		"-keystore", kpath,
-		"-storepass", defaultKeystorePassword,
+		"-storepass", keystorePassword(),
 		"-file", where,
 		"-alias", alias,
 		"-noprompt",
@@ -710,7 +734,7 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 
 	args := append([]string{
 		"-list",
-		"-storepass", defaultKeystorePassword,
+		"-storepass", keystorePassword(),
 		"-keystore", kpath,
 		"-noprompt",
 	}, extraArgs...)
@@ -841,7 +865,7 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 		"-delete",
 		"-alias", alias,
 		"-keystore", kpath,
-		"-storepass", defaultKeystorePassword,
+		"-storepass", keystorePassword(),
 		"-noprompt",
 	}
 	useSudo := runtime.GOOS != "windows" && os.Getuid() != 0
@@ -884,7 +908,7 @@ func ensureKeytoolNonInteractive(args []string) []string {
 		}
 	}
 	if !hasStorepass {
-		args = append(args, "-storepass", defaultKeystorePassword)
+		args = append(args, "-storepass", keystorePassword())
 	}
 	if !hasNoprompt {
 		args = append(args, "-noprompt")
@@ -958,7 +982,7 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	err := cmd.Run()
 	if err != nil {
 		if debug {
-			fmt.Printf("Command was: %s\n", strings.Join(cmd.Args, " "))
+			fmt.Printf("Command was: %s\n", strings.Join(redactKeytoolArgs(cmd.Args), " "))
 			fmt.Printf("Stdout:\n%s\n", stdout.String())
 			fmt.Printf("Stderr:\n%s\n", stderr.String())
 		}
