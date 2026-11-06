@@ -30,3 +30,9 @@ build/*/*.class
 
 /bin/
 /lint-project.sh
+# Local Jekyll build for docs (GitHub Pages builds remotely)
+docs/vendor/
+docs/.bundle/
+docs/Gemfile
+docs/Gemfile.lock
+docs/_site/

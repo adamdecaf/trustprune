@@ -1,6 +1,8 @@
 ---
 layout: default
-title: trustprune
+title: Home
+nav_order: 1
+permalink: /
 ---
 
 # trustprune

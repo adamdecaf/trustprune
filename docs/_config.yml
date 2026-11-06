@@ -1,3 +1,40 @@
 title: trustprune
 description: List, backup, allowlist, and restore CA trust stores
-theme: jekyll-theme-minimal
+url: https://trustprune.com
+# Serve at the site root (no project-page baseurl).
+baseurl: ""
+
+remote_theme: just-the-docs/just-the-docs@v0.12.0
+
+plugins:
+  - jekyll-remote-theme
+  - jekyll-seo-tag
+  - jekyll-include-cache
+
+# Light by default. Dark is available by setting color_scheme: dark
+# (just-the-docs has no built-in visitor toggle).
+color_scheme: light
+
+search_enabled: true
+heading_anchors: true
+
+aux_links:
+  "GitHub":
+    - "https://github.com/adamdecaf/trustprune"
+
+footer_content: >-
+  Changing CA trust stores can break TLS, cut off access and reduce security,
+  so back up first and proceed at your own risk. trustprune is provided as is,
+  with no warranty, under the
+  <a href="https://github.com/adamdecaf/trustprune/blob/master/LICENSE">Apache License 2.0</a>,
+  and its authors and contributors accept no liability.
+
+# just-the-docs v0.11+ uses accessible github-light / github-dark Rouge styles
+# (fixes low-contrast YAML comment/key highlighting).
+
+exclude:
+  - vendor
+  - Gemfile
+  - Gemfile.lock
+  - check-urls.sh
+  - images/theme-migration

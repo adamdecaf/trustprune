@@ -2,6 +2,7 @@
 layout: post
 title: "Apple told Mac admins to hand-edit a PEM file. That is a symptom."
 date: 2026-10-28
+nav_exclude: true
 ---
 
 In October 2026, [Apple Support documented](https://support.apple.com/en-us/149555) the compromise of intermediate Certification Authorities operated by eMudhra and published Terminal steps that rewrite `/etc/ssl/cert.pem`. Safari and apps that use Apple's networking frameworks were blocked automatically. Command-line tools that read the system PEM bundle were not.

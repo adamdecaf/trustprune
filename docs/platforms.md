@@ -1,6 +1,7 @@
 ---
 layout: default
-title: Platforms and apps
+title: Platforms
+nav_order: 7
 ---
 
 # Platforms and apps

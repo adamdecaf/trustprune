@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Backup and restore
+nav_order: 6
 ---
 
 # Backup and restore
