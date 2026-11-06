@@ -71,12 +71,19 @@ func (s freebsdStore) GetLatestBackup() (string, error) {
 }
 
 func (s freebsdStore) Restore(where string) error {
-	if DryRun() {
-		details := []string{}
-		if where != "" {
-			details = append(details, fmt.Sprintf("source %s", where))
+	src := where
+	if src == "" {
+		latest, err := s.GetLatestBackup()
+		if err != nil {
+			return err
 		}
-		reportDryRun("restore", "freebsd", "", details...)
+		if latest == "" {
+			return errNoBackup("freebsd", "freebsd")
+		}
+		src = latest
+	}
+	if DryRun() {
+		reportDryRun("restore", "freebsd", "", fmt.Sprintf("source %s", src))
 		return nil
 	}
 	return fmt.Errorf("freebsd platform store is not implemented")
