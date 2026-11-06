@@ -74,7 +74,7 @@ Certificate
 ...
 ```
 
-`-format table` prints an aligned table with uppercase headers: SUBJECT, ISSUER, KEY, DAYS, and SHA256 FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). Pass `-v` for the full fingerprint, serial, source or store path (`-` for URLs), and the NOT BEFORE and NOT AFTER dates.
+`-format table` prints an aligned table with uppercase headers: SUBJECT, ISSUER, KEY, DAYS, and SHA256 FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Pass `-v` for the full fingerprint, serial, source or store path (`-` for URLs), and the NOT BEFORE and NOT AFTER dates (DAYS stays numeric).
 
 ```
 $ trustprune list -format table

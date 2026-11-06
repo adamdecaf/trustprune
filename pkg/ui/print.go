@@ -79,6 +79,23 @@ const tableColumnWidth = 40
 // name columns plus KEY, DAYS and the fingerprint preview.
 const tableMaxLineWidth = 2*tableColumnWidth + 40
 
+// soonExpiryDays is the exclusive upper bound for the "soon" DAYS marker in
+// non-verbose table output (0 ≤ days < soonExpiryDays).
+const soonExpiryDays = 90
+
+// formatTableDays formats the DAYS cell for non-verbose table output.
+// Expired certs show "expired"; certs with fewer than soonExpiryDays left show
+// the day count with a trailing "!" (e.g. "42!"); otherwise the plain integer.
+func formatTableDays(days int) string {
+	if days < 0 {
+		return "expired"
+	}
+	if days < soonExpiryDays {
+		return fmt.Sprintf("%d!", days)
+	}
+	return fmt.Sprintf("%d", days)
+}
+
 // truncateColumn shortens s to at most n runes, ending with an ellipsis when cut.
 func truncateColumn(s string, n int) string {
 	r := []rune(s)
@@ -120,7 +137,13 @@ func (p tablePrinter) write(fd io.Writer, certs []*x509.Certificate) error {
 			c2 = truncateColumn(issuer, tableColumnWidth)
 		}
 		key := certutil.FormatKeyLabel(certs[i])
-		days := fmt.Sprintf("%d", certutil.DaysUntilExpiry(certs[i], now))
+		daysLeft := certutil.DaysUntilExpiry(certs[i], now)
+		var days string
+		if p.verbose {
+			days = fmt.Sprintf("%d", daysLeft)
+		} else {
+			days = formatTableDays(daysLeft)
+		}
 		if p.verbose {
 			serial := certs[i].SerialNumber.String()
 			path := p.path

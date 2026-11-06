@@ -358,6 +358,9 @@ FORMATTING
   Table output adds KEY and DAYS by default; -v adds full fingerprint, serial, and path
     trustprune list -format table -v
 
+  DAYS (non-verbose table): "expired" when NotAfter is past; "N!" when 0 <= N < 90 days
+  remain; plain N otherwise. -v and -format json keep numeric days (json also has expired).
+
   Only show the count of certificates found
     trustprune list -count
     trustprune list -app java -count
