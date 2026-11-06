@@ -12,7 +12,8 @@ RUN apt-get update && \
     for f in /etc/ssl/certs/*.pem; do \
       nick=$(basename "$f" .crt); nick=${nick%.pem}; \
       certutil -A -n "$nick" -t "CT,C,C" -i "$f" -d sql:/root/.mozilla/firefox/docker.default || true; \
-    done
+    done && \
+    test "$(certutil -L -d sql:/root/.mozilla/firefox/docker.default | wc -l)" -gt 20
 
 COPY globalsign-whitelist.json /allowlist.json
 COPY localcert.pem /localcert.pem

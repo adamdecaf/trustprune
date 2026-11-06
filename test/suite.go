@@ -93,7 +93,7 @@ func firefoxSuite(t *testing.T, img *dockerfile) {
 	// Mutate the live shared-DB file, then restore the backup profile set.
 	img.Run("sh", "-c", `db=$(ls -1d ~/.mozilla/firefox/*.default | head -1); test -n "$db"; cp "$db/cert9.db" /tmp/ff-cert9.orig; printf %s MUTATED-FIREFOX-CERT9 > "$db/cert9.db"; o=$(cksum < /tmp/ff-cert9.orig); n=$(cksum < "$db/cert9.db"); echo "firefox cert9 orig=$o mutated=$n"; test "$o" != "$n"`)
 	img.CertManage("restore", "-app", "firefox")
-	img.Run("sh", "-c", `db=$(ls -1d ~/.mozilla/firefox/*.default | head -1); cmp /tmp/ff-cert9.orig "$db/cert9.db"; test "$(/bin/trustprune list -count -app firefox)" -eq "$(cat /tmp/ftotal)"`)
+	img.Run("sh", "-c", `db=$(ls -1d ~/.mozilla/firefox/*.default | head -1); cmp /tmp/ff-cert9.orig "$db/cert9.db" && test "$(/bin/trustprune list -count -app firefox)" -eq "$(cat /tmp/ftotal)"`)
 	img.CertManage("allowlist", "-app", "firefox", "-file", "/allowlist.json")
 	img.Run("sh", "-c", `after=$(/bin/trustprune list -count -app firefox); test "$after" -lt "$(cat /tmp/ftotal)"`)
 	img.CertManage("restore", "-app", "firefox")
@@ -118,7 +118,7 @@ func chromeSuite(t *testing.T, img *dockerfile) {
 	img.Run("sh", "-c", `test "$(ls -1 ~/.trustprune/chrome | wc -l | tr -d ' ')" -ge 1`)
 	img.Run("sh", "-c", `db=$HOME/.pki/nssdb; test -f "$db/cert9.db"; cp "$db/cert9.db" /tmp/ch-cert9.orig; printf %s MUTATED-CHROME-CERT9 > "$db/cert9.db"; o=$(cksum < /tmp/ch-cert9.orig); n=$(cksum < "$db/cert9.db"); echo "chrome cert9 orig=$o mutated=$n"; test "$o" != "$n"`)
 	img.CertManage("restore", "-app", "chrome")
-	img.Run("sh", "-c", `cmp /tmp/ch-cert9.orig "$HOME/.pki/nssdb/cert9.db"; test "$(/bin/trustprune list -count -app chrome)" -eq "$(cat /tmp/chtotal)"`)
+	img.Run("sh", "-c", `cmp /tmp/ch-cert9.orig "$HOME/.pki/nssdb/cert9.db" && test "$(/bin/trustprune list -count -app chrome)" -eq "$(cat /tmp/chtotal)"`)
 	img.CertManage("allowlist", "-app", "chrome", "-file", "/allowlist.json")
 	img.Run("sh", "-c", `after=$(/bin/trustprune list -count -app chrome); test "$after" -lt "$(cat /tmp/chtotal)"`)
 	img.CertManage("restore", "-app", "chrome")
