@@ -56,23 +56,25 @@ for path in "${paths[@]}"; do
   fi
 done
 
-# Redirect stub must mention allowlists
+# Redirect stub must meta-refresh to allowlists.html
 stub="${site}/whitelists.html"
+check_refresh() {
+  local body="$1" label="$2"
+  if ! grep -Eqi 'http-equiv=["''']?refresh["''']?[^>]*url=allowlists\.html' <<<"$body"     && ! grep -Eqi 'url=allowlists\.html' <<<"$body"; then
+    echo "FAIL $label missing meta refresh to allowlists.html"
+    return 1
+  fi
+  echo "OK   $label meta refresh → allowlists.html"
+  return 0
+}
 if [[ -n "$base" ]]; then
   body=$(curl -sS --connect-timeout 10 --max-time 30 "${base}/whitelists.html" || true)
-  if ! grep -qi 'allowlists' <<<"$body"; then
-    echo "FAIL whitelists stub missing allowlists reference"
-    fail=1
-  else
-    echo "OK   whitelists redirect stub references allowlists"
-  fi
+  check_refresh "$body" "whitelists stub" || fail=1
 elif [[ -f "$stub" ]]; then
-  if ! grep -qi 'allowlists' "$stub"; then
-    echo "FAIL $stub missing allowlists reference"
-    fail=1
-  else
-    echo "OK   whitelists redirect stub references allowlists"
-  fi
+  check_refresh "$(cat "$stub")" "$stub" || fail=1
+else
+  echo "FAIL missing $stub"
+  fail=1
 fi
 
 exit "$fail"
