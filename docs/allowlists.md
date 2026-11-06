@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Allowlists
+nav_order: 5
 ---
 
 # Allowlists

@@ -1,6 +1,7 @@
 ---
 layout: default
 title: Whitelists
+nav_exclude: true
 ---
 
 # Whitelists

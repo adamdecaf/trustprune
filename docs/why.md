@@ -1,6 +1,7 @@
 ---
 layout: default
-title: Why this matters
+title: Why
+nav_order: 8
 ---
 
 # Why this matters
