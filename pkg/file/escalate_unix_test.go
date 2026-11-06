@@ -82,8 +82,6 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 		switch name {
 		case "su":
 			return "/bin/su", nil
-		case "true":
-			return "/usr/bin/true", nil
 		default:
 			return "", exec.ErrNotFound
 		}
@@ -96,8 +94,33 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 	if len(cmd.Args) != 4 || cmd.Args[0] != "/bin/su" || cmd.Args[1] != "root" || cmd.Args[2] != "-c" {
 		t.Fatalf("args=%v", cmd.Args)
 	}
-	if !strings.Contains(cmd.Args[3], "/usr/bin/true") || !strings.Contains(cmd.Args[3], `'x y'`) {
+	// bare "true" resolves under trustedBinDirs, not caller PATH
+	if !strings.Contains(cmd.Args[3], "/true") || !strings.Contains(cmd.Args[3], `'x y'`) {
 		t.Fatalf("su payload=%q", cmd.Args[3])
+	}
+	if strings.HasPrefix(strings.Trim(cmd.Args[3], "'"), "true") {
+		t.Fatalf("expected trusted abs path in payload %q", cmd.Args[3])
+	}
+}
+
+func TestElevatedCommand_sudoKeepsBareName(t *testing.T) {
+	withElevateHooks(t, func() int { return 1000 }, func(name string) (string, error) {
+		switch name {
+		case "sudo":
+			return "/usr/bin/sudo", nil
+		case "cp":
+			t.Fatalf("sudo path must not LookPath bare %q", name)
+			return "", exec.ErrNotFound
+		default:
+			return "", exec.ErrNotFound
+		}
+	})
+	cmd, err := ElevatedCommand("cp", "/tmp/a", "/tmp/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd.Args[0] != "/usr/bin/sudo" || cmd.Args[1] != "cp" || cmd.Args[2] != "/tmp/a" || cmd.Args[3] != "/tmp/b" {
+		t.Fatalf("args=%v", cmd.Args)
 	}
 }
 
@@ -123,8 +146,6 @@ func TestElevatedCommand_suExecutesPayload(t *testing.T) {
 		switch name {
 		case "su":
 			return suPath, nil
-		case payload:
-			return payload, nil
 		default:
 			return "", exec.ErrNotFound
 		}

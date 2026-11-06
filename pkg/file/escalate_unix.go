@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -43,29 +44,64 @@ func ElevatedCommand(args ...string) (*exec.Cmd, error) {
 	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 		return nil, errors.New("ElevatedCommand: empty argv")
 	}
-	argv := absArgv(args)
 	if elevateGetuid() == 0 {
+		argv := absArgv(args)
 		return elevateCommand(argv[0], argv[1:]...), nil
 	}
 	if sudo, err := elevateLookPath("sudo"); err == nil {
-		return elevateCommand(sudo, argv...), nil
+		// Keep bare names so sudo can apply secure_path; leave absolute
+		// paths unchanged. Never pre-resolve from the caller's PATH.
+		return elevateCommand(sudo, args...), nil
 	}
 	if su, err := elevateLookPath("su"); err == nil {
 		// Place -c after the login name so FreeBSD/Darwin pass it to the
 		// target login shell (FreeBSD su -c *before* login is a class).
 		// Linux util-linux likewise forwards post-login args to the shell.
-		// absArgv already resolved argv[0] for PATH-resetting environments.
+		// Resolve bare names from trusted dirs only — su may reset PATH.
+		argv := trustedAbsArgv(args)
 		return elevateCommand(su, "root", "-c", posixJoin(argv)), nil
 	}
 	return nil, fmt.Errorf("need root to run %s; sudo and su not found on PATH (re-run as root, or install sudo/su)", args[0])
 }
 
-// absArgv copies args and replaces args[0] with an absolute path when LookPath
-// finds it, so su -c (which may reset PATH) still runs the intended binary.
+// trustedBinDirs are fixed locations used when resolving bare names for su.
+// Caller's PATH is not consulted so a writable earlier entry cannot supply
+// the elevated binary.
+var trustedBinDirs = []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+
+// absArgv copies args and replaces a bare args[0] with LookPath's result.
+// Used only for already-root execution.
 func absArgv(args []string) []string {
 	out := append([]string{}, args...)
+	if filepath.IsAbs(args[0]) {
+		return out
+	}
 	if p, err := elevateLookPath(args[0]); err == nil {
 		out[0] = p
+	}
+	return out
+}
+
+// trustedAbsArgv copies args and, for a bare args[0], replaces it with the
+// first match under trustedBinDirs. Absolute paths are preserved as-is.
+func trustedAbsArgv(args []string) []string {
+	out := append([]string{}, args...)
+	if filepath.IsAbs(args[0]) {
+		return out
+	}
+	base := args[0]
+	if strings.Contains(base, string(os.PathSeparator)) {
+		// Relative path with a slash — do not search PATH; leave unchanged.
+		return out
+	}
+	for _, dir := range trustedBinDirs {
+		p := filepath.Join(dir, base)
+		st, err := os.Stat(p)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		out[0] = p
+		return out
 	}
 	return out
 }
