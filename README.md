@@ -173,6 +173,7 @@ Go **1.27** is required (`go.mod`).
 ```bash
 make build          # vet + unit tests + binary
 make test           # full suite (uses Docker when available)
+make coverage-floor # pkg/store >= 40%, pkg/cmd >= 35% (also run in CI)
 MOCKED=true make test   # skip Docker-backed tests
 ```
 

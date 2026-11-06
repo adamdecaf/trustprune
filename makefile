@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 GOARCH ?= $(shell go env GOARCH)
 
-.PHONY: build check test dist linux osx win lint
+.PHONY: build check test dist linux osx win lint coverage-floor
 
 linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) go build -trimpath -o bin/trustprune-linux-$(GOARCH) github.com/adamdecaf/trustprune
@@ -25,6 +25,11 @@ dist: linux osx win
 check:
 	go vet ./...
 	go test -count=1 -timeout 3m $(GOTEST_FLAGS) ./pkg/... .
+
+# coverage-floor enforces pkg/store >= 40% and pkg/cmd >= 35% (issue #234).
+coverage-floor:
+	./scripts/check-coverage.sh
+
 
 GOLANGCI_LINT_VERSION ?= v2.15.0
 GOLANGCI_LINT_BIN := $(CURDIR)/bin/golangci-lint-$(GOLANGCI_LINT_VERSION)

@@ -7,6 +7,7 @@ Guidance for anyone, human or automated, contributing to cert-manage.
 - Go version: see `go.mod`.
 - Build: `go build ./...`
 - Unit tests: `go test ./...`
+- Coverage floors: `make coverage-floor` (or `./scripts/check-coverage.sh`) requires at least 40% statement coverage for `pkg/store` and 35% for `pkg/cmd`. CI runs the same check on Ubuntu.
 - Platform suites run in docker in CI (`.github/workflows/ci.yml`). Run the matching suite locally before touching a platform's store code.
 
 ## Safety rules
