@@ -37,6 +37,7 @@ var (
 		execPaths: []string{
 			"/usr/local/opt/nss/bin/certutil", // Darwin
 			"/usr/bin/certutil",               // Linux
+			"/usr/local/bin/certutil",         // FreeBSD
 		},
 	}
 

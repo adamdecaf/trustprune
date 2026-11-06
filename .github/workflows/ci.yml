@@ -234,3 +234,37 @@ jobs:
           chmod +x "bin/trustprune-linux-$(go env GOARCH)"
       - name: Distro tests
         run: go test -count=1 -timeout 15m ./test/ -run ${{ matrix.run }}
+
+  # FreeBSD via QEMU (vmactions/freebsd-vm). Installs the same Go version as
+  # go.mod into the guest and runs unit + CLI tests under an empty HOME so
+  # nothing touches the guest system trust store.
+  freebsd:
+    name: freebsd
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Test on FreeBSD
+        uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+        with:
+          copyback: false
+          prepare: |
+            set -e
+            pkg install -y curl ca_root_nss
+            curl -fsSL "https://go.dev/dl/go1.27.0.freebsd-amd64.tar.gz" | tar -C /usr/local -xzf -
+          run: |
+            set -e
+            export PATH=/usr/local/go/bin:$PATH
+            empty_home=$(mktemp -d)
+            export HOME="$empty_home"
+            export USERPROFILE="$empty_home"
+            echo "FreeBSD $(freebsd-version) $(uname -m); Go $(go version); HOME=$HOME"
+            go vet ./...
+            CGO_ENABLED=0 go test -count=1 -timeout 5m ./pkg/... .
+            mkdir -p bin
+            CGO_ENABLED=0 go build -trimpath -o "bin/trustprune-freebsd-$(go env GOARCH)" .
+            go test -count=1 -timeout 5m ./test/ -skip 'TestAlpine|TestDebian|TestUbuntu|TestRocky|TestFedora|TestArch|TestDocker|TestFirefox|TestChrome'

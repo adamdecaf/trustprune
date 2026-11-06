@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build darwin || linux
-// +build darwin linux
+//go:build darwin || linux || freebsd
+// +build darwin linux freebsd
 
 package file
 
