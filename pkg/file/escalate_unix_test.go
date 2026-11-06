@@ -80,6 +80,8 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 		switch name {
 		case "su":
 			return "/bin/su", nil
+		case "sh":
+			return "/bin/sh", nil
 		case "true":
 			return "/usr/bin/true", nil
 		default:
@@ -90,11 +92,12 @@ func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd.Args[0] != "/bin/su" || cmd.Args[1] != "-c" {
+	// su root /bin/sh -c '<quoted argv>'
+	if len(cmd.Args) != 5 || cmd.Args[0] != "/bin/su" || cmd.Args[1] != "root" || cmd.Args[2] != "/bin/sh" || cmd.Args[3] != "-c" {
 		t.Fatalf("args=%v", cmd.Args)
 	}
-	if !strings.Contains(cmd.Args[2], "/usr/bin/true") || !strings.Contains(cmd.Args[2], `'x y'`) {
-		t.Fatalf("su -c payload=%q", cmd.Args[2])
+	if !strings.Contains(cmd.Args[4], "/usr/bin/true") || !strings.Contains(cmd.Args[4], `'x y'`) {
+		t.Fatalf("su payload=%q", cmd.Args[4])
 	}
 }
 
