@@ -1,5 +1,7 @@
 title: trustprune
-description: List, backup, allowlist, and restore CA trust stores
+description: >-
+  List, backup, allowlist, and restore CA trust stores on your platform and in
+  apps such as Java, Chrome, and Firefox. Trust should be earned, not defaulted.
 url: https://trustprune.com
 # Serve at the site root (no project-page baseurl).
 baseurl: ""
@@ -10,6 +12,11 @@ plugins:
   - jekyll-remote-theme
   - jekyll-seo-tag
   - jekyll-include-cache
+
+# Header logo (just-the-docs) and JSON-LD logo (jekyll-seo-tag).
+logo: "/images/brand/logo.png"
+
+# Tab icon stays SVG via _includes/head_custom.html (favicon.svg).
 
 # Light by default. Dark is available by setting color_scheme: dark
 # (just-the-docs has no built-in visitor toggle).
@@ -28,6 +35,21 @@ footer_content: >-
   with no warranty, under the
   <a href="https://github.com/adamdecaf/trustprune/blob/master/LICENSE">Apache License 2.0</a>,
   and its authors and contributors accept no liability.
+
+# Social / Open Graph (jekyll-seo-tag). With a default image, twitter:card
+# becomes summary_large_image; set it explicitly too.
+twitter:
+  card: summary_large_image
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      image:
+        path: /images/brand/og-card.png
+        width: 1200
+        height: 630
+        alt: trustprune — prune CA trust stores
 
 # just-the-docs v0.11+ uses accessible github-light / github-dark Rouge styles
 # (fixes low-contrast YAML comment/key highlighting).
