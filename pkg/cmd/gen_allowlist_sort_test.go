@@ -17,6 +17,7 @@ package cmd
 import (
 	"crypto/x509"
 	"errors"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/gen"
@@ -37,10 +38,20 @@ func TestSortCAsByDNSNameCountDescending(t *testing.T) {
 
 func TestAddCertsToPool(t *testing.T) {
 	t.Parallel()
+	ts := httptest.NewTLSServer(nil)
+	t.Cleanup(ts.Close)
+	cert, err := x509.ParseCertificate(ts.TLS.Certificates[0].Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	pool := x509.NewCertPool()
 	addCertsToPool(pool, func() ([]*x509.Certificate, error) {
-		return nil, errors.New("skip")
+		return []*x509.Certificate{cert}, errors.New("skip")
 	})
+	if !pool.Equal(x509.NewCertPool()) {
+		t.Fatal("error loader must not add certificates to the pool")
+	}
 	addCertsToPool(pool, func() ([]*x509.Certificate, error) {
 		return nil, nil
 	})

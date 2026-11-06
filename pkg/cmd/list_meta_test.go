@@ -57,7 +57,9 @@ func TestListAppsRuns(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	// XDG cache under temp home when possible.
-	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	cache := filepath.Join(home, "cache")
+	t.Setenv("XDG_CACHE_HOME", cache)
+	t.Setenv("LOCALAPPDATA", cache) // Windows UserCacheDir
 	if err := ListApps(""); err != nil {
 		t.Fatal(err)
 	}

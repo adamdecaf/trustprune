@@ -47,7 +47,7 @@ func TestPlatformAndDetectCache(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	t.Setenv("XDG_CACHE_HOME", home)
+	withTempAppsCache(t)
 	_ = Platform()
 	statuses := DetectAndCacheStatuses()
 	if len(statuses) == 0 {
