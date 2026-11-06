@@ -30,8 +30,7 @@ func AddCertsFromFile(where string) error {
 func AddCertsToAppFromFile(app string, where string) error {
 	st, err := store.ForApp(app)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 	return addCerts(st, where)
 }
