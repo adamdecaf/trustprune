@@ -15,6 +15,7 @@
 package server
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -22,5 +23,14 @@ func TestUIServer__getPort(t *testing.T) {
 	n := getPort()
 	if n < 1024 && n > 2<<15 {
 		t.Errorf("%d is an invalid port", n)
+	}
+}
+
+func TestDoneTitleUsesTrustprune(t *testing.T) {
+	if !strings.Contains(doneTpl, "<title>trustprune</title>") {
+		t.Fatalf("done page title missing trustprune:\n%s", doneTpl)
+	}
+	if strings.Contains(doneTpl, "cert-manage") || strings.Contains(doneTpl, "cert-mange") {
+		t.Fatalf("legacy/typo title still present:\n%s", doneTpl)
 	}
 }

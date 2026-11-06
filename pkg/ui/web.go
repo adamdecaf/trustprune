@@ -32,7 +32,7 @@ const (
 <!doctype html>
 <html>
   <head>
-    <title>cert-manage {{.Operation}}</title>
+    <title>trustprune {{.Operation}}</title>
   <style>
   div.cert-wrapper {
     padding: 5px;
@@ -65,6 +65,10 @@ Options: <a href="/done" style="color: #000;">Close</a>
 {{range $idx, $cert := .Certificates}}
 <div class="cert-wrapper">
 Subject: {{ $cert.Subject }}<br />
+Issuer: {{ $cert.Issuer }}<br />
+SHA256: {{ $cert.Fingerprint }}<br />
+Serial: {{ $cert.Serial }}<br />
+NotBefore: {{ $cert.NotBefore }} | NotAfter: {{ $cert.NotAfter }}<br />
 <a href="#" onclick="toggle('cert{{ $idx }}'); return false;" style="color: #000;">Details</a><br />
 <span class="certificate" id="cert{{ $idx }}" style="display:none;"><pre>{{ $cert.Raw }}</pre></span>
 </div>
@@ -105,6 +109,29 @@ Options: <a href="/done" style="color: #000;">Close</a>
 	_ = write(w, footer, nil)
 }
 
+// webCert is one certificate row in the web list UI.
+type webCert struct {
+	Subject     string
+	Issuer      string
+	Fingerprint string
+	Serial      string
+	NotBefore   string
+	NotAfter    string
+	Raw         string
+}
+
+func webCertFromX509(c *x509.Certificate, raw string) webCert {
+	return webCert{
+		Subject:     certutil.StringifyPKIXName(c.Subject),
+		Issuer:      certutil.StringifyPKIXName(c.Issuer),
+		Fingerprint: certutil.GetHexSHA256Fingerprint(*c),
+		Serial:      c.SerialNumber.String(),
+		NotBefore:   c.NotBefore.UTC().Format("2006-01-02"),
+		NotAfter:    c.NotAfter.UTC().Format("2006-01-02"),
+		Raw:         raw,
+	}
+}
+
 func showCertsOnWeb(certs []*x509.Certificate, cfg *Config) error {
 	server.Register()
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -127,11 +154,7 @@ func showCertsOnWeb(certs []*x509.Certificate, cfg *Config) error {
 		// sort certs by Subject
 		certutil.Sort(certs)
 
-		type cert struct {
-			Subject string
-			Raw     string
-		}
-		contents := make([]cert, len(certs))
+		contents := make([]webCert, len(certs))
 		for i := range certs {
 			var buf bytes.Buffer
 			w1 := bufio.NewWriter(&buf)
@@ -142,13 +165,10 @@ func showCertsOnWeb(certs []*x509.Certificate, cfg *Config) error {
 			}
 			_ = w1.Flush()
 
-			contents[i] = cert{
-				Subject: certutil.StringifyPKIXName(certs[i].Subject),
-				Raw:     buf.String(),
-			}
+			contents[i] = webCertFromX509(certs[i], buf.String())
 		}
 		_ = write(w, list, struct {
-			Certificates []cert
+			Certificates []webCert
 		}{
 			Certificates: contents,
 		})
