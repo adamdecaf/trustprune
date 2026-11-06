@@ -32,7 +32,12 @@ func writeFakeSudo(t *testing.T) (sudoPath, argvFile string) {
 	argvFile = filepath.Join(dir, "argv")
 	script := `#!/bin/sh
 for a; do printf '%s\n' "$a"; done > "$SUDO_ARGV_FILE"
-while [ "$1" = "-n" ]; do shift; done
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--preserve-env|--preserve-env=*) shift ;;
+    *) break ;;
+  esac
+done
 "$@"
 `
 	if err := os.WriteFile(sudoPath, []byte(script), 0755); err != nil {

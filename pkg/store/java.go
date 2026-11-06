@@ -64,9 +64,10 @@ var (
 	findTimeoutBin = defaultFindTimeoutBin
 )
 
-// keystorePassword is the -storepass value passed to every keytool call.
+// keystorePassword is the effective keystore password for keytool calls.
 // When TRUSTPRUNE_JAVA_STOREPASS is set (non-empty after trim), that value is
 // used; otherwise the Java default "changeit". No other passwords are guessed.
+// Custom passwords are never placed on keytool/sudo argv; see prepareStorepass.
 func keystorePassword() string {
 	if v := strings.TrimSpace(os.Getenv(javaStorePassEnv)); v != "" {
 		return v
@@ -74,7 +75,24 @@ func keystorePassword() string {
 	return defaultKeystorePassword
 }
 
+// prepareStorepass returns keytool argv fragments and optional child env
+// overrides for the store password. The default "changeit" stays as
+// "-storepass changeit". A custom password uses "-storepass:env
+// TRUSTPRUNE_JAVA_STOREPASS" with the trimmed value supplied in the child
+// environment (and sudo --preserve-env) so the secret never appears in
+// process or sudo argv. Prefer :env over :file because keytool's :file
+// reader only takes the first line. Requires keytool -storepass:env (JDK 6+).
+func prepareStorepass() (flags []string, env []string, err error) {
+	pass := keystorePassword()
+	if pass == defaultKeystorePassword {
+		return []string{"-storepass", defaultKeystorePassword}, nil, nil
+	}
+	return []string{"-storepass:env", javaStorePassEnv},
+		[]string{javaStorePassEnv + "=" + pass}, nil
+}
+
 // redactKeytoolArgs replaces -storepass values so debug logs never print secrets.
+// -storepass:env's next arg is only the env var name (not secret).
 func redactKeytoolArgs(args []string) []string {
 	out := make([]string, len(args))
 	copy(out, args)
@@ -84,6 +102,32 @@ func redactKeytoolArgs(args []string) []string {
 		}
 	}
 	return out
+}
+
+// environWithOverrides returns base (or os.Environ) with override keys replaced.
+func environWithOverrides(base []string, overrides []string) []string {
+	if len(overrides) == 0 {
+		return base
+	}
+	if base == nil {
+		base = os.Environ()
+	}
+	drop := make(map[string]struct{}, len(overrides))
+	for _, o := range overrides {
+		if i := strings.IndexByte(o, '='); i > 0 {
+			drop[o[:i]] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, e := range base {
+		if i := strings.IndexByte(e, '='); i > 0 {
+			if _, ok := drop[e[:i]]; ok {
+				continue
+			}
+		}
+		out = append(out, e)
+	}
+	return append(out, overrides...)
 }
 
 type javaStore struct {
@@ -627,7 +671,6 @@ func (k keytool) addCertificate(where string, alias string) error {
 	args := []string{
 		"-importcert",
 		"-keystore", kpath,
-		"-storepass", keystorePassword(),
 		"-file", where,
 		"-alias", alias,
 		"-noprompt",
@@ -734,7 +777,6 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 
 	args := append([]string{
 		"-list",
-		"-storepass", keystorePassword(),
 		"-keystore", kpath,
 		"-noprompt",
 	}, extraArgs...)
@@ -865,7 +907,6 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 		"-delete",
 		"-alias", alias,
 		"-keystore", kpath,
-		"-storepass", keystorePassword(),
 		"-noprompt",
 	}
 	useSudo := runtime.GOOS != "windows" && os.Getuid() != 0
@@ -897,23 +938,29 @@ func (k keytool) keytoolBin() string {
 	return "keytool"
 }
 
-func ensureKeytoolNonInteractive(args []string) []string {
+func ensureKeytoolNonInteractive(args []string) (out []string, env []string, err error) {
 	hasNoprompt, hasStorepass := false, false
 	for _, a := range args {
 		switch a {
 		case "-noprompt":
 			hasNoprompt = true
-		case "-storepass":
+		case "-storepass", "-storepass:env", "-storepass:file":
 			hasStorepass = true
 		}
 	}
+	out = append([]string(nil), args...)
 	if !hasStorepass {
-		args = append(args, "-storepass", keystorePassword())
+		flags, e, err := prepareStorepass()
+		if err != nil {
+			return nil, nil, err
+		}
+		env = e
+		out = append(out, flags...)
 	}
 	if !hasNoprompt {
-		args = append(args, "-noprompt")
+		out = append(out, "-noprompt")
 	}
-	return args
+	return out, env, nil
 }
 
 func defaultFindTimeoutBin() string {
@@ -938,8 +985,13 @@ func keytoolTimeoutSecs() int {
 	return secs
 }
 
-func sudoKeytoolArgs(bin string, args []string) (sudoArgs []string, usedRootTimeout bool) {
+func sudoKeytoolArgs(bin string, args []string, preserveEnv []string) (sudoArgs []string, usedRootTimeout bool) {
 	sudoArgs = []string{"-n"}
+	for _, name := range preserveEnv {
+		if name != "" {
+			sudoArgs = append(sudoArgs, "--preserve-env="+name)
+		}
+	}
 	if tbin := findTimeoutBin(); tbin != "" {
 		sudoArgs = append(sudoArgs, tbin, "-s", "KILL", strconv.Itoa(keytoolTimeoutSecs()))
 		usedRootTimeout = true
@@ -949,13 +1001,29 @@ func sudoKeytoolArgs(bin string, args []string) (sudoArgs []string, usedRootTime
 	return sudoArgs, usedRootTimeout
 }
 
+// storepassEnvNames extracts env var names from "-storepass:env NAME" pairs.
+func storepassEnvNames(args []string) []string {
+	var names []string
+	for i := 0; i < len(args)-1; i++ {
+		if args[i] == "-storepass:env" && args[i+1] != "" {
+			names = append(names, args[i+1])
+		}
+	}
+	return names
+}
+
 // runKeytool validates kpath, then runs keytool with a timeout and no stdin
 // so it can never block on a password prompt.
 func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, error) {
 	if _, err := validateJavaKeystoreFile(kpath); err != nil {
 		return nil, err
 	}
-	args = ensureKeytoolNonInteractive(args)
+	var err error
+	var storeEnv []string
+	args, storeEnv, err = ensureKeytoolNonInteractive(args)
+	if err != nil {
+		return nil, err
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), keytoolTimeout)
 	defer cancel()
@@ -965,10 +1033,13 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	var cmd *exec.Cmd
 	if useSudo {
 		var sudoArgs []string
-		sudoArgs, usedRootTimeout = sudoKeytoolArgs(bin, args)
+		sudoArgs, usedRootTimeout = sudoKeytoolArgs(bin, args, storepassEnvNames(args))
 		cmd = exec.CommandContext(ctx, keytoolSudoPath, sudoArgs...)
 	} else {
 		cmd = exec.CommandContext(ctx, bin, args...)
+	}
+	if len(storeEnv) > 0 {
+		cmd.Env = environWithOverrides(nil, storeEnv)
 	}
 	// nil Stdin is the null device; keytool must never inherit a TTY.
 	cmd.Stdin = nil
@@ -979,7 +1050,7 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if debug {
 			fmt.Printf("Command was: %s\n", strings.Join(redactKeytoolArgs(cmd.Args), " "))
