@@ -63,6 +63,25 @@ jobs:
       - name: Lint
         run: make lint
 
+  # Statement coverage floors for store/cmd (issue #234). Ubuntu-only;
+  # the packages are mostly OS-agnostic at this layer and the script uses
+  # an empty HOME so it never touches a real system store.
+  coverage:
+    name: coverage-floor
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: stable
+      - name: Enforce store/cmd coverage floors
+        run: make coverage-floor
+
   # Compile every GOOS/GOARCH we ship. Add a pair here to cover a new
   # target without waiting on a hosted runner for that OS.
   build:
