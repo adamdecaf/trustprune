@@ -353,11 +353,11 @@ func TestForAppUnknown(t *testing.T) {
 }
 
 func TestForAppWithFileUnknown(t *testing.T) {
-	_, err := ForAppWithFile("nope", "/tmp/x")
+	_, err := ForAppWithFile("NoPe", "/tmp/x")
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if !strings.HasPrefix(err.Error(), "unknown app nope (apps: ") {
+	if !strings.HasPrefix(err.Error(), "unknown app NoPe (apps: ") {
 		t.Fatalf("got %q", err.Error())
 	}
 }

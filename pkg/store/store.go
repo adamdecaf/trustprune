@@ -151,14 +151,14 @@ func ForApp(app string) (Store, error) {
 // cacert.pem override (one bundle per venv). Used by list/backup/connect/restore
 // -file. Other apps reject a non-empty filePath. Empty filePath is ForApp.
 func ForAppWithFile(app, filePath string) (Store, error) {
-	app = strings.ToLower(app)
+	key := strings.ToLower(app)
 	if strings.TrimSpace(filePath) == "" {
 		return ForApp(app)
 	}
-	if _, ok := appStores[app]; !ok {
+	if _, ok := appStores[key]; !ok {
 		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
 	}
-	switch app {
+	switch key {
 	case "java":
 		return JavaStoreAt(filePath), nil
 	case "certifi":
