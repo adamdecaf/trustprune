@@ -17,8 +17,45 @@
 
 package store
 
-// platform returns a stub until a FreeBSD trust-store backend exists.
-// Callers must not mutate host stores; CI uses an empty HOME.
+import (
+	"crypto/x509"
+	"fmt"
+
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
+)
+
+// freebsdStore is a stub until a FreeBSD trust-store backend exists.
+// Mutating ops fail explicitly so callers never treat a no-op as success.
+type freebsdStore struct{}
+
 func platform() Store {
-	return emptyStore{}
+	return freebsdStore{}
+}
+
+func (s freebsdStore) GetInfo() *Info {
+	return &Info{Name: "freebsd"}
+}
+
+func (s freebsdStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
+	return nil, nil
+}
+
+func (s freebsdStore) Add([]*x509.Certificate) error {
+	return fmt.Errorf("freebsd platform store is not implemented")
+}
+
+func (s freebsdStore) Remove(allowlist.Allowlist) error {
+	return fmt.Errorf("freebsd platform store is not implemented")
+}
+
+func (s freebsdStore) Backup() error {
+	return fmt.Errorf("freebsd platform store is not implemented")
+}
+
+func (s freebsdStore) GetLatestBackup() (string, error) {
+	return "", fmt.Errorf("freebsd platform store is not implemented")
+}
+
+func (s freebsdStore) Restore(string) error {
+	return fmt.Errorf("freebsd platform store is not implemented")
 }
