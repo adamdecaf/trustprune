@@ -737,3 +737,34 @@ func TestLinuxRemove_BlocklistRefreshFailureRollsBack(t *testing.T) {
 		t.Errorf("snapshot left behind after rollback: %s", s.ca.blocklist+".allowlist-old")
 	}
 }
+
+func TestLinuxAdd_CreatesMissingAddDir(t *testing.T) {
+	s := linuxTestStore(t)
+	// Gentoo often omits /usr/local/share/ca-certificates until first use.
+	if err := os.RemoveAll(s.ca.add); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(s.ca.add); !os.IsNotExist(err) {
+		t.Fatalf("setup: add dir still present: %v", err)
+	}
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "localcert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certs, err := certutil.ParsePEM(raw)
+	if err != nil || len(certs) == 0 {
+		t.Fatalf("parse localcert: %v len=%d", err, len(certs))
+	}
+	if err := s.Add(certs[:1]); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	st, err := os.Stat(s.ca.add)
+	if err != nil || !st.IsDir() {
+		t.Fatalf("add dir after Add: err=%v st=%v", err, st)
+	}
+	entries, err := os.ReadDir(s.ca.add)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("expected one cert in add dir, got %v err=%v", entries, err)
+	}
+}
