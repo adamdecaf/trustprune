@@ -36,21 +36,35 @@ var (
 // Already-root processes run args directly. Otherwise sudo is preferred when
 // present on PATH; if sudo is missing, su -c is used. When neither tool is
 // available, an error explains how to proceed. Callers must not assume sudo
-// exists on every install (issue #134).
+// exists on every install (issue #134). Password prompts (sudo/su) use the
+// controlling TTY when the process has one; non-interactive hosts need
+// cached credentials or a root shell.
 func ElevatedCommand(args ...string) (*exec.Cmd, error) {
 	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
 		return nil, errors.New("ElevatedCommand: empty argv")
 	}
+	argv := absArgv(args)
 	if elevateGetuid() == 0 {
-		return elevateCommand(args[0], args[1:]...), nil
+		return elevateCommand(argv[0], argv[1:]...), nil
 	}
 	if sudo, err := elevateLookPath("sudo"); err == nil {
-		return elevateCommand(sudo, args...), nil
+		return elevateCommand(sudo, argv...), nil
 	}
 	if su, err := elevateLookPath("su"); err == nil {
-		return elevateCommand(su, "-c", posixJoin(args)), nil
+		// su -c may reset PATH; pass absolute argv[0] when LookPath can resolve it.
+		return elevateCommand(su, "-c", posixJoin(argv)), nil
 	}
 	return nil, fmt.Errorf("need root to run %s; sudo and su not found on PATH (re-run as root, or install sudo/su)", args[0])
+}
+
+// absArgv copies args and replaces args[0] with an absolute path when LookPath
+// finds it, so su -c (which may reset PATH) still runs the intended binary.
+func absArgv(args []string) []string {
+	out := append([]string{}, args...)
+	if p, err := elevateLookPath(args[0]); err == nil {
+		out[0] = p
+	}
+	return out
 }
 
 // posixJoin quotes args for a single su -c shell command.

@@ -20,7 +20,6 @@ package file
 import (
 	"errors"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -40,19 +39,16 @@ func withElevateHooks(t *testing.T, getuid func() int, lookPath func(string) (st
 }
 
 func TestElevatedCommand_rootRunsDirect(t *testing.T) {
-	withElevateHooks(t, func() int { return 0 }, func(string) (string, error) {
-		t.Fatal("LookPath should not be called when already root")
+	withElevateHooks(t, func() int { return 0 }, func(name string) (string, error) {
+		if name == "/usr/sbin/update-ca-certificates" {
+			return name, nil
+		}
+		t.Fatalf("unexpected LookPath(%q)", name)
 		return "", errors.New("unused")
 	})
 	cmd, err := ElevatedCommand("/usr/sbin/update-ca-certificates")
 	if err != nil {
 		t.Fatal(err)
-	}
-	if cmd.Path != "/usr/sbin/update-ca-certificates" && filepath.Base(cmd.Path) != "update-ca-certificates" {
-		// exec.Command may leave Path as the bare name when not looked up.
-		if cmd.Args[0] != "/usr/sbin/update-ca-certificates" {
-			t.Fatalf("args=%v", cmd.Args)
-		}
 	}
 	if len(cmd.Args) != 1 || cmd.Args[0] != "/usr/sbin/update-ca-certificates" {
 		t.Fatalf("args=%v", cmd.Args)
@@ -61,10 +57,14 @@ func TestElevatedCommand_rootRunsDirect(t *testing.T) {
 
 func TestElevatedCommand_prefersSudo(t *testing.T) {
 	withElevateHooks(t, func() int { return 1000 }, func(name string) (string, error) {
-		if name == "sudo" {
+		switch name {
+		case "sudo":
 			return "/usr/bin/sudo", nil
+		case "/bin/true", "true":
+			return "/bin/true", nil
+		default:
+			return "", exec.ErrNotFound
 		}
-		return "", exec.ErrNotFound
 	})
 	cmd, err := ElevatedCommand("/bin/true", "a")
 	if err != nil {
@@ -77,19 +77,23 @@ func TestElevatedCommand_prefersSudo(t *testing.T) {
 
 func TestElevatedCommand_fallsBackToSu(t *testing.T) {
 	withElevateHooks(t, func() int { return 1000 }, func(name string) (string, error) {
-		if name == "su" {
+		switch name {
+		case "su":
 			return "/bin/su", nil
+		case "true":
+			return "/usr/bin/true", nil
+		default:
+			return "", exec.ErrNotFound
 		}
-		return "", exec.ErrNotFound
 	})
-	cmd, err := ElevatedCommand("/bin/true", "x y")
+	cmd, err := ElevatedCommand("true", "x y")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if cmd.Args[0] != "/bin/su" || cmd.Args[1] != "-c" {
 		t.Fatalf("args=%v", cmd.Args)
 	}
-	if !strings.Contains(cmd.Args[2], "/bin/true") || !strings.Contains(cmd.Args[2], `'x y'`) {
+	if !strings.Contains(cmd.Args[2], "/usr/bin/true") || !strings.Contains(cmd.Args[2], `'x y'`) {
 		t.Fatalf("su -c payload=%q", cmd.Args[2])
 	}
 }
