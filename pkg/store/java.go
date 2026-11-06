@@ -64,9 +64,10 @@ var (
 	findTimeoutBin = defaultFindTimeoutBin
 )
 
-// keystorePassword is the -storepass value passed to every keytool call.
+// keystorePassword is the effective keystore password for keytool calls.
 // When TRUSTPRUNE_JAVA_STOREPASS is set (non-empty after trim), that value is
 // used; otherwise the Java default "changeit". No other passwords are guessed.
+// Custom passwords are never placed on keytool/sudo argv; see prepareStorepassFlags.
 func keystorePassword() string {
 	if v := strings.TrimSpace(os.Getenv(javaStorePassEnv)); v != "" {
 		return v
@@ -74,12 +75,48 @@ func keystorePassword() string {
 	return defaultKeystorePassword
 }
 
-// redactKeytoolArgs replaces -storepass values so debug logs never print secrets.
+// prepareStorepassFlags returns keytool argv fragments for the store password.
+// The default "changeit" stays as "-storepass changeit". A custom password
+// (TRUSTPRUNE_JAVA_STOREPASS) uses "-storepass:file <path>" with a 0600 temp
+// file that cleanup removes — so the secret never appears in process or sudo
+// argv. Requires keytool support for -storepass:file (JDK 6+).
+func prepareStorepassFlags() (flags []string, cleanup func(), err error) {
+	cleanup = func() {}
+	pass := keystorePassword()
+	if pass == defaultKeystorePassword {
+		return []string{"-storepass", defaultKeystorePassword}, cleanup, nil
+	}
+	f, err := os.CreateTemp("", "trustprune-jpass-*")
+	if err != nil {
+		return nil, nil, fmt.Errorf("store/java: storepass temp file: %w", err)
+	}
+	path := f.Name()
+	cleanup = func() { _ = os.Remove(path) }
+	if err := f.Chmod(0o600); err != nil {
+		_ = f.Close()
+		cleanup()
+		return nil, nil, fmt.Errorf("store/java: storepass temp chmod: %w", err)
+	}
+	if _, err := f.WriteString(pass); err != nil {
+		_ = f.Close()
+		cleanup()
+		return nil, nil, fmt.Errorf("store/java: storepass temp write: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		cleanup()
+		return nil, nil, fmt.Errorf("store/java: storepass temp close: %w", err)
+	}
+	return []string{"-storepass:file", path}, cleanup, nil
+}
+
+// redactKeytoolArgs replaces -storepass / -storepass:file values so debug logs
+// never print secrets or temp password paths.
 func redactKeytoolArgs(args []string) []string {
 	out := make([]string, len(args))
 	copy(out, args)
 	for i := 0; i < len(out)-1; i++ {
-		if out[i] == "-storepass" {
+		switch out[i] {
+		case "-storepass", "-storepass:file":
 			out[i+1] = "***"
 		}
 	}
@@ -627,7 +664,6 @@ func (k keytool) addCertificate(where string, alias string) error {
 	args := []string{
 		"-importcert",
 		"-keystore", kpath,
-		"-storepass", keystorePassword(),
 		"-file", where,
 		"-alias", alias,
 		"-noprompt",
@@ -734,7 +770,6 @@ func (k keytool) getShortCertsRaw(extraArgs ...string) ([]byte, error) {
 
 	args := append([]string{
 		"-list",
-		"-storepass", keystorePassword(),
 		"-keystore", kpath,
 		"-noprompt",
 	}, extraArgs...)
@@ -865,7 +900,6 @@ func (k keytool) deleteCertificate(kpath, alias string) error {
 		"-delete",
 		"-alias", alias,
 		"-keystore", kpath,
-		"-storepass", keystorePassword(),
 		"-noprompt",
 	}
 	useSudo := runtime.GOOS != "windows" && os.Getuid() != 0
@@ -897,23 +931,30 @@ func (k keytool) keytoolBin() string {
 	return "keytool"
 }
 
-func ensureKeytoolNonInteractive(args []string) []string {
+func ensureKeytoolNonInteractive(args []string) (out []string, cleanup func(), err error) {
+	cleanup = func() {}
 	hasNoprompt, hasStorepass := false, false
 	for _, a := range args {
 		switch a {
 		case "-noprompt":
 			hasNoprompt = true
-		case "-storepass":
+		case "-storepass", "-storepass:env", "-storepass:file":
 			hasStorepass = true
 		}
 	}
+	out = append([]string(nil), args...)
 	if !hasStorepass {
-		args = append(args, "-storepass", keystorePassword())
+		flags, c, err := prepareStorepassFlags()
+		if err != nil {
+			return nil, nil, err
+		}
+		cleanup = c
+		out = append(out, flags...)
 	}
 	if !hasNoprompt {
-		args = append(args, "-noprompt")
+		out = append(out, "-noprompt")
 	}
-	return args
+	return out, cleanup, nil
 }
 
 func defaultFindTimeoutBin() string {
@@ -955,7 +996,13 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	if _, err := validateJavaKeystoreFile(kpath); err != nil {
 		return nil, err
 	}
-	args = ensureKeytoolNonInteractive(args)
+	var cleanup func()
+	var err error
+	args, cleanup, err = ensureKeytoolNonInteractive(args)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), keytoolTimeout)
 	defer cancel()
@@ -979,7 +1026,7 @@ func (k keytool) runKeytool(kpath string, args []string, useSudo bool) ([]byte, 
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
 		if debug {
 			fmt.Printf("Command was: %s\n", strings.Join(redactKeytoolArgs(cmd.Args), " "))
