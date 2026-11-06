@@ -17,6 +17,7 @@ package test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
@@ -25,6 +26,10 @@ import (
 
 func TestIntegration__list(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS == "freebsd" {
+		// Platform() is still a stub on FreeBSD; list -count is always 0.
+		t.Skip("FreeBSD platform store is not implemented yet")
+	}
 
 	cmd := CertManage("list", "-count").Trim()
 	cmd.CmpIntF(t, func(i int) bool { return i > 10 })

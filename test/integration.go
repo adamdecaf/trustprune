@@ -66,6 +66,8 @@ func CertManage(args ...string) *Cmd {
 		return Command(render(filepath.Join("..", "bin", "trustprune-osx-%s")), args...)
 	case "linux":
 		return Command(render(filepath.Join("..", "bin", "trustprune-linux-%s")), args...)
+	case "freebsd":
+		return Command(render(filepath.Join("..", "bin", "trustprune-freebsd-%s")), args...)
 	case "windows":
 		return Command(render(filepath.Join("..", "bin", "trustprune-%s.exe")), args...)
 	}

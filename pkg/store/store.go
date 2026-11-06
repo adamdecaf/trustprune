@@ -274,7 +274,7 @@ func primaryBackupParent(uhome string) string {
 	switch runtime.GOOS {
 	case "darwin":
 		return filepath.Join(uhome, "Library", "trustprune")
-	case "linux", "windows":
+	case "linux", "windows", "freebsd":
 		return filepath.Join(uhome, ".trustprune")
 	default:
 		return ""
@@ -287,7 +287,7 @@ func legacyBackupParent(uhome string) string {
 	switch runtime.GOOS {
 	case "darwin":
 		return filepath.Join(uhome, "Library", "cert-manage")
-	case "linux", "windows":
+	case "linux", "windows", "freebsd":
 		return filepath.Join(uhome, ".cert-manage")
 	default:
 		return ""

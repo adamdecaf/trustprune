@@ -16,6 +16,7 @@ Status matches what the code on `master` does today.
 | **Supported** | Linux (Arch layout) | CA dir `/etc/ca-certificates/trust-source`; add dir `/etc/ca-certificates/trust-source/anchors`; bundle `/etc/ca-certificates/extracted/tls-ca-bundle.pem`; allowlist writes distrust PEMs to `/etc/ca-certificates/trust-source/blocklist`; refresh `/usr/bin/update-ca-trust` | same |
 | **Partial** | Darwin / macOS | System roots `/System/Library/Keychains/SystemRootCertificates.keychain` (SIP-protected); system keychain `/Library/Keychains/System.keychain`; login `~/Library/Keychains/login.keychain` (or `login.keychain-db`). CLI PEM bundle is a separate store: `-app ssl` → `/etc/ssl/cert.pem` (see Applications). | list, add, allowlist, backup, restore; system roots are not rewritten; restore honors `-backup` / `-file` / `where` for the login-keychain backup path |
 | **List-only** | Windows | Machine stores via PowerShell: `Cert:\LocalMachine\My`, `Root`, `Trust`, `CA`, `AuthRoot` | `list` only; Add, Backup, Remove (allowlist), and Restore are no-ops |
+| **Stub (CI)** | FreeBSD | No system CA dir probe yet. `Platform()` is a stub: list returns empty; live add/allowlist/backup/restore return "not implemented". CI runs unit/CLI tests in a FreeBSD guest with an empty HOME so nothing touches guest system trust. | compile + test only; no platform mutations |
 
 Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RHEL/Rocky, Arch, then Debian/Ubuntu/Alpine. Fedora and Arch also ship `/etc/ssl/certs/ca-certificates.crt` as a compatibility symlink, so their unique bundle paths are checked first. Backups of the Linux CA **directory** go under `~/.trustprune/linux/<unix-timestamp>/`.
 
@@ -39,13 +40,13 @@ For Chrome (Linux) and Firefox, backups copy the matching profile set from the c
 | Shared DB (`cert9.db`) | `cert9.db`, `key4.db`, `pkcs11.txt` |
 | Legacy (`cert8.db`) | `cert8.db`, `key3.db`, `secmod.db` |
 
-NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/certutil`; Linux probes `/usr/bin/certutil`. The `-d` argument uses the `sql:` prefix when `cert9.db` is present (shared DB) and `dbm:` for legacy `cert8.db`-only profiles. After changes to a `cert8.db` profile, the tool may print a restart hint for that app.
+NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/certutil`; Linux probes `/usr/bin/certutil`; FreeBSD probes `/usr/local/bin/certutil`. The `-d` argument uses the `sql:` prefix when `cert9.db` is present (shared DB) and `dbm:` for legacy `cert8.db`-only profiles. After changes to a `cert8.db` profile, the tool may print a restart hint for that app.
 
 ## Backup parent directories
 
 | OS | Parent directory |
 |----|------------------|
-| Linux / Windows | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
+| Linux / Windows / FreeBSD | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
 | Darwin | `~/Library/trustprune/` (read-only fallback `~/Library/cert-manage/`) |
 
 Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `ssl/`, `openssl/`, `certifi/`.
@@ -56,7 +57,7 @@ Researched but not yet supported:
 
 - Container images
 - Thunderbird and Chromium browsers on NSS
-- BSD stores
+- FreeBSD system CA store (platform stub + CI only today)
 - Node
 - Registry CAs
 - .NET
