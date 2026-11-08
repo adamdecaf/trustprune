@@ -109,9 +109,10 @@ OUTPUT
   -v      Show full fingerprints, serials, and paths in table output
 
 DEBUGGING
-  Alongside command line flags are two environment variables read by trustprune:
+  Alongside command line flags, trustprune reads these environment variables:
   - DEBUG=1        Enables debug logging, GODEBUG=x509roots=1 also works and enables Go's debugging
   - TRACE=<where>  Saves a binary trace file at <where> of the execution
+  - TRUSTPRUNE_JAVA_STOREPASS  Java keystore password for -app java (see docs/usage.md#environment)
 `,
 			getVersion(),
 			store.FormatAppsHelpLine(),

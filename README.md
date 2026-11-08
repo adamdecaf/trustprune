@@ -129,6 +129,7 @@ go install github.com/adamdecaf/trustprune@master
 trustprune list
 trustprune list -format table       # short (default), table, json, openssl, observatory
 trustprune list -format openssl
+trustprune list -format observatory -out report.yaml  # observatory YAML to a file (other formats ignore -out)
 trustprune list -ui web             # cli (default) or web (prints URL if headless)
 
 # Apps

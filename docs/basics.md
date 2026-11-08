@@ -168,6 +168,12 @@ trusted_certificates:
 ...
 ```
 
+`-out <path>` writes that same report to a file instead of stdout. Other list output ignores `-out`.
+
+```
+$ trustprune list -format observatory -out report.yaml
+```
+
 ### Web
 
 `trustprune` can present certificates on a local web page with `-ui web` on `list` only (other commands ignore `-ui`). It prints the local URL (and still serves it) when a browser cannot be opened, such as on a headless host. Each certificate row shows Subject, Issuer, SHA256 fingerprint, serial, and validity dates; the full formatted dump stays behind Details.
