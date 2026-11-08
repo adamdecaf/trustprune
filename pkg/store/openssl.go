@@ -30,8 +30,9 @@ import (
 )
 
 const (
-	opensslBackupDir      = "openssl"
-	opensslBackupFilename = "ca-bundle.pem"
+	opensslBackupDir        = "openssl"
+	opensslBackupFilename   = "ca-bundle.pem"
+	opensslBackupSourceName = "source"
 )
 
 var (
@@ -76,6 +77,28 @@ func OpenSSLStore() Store {
 // opensslStoreAt returns an opensslStore pointed at path. Intended for tests.
 func opensslStoreAt(path string) opensslStore {
 	return opensslStore{path: path}
+}
+
+// OpenSSLBundleAt returns an openssl store for an explicit PEM CA bundle file.
+// The path is not discovered from SSL_CERT_FILE, CURL_CA_BUNDLE, git, or
+// distro defaults. Directories are rejected; hashed cert directories stay on
+// OpenSSLStore without an explicit file (CLI -bundle).
+func OpenSSLBundleAt(path string) (Store, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, errors.New("openssl -bundle path is empty")
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("openssl bundle %s not found: %w", path, err)
+	}
+	if st.IsDir() {
+		return nil, fmt.Errorf("openssl -bundle %s is a directory; pass a PEM CA bundle file (hashed cert directories stay on -app openssl without -bundle)", path)
+	}
+	if !st.Mode().IsRegular() {
+		return nil, fmt.Errorf("openssl -bundle %s is not a regular PEM file", path)
+	}
+	return opensslStoreAt(path), nil
 }
 
 func (s opensslStore) certPath() (string, error) {
@@ -186,7 +209,8 @@ func (s opensslStore) Backup() error {
 			return nil
 		}
 		reportDryRun("backup", "openssl", path,
-			fmt.Sprintf("copy %s into %s/%s/<timestamp>/%s", path, backupParentDisplay(), opensslBackupDir, opensslBackupFilename))
+			fmt.Sprintf("copy %s into %s/%s/<timestamp>/%s", path, backupParentDisplay(), opensslBackupDir, opensslBackupFilename),
+			"record the bundle path in source")
 		return nil
 	}
 
@@ -210,10 +234,30 @@ func (s opensslStore) Backup() error {
 		_ = os.RemoveAll(dir)
 		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
 	}
+	if err := writeOpenSSLBackupSource(dir, path); err != nil {
+		_ = os.RemoveAll(dir)
+		return err
+	}
 	return nil
 }
 
 func (s opensslStore) GetLatestBackup() (string, error) {
+	// An explicit PEM path (CLI -bundle or opensslStoreAt on a file) only
+	// matches backups recorded for that file. Discovery and cert directories
+	// keep timestamp selection across the openssl backup tree.
+	if s.path != "" {
+		isDir, err := opensslPathIsDir(s.path)
+		if err != nil {
+			return "", err
+		}
+		if !isDir {
+			dir, err := latestOpenSSLFileBackupFor(s.path)
+			if err != nil {
+				return "", fmt.Errorf("getLatestBackup: error getting openssl backup directory err=%w", err)
+			}
+			return dir, nil
+		}
+	}
 	dir, err := getLatestStoreBackup(opensslBackupDir)
 	if err != nil {
 		return "", fmt.Errorf("getLatestBackup: error getting openssl backup directory err=%w", err)
@@ -438,6 +482,13 @@ func (s opensslStore) restoreFile(src, path string) error {
 	if err != nil {
 		return err
 	}
+	// Explicit PEM paths refuse a backup recorded for a different file.
+	// Discovery (empty s.path) stays per app name, not per bundle path.
+	if s.path != "" {
+		if err := checkOpenSSLBackupSource(src, path, true, ForceRestore()); err != nil {
+			return err
+		}
+	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
 		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -file to a PEM backup", srcFile, err)
@@ -568,6 +619,138 @@ func (s opensslStore) replaceBundle(path string, bundle certutil.PEMResult) erro
 		return fmt.Errorf("write %s: %w; re-run with permission to write that path (often sudo)", path, err)
 	}
 	return nil
+}
+
+// opensslCanonicalPath returns an absolute, cleaned path, following symlinks
+// when they resolve so backup source matches the file that would be written.
+func opensslCanonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	p = filepath.Clean(p)
+	return resolveOpenSSLCertPath(p)
+}
+
+func sameOpenSSLPath(recorded, dest string) bool {
+	return opensslCanonicalPath(recorded) == opensslCanonicalPath(dest)
+}
+
+func opensslBackupSourceFile(src string) string {
+	st, err := os.Stat(src)
+	if err == nil && st.IsDir() {
+		return filepath.Join(src, opensslBackupSourceName)
+	}
+	if filepath.Base(src) == opensslBackupFilename {
+		return filepath.Join(filepath.Dir(src), opensslBackupSourceName)
+	}
+	return src + "." + opensslBackupSourceName
+}
+
+func writeOpenSSLBackupSource(dir, storePath string) error {
+	path := filepath.Join(dir, opensslBackupSourceName)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(opensslCanonicalPath(storePath) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
+}
+
+func readOpenSSLBackupSource(src string) (string, error) {
+	b, err := os.ReadFile(opensslBackupSourceFile(src))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// checkOpenSSLBackupSource refuses a restore whose backup was taken from a
+// different PEM than dest. Backups without a recorded source are allowed only
+// when allowUnknown is set (explicit -backup of an older backup). force skips
+// a path mismatch.
+func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) error {
+	recorded, err := readOpenSSLBackupSource(backup)
+	if err != nil {
+		return fmt.Errorf("reading source of openssl backup %s: %w", backup, err)
+	}
+	if recorded == "" {
+		if allowUnknown || force {
+			return nil
+		}
+		return fmt.Errorf("openssl backup %s has no recorded store path; pass it with restore -backup to use it", backup)
+	}
+	if sameOpenSSLPath(recorded, dst) {
+		return nil
+	}
+	if force {
+		return nil
+	}
+	return fmt.Errorf("refusing restore: openssl backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, opensslCanonicalPath(dst))
+}
+
+// latestOpenSSLFileBackupFor returns the newest openssl backup directory whose
+// recorded source is storePath. Directory mirrors and backups with no source
+// are skipped.
+func latestOpenSSLFileBackupFor(storePath string) (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	dirs := []string{filepath.Join(primaryBackupParent(uhome), opensslBackupDir)}
+	if lp := legacyBackupParent(uhome); lp != "" {
+		dirs = append(dirs, filepath.Join(lp, opensslBackupDir))
+	}
+
+	best, bestTS := "", int64(-1)
+	for _, d := range dirs {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+		for _, ent := range ents {
+			if !ent.IsDir() {
+				continue
+			}
+			ts, ok := backupBasenameUnix(ent.Name())
+			if !ok {
+				continue
+			}
+			if ts < bestTS {
+				continue
+			}
+			path := filepath.Join(d, ent.Name())
+			if !file.Exists(filepath.Join(path, opensslBackupFilename)) {
+				continue
+			}
+			recorded, err := readOpenSSLBackupSource(path)
+			if err != nil {
+				return "", err
+			}
+			if recorded == "" || !sameOpenSSLPath(recorded, storePath) {
+				continue
+			}
+			if ts == bestTS && best != "" {
+				continue
+			}
+			best, bestTS = path, ts
+		}
+	}
+	return best, nil
 }
 
 func opensslBackupFile(src string) (string, error) {

@@ -54,6 +54,7 @@ trustprune list
 trustprune list -count
 trustprune list -app java
 trustprune list -app java -file /path/to/cacerts
+trustprune list -app openssl -bundle /path/to/ca-bundle.pem
 trustprune list -file example.crt
 trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 ```
@@ -61,7 +62,8 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | List from an application store |
-| `-file <path>` | List certificates from a local file (PEM or similar) |
+| `-file <path>` | List certificates from a local file (PEM or similar). With `-app java` or `-app certifi`, this is the store path |
+| `-bundle <path>` | With `-app openssl`: list that PEM CA bundle instead of discovery |
 | `-url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `-count` | Print only the number of certificates |
 | `-format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
@@ -82,6 +84,7 @@ trustprune backup -app certifi -file /path/to/venv/.../cacert.pem
 trustprune backup -app chrome
 trustprune backup -app firefox
 trustprune backup -app openssl
+trustprune backup -app openssl -bundle /path/to/ca-bundle.pem
 trustprune backup -app certifi
 ```
 
@@ -89,6 +92,7 @@ trustprune backup -app certifi
 |------|---------|
 | `-app <name>` | Back up that application's store instead of the platform |
 | `-file <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery. |
+| `-bundle <path>` | With `-app openssl`: back up that PEM CA bundle instead of discovery. The backup records the path |
 | `-dry-run` | Print what would be backed up; creates nothing |
 
 See [Backup and restore](backup-restore.md) for where files land.
@@ -101,6 +105,8 @@ If no backup exists, `restore` (and `restore -dry-run`) refuses before writing a
 
 For **java** and **certifi**, `-file` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `-backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `-force` is given.
 
+For **openssl**, `-bundle <pem>` is the live PEM to restore into. `-file` and `-backup` stay the backup source. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `-force`. Without `-bundle`, openssl restore still uses the latest backup for the app, not per bundle path.
+
 ```bash
 trustprune restore
 trustprune restore -backup /path/to/backup
@@ -111,15 +117,18 @@ trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts
 trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
 trustprune restore -app chrome
 trustprune restore -app openssl
+trustprune restore -app openssl -bundle /path/to/ca-bundle.pem
+trustprune restore -app openssl -bundle /path/to/ca-bundle.pem -backup ~/.trustprune/openssl/<timestamp>
 trustprune restore -app java -dry-run
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Restore that application's store |
-| `-file <path>` | Java/certifi: store to restore into. Other stores: explicit backup path (directory or file) |
+| `-file <path>` | Java/certifi: store to restore into. Other stores, including openssl: explicit backup path (directory or file) |
 | `-backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
-| `-force` | Allow restoring a backup into a different store path than it was taken from (java and certifi) |
+| `-bundle <path>` | With `-app openssl`: PEM CA bundle to restore into. `-file` and `-backup` remain the backup source |
+| `-force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, and openssl `-bundle`) |
 | `-dry-run` | Print the plan without writing |
 
 
@@ -185,13 +194,19 @@ Darwin `/etc/ssl/cert.pem` is **not** selected as an openssl default. Use `-app 
 
 ```bash
 trustprune list -app openssl
+trustprune list -app openssl -bundle /path/to/ca-bundle.pem
 trustprune backup -app openssl
+trustprune backup -app openssl -bundle /path/to/ca-bundle.pem
 trustprune allowlist -app openssl -file allowlist.yaml -dry-run
 trustprune allowlist -app openssl -file allowlist.yaml
+trustprune allowlist -app openssl -file allowlist.yaml -bundle /path/to/ca-bundle.pem
 trustprune restore -app openssl
+trustprune restore -app openssl -bundle /path/to/ca-bundle.pem
 ```
 
-A PEM file is rewritten like `-app ssl` (atomic install, refuse empty bundle). A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and `c_rehash` runs after add (required) and after remove/restore when the binary is present.
+`-bundle <pem>` skips path discovery and must name an existing PEM file. It does not select a hashed cert directory. On allowlist, `-file` is still the allowlist. On restore, `-file` and `-backup` are still the backup source; a backup taken from a different PEM is refused unless `-force`.
+
+A PEM file is rewritten like `-app ssl` (atomic install, refuse empty bundle). Backups of a PEM file record its path in `source`. A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and `c_rehash` runs after add (required) and after remove/restore when the binary is present. Directory rehash is unchanged; pass the PEM file to `-bundle` when you want that file rather than the discovered directory.
 
 
 ## allowlist
@@ -203,6 +218,7 @@ Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `cou
 ```bash
 trustprune allowlist -file allowlist.yaml
 trustprune allowlist -file allowlist.json -app java
+trustprune allowlist -file allowlist.yaml -app openssl -bundle /path/to/ca-bundle.pem
 trustprune allowlist -file allowlist.yaml -dry-run
 ```
 
@@ -210,6 +226,7 @@ trustprune allowlist -file allowlist.yaml -dry-run
 |------|---------|
 | `-file <path>` | **Required.** Path to the allowlist |
 | `-app <name>` | Apply against an application store |
+| `-bundle <path>` | With `-app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
 | `-dry-run` | Print the plan without writing |
 
 Example YAML:

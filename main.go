@@ -44,6 +44,9 @@ var (
 	// -backup selects the backup source for restore (distinct from -file)
 	flagBackup = fs.String("backup", "", "")
 
+	// -bundle selects an explicit PEM CA bundle for -app openssl
+	flagBundle = fs.String("bundle", "", "")
+
 	// -force allows restore into a different store path than the backup came from
 	flagForce = fs.Bool("force", false, "")
 
@@ -94,6 +97,7 @@ APPS
 FLAGS
   -app <name>      The name of an application which to perform the given command on.
   -backup <path>   Backup to restore from (restore command)
+  -bundle <path>   With -app openssl: explicit PEM CA bundle for list, backup, restore, and allowlist
   -dry-run         Preview add/backup/restore/allowlist changes without writing to stores
   -file <path>     Local file path
   -force           Allow restore into a different store path than the backup came from
@@ -181,6 +185,7 @@ func main() {
 	}
 	store.SetDryRun(*flagDryRun)
 	store.SetForceRestore(*flagForce)
+	bundleFlag := strings.TrimSpace(*flagBundle)
 
 	// Build up sub-commands
 	commands := make(map[string]*command)
@@ -241,17 +246,25 @@ APPS
 			return cmd.BackupForPlatform()
 		},
 		appfn: func(a string) error {
+			if bundleFlag != "" {
+				if *flagFile != "" {
+					return fmt.Errorf("backup: -bundle names the openssl PEM; -file is not a bundle override for openssl")
+				}
+				return cmd.BackupForBundle(bundleFlag)
+			}
 			if *flagFile != "" {
 				return cmd.BackupForAppWithFile(a, *flagFile)
 			}
 			return cmd.BackupForApp(a)
 		},
-		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-file <keystore>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-file <keystore>] [-bundle <pem>] [-dry-run]
 
   Backup a certificate store. This can be done for the platform or a given app.
 
   Java: -file <cacerts> overrides trust-store search and backs up that keystore.
   Certifi: -file <cacert.pem> overrides discovery and backs up that bundle.
+  OpenSSL: -bundle <ca-bundle.pem> backs up that PEM file instead of discovery.
+    trustprune backup -app openssl -bundle /path/to/ca-bundle.pem
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -327,6 +340,13 @@ APPS
 		},
 		appfn: func(a string) error {
 			// -app java -file <cacerts> or -app certifi -file <cacert.pem> overrides discovery.
+			// -app openssl -bundle <pem> lists that PEM instead of discovery.
+			if bundleFlag != "" {
+				if *flagFile != "" {
+					return fmt.Errorf("list: pass -bundle for the openssl PEM, or -file for a certificate file, not both")
+				}
+				return cmd.ListCertsForBundle(bundleFlag, cfg)
+			}
 			if *flagFile != "" {
 				return cmd.ListCertsForAppWithFile(a, *flagFile, cfg)
 			}
@@ -344,6 +364,9 @@ APPS
 
   List certificates from a Java keystore path (skips JAVA_HOME search)
     trustprune list -app java -file <cacerts>
+
+  List certificates in an explicit OpenSSL PEM CA bundle
+    trustprune list -app openssl -bundle /path/to/ca-bundle.pem
 
   List certificates from a URL
     trustprune list -url <endpoint>
@@ -382,12 +405,18 @@ APPS
 	}
 	commands["restore"] = &command{
 		fn: func() error {
+			if bundleFlag != "" {
+				return cmd.RestoreForBundle("", *flagFile, *flagBackup, bundleFlag)
+			}
 			return cmd.Restore("", *flagFile, *flagBackup)
 		},
 		appfn: func(a string) error {
+			if bundleFlag != "" {
+				return cmd.RestoreForBundle(a, *flagFile, *flagBackup, bundleFlag)
+			}
 			return cmd.Restore(a, *flagFile, *flagBackup)
 		},
-		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-file <path>] [-backup <path>] [-force] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-file <path>] [-backup <path>] [-bundle <pem>] [-force] [-dry-run]
 
   Restore certificates from the latest backup
     trustprune restore
@@ -406,6 +435,12 @@ APPS
     trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
     trustprune restore -app java -file /other/cacerts -backup <backup> -force
 
+  OpenSSL: -bundle is the live PEM to restore into. -file and -backup stay the
+  backup source. A backup recorded for a different PEM is refused unless -force.
+    trustprune restore -app openssl -bundle /path/to/ca-bundle.pem
+    trustprune restore -app openssl -bundle /path/to/ca-bundle.pem -backup <backup-dir>
+    trustprune restore -app openssl -bundle /other/ca-bundle.pem -backup <backup-dir> -force
+
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
 	}
@@ -422,15 +457,21 @@ APPS
 				callForHelp = true
 				return nil
 			}
+			if bundleFlag != "" {
+				return cmd.AllowlistForBundle(a, *flagFile, bundleFlag)
+			}
 			return cmd.AllowlistForApp(a, *flagFile)
 		},
-		help: fmt.Sprintf(`Usage: trustprune allowlist [-app <name>] -file <path> [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune allowlist [-app <name>] -file <path> [-bundle <pem>] [-dry-run]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist -file allowlist.json
 
   Remove untrusted certificates in an app
     trustprune allowlist -file allowlist.json -app java
+
+  Remove untrusted certificates in an explicit OpenSSL PEM CA bundle
+    trustprune allowlist -app openssl -file allowlist.json -bundle /path/to/ca-bundle.pem
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -456,6 +497,11 @@ APPS
 	}
 	if ok && calledHelp() {
 		fmt.Println(c.help)
+		os.Exit(1)
+	}
+
+	if err := cmd.CheckBundleFlag(os.Args[1], *flagApp, bundleFlag); err != nil {
+		fmt.Printf("ERROR: %v\n", err)
 		os.Exit(1)
 	}
 
