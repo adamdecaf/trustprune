@@ -8,7 +8,7 @@ nav_order: 4
 
 Global flags work with the subcommands that accept them. Add `-dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes (files, certificates by subject and SHA-256, refresh commands) without writing to any store.
 
-Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). An unknown `-app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
+Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `-app` and selects the platform store; it is left off the apps list on purpose. `-store` with that name is rejected. An unknown `-app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 1.
 
@@ -71,7 +71,7 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 | `-url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `-count` | Print only the number of certificates |
 | `-format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
-| `-out <path>` | With `-format observatory`, write the YAML report to `<path>` instead of stdout. Other list output ignores `-out` |
+| `-out <path>` | Write the formatted output to `<path>` instead of stdout for every `-format` and for `-count`. Stdout stays empty |
 | `-v` | In `table` output, show the full fingerprint, serial, source or store path (`-` for URLs), and NOT BEFORE / NOT AFTER. DAYS stays numeric (including negative when expired) |
 | `-ui <type>` | Presentation: `cli` (default) or `web` (local page) |
 

@@ -61,6 +61,20 @@ func refuseIfSystemSSL(t *testing.T, path string) {
 	}
 }
 
+func TestSSLStore_GetInfoOmitsByteSize(t *testing.T) {
+	s, path, _ := sslTestEnv(t)
+	info := s.GetInfo()
+	if info.Name != "ssl" {
+		t.Fatalf("name=%q", info.Name)
+	}
+	if info.Path != path {
+		t.Fatalf("path=%q want %q", info.Path, path)
+	}
+	if info.Version != "" {
+		t.Fatalf("version=%q, want empty", info.Version)
+	}
+}
+
 func TestSSLStore_DefaultUnavailableOffDarwin(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("default SSLStore is available on Darwin")

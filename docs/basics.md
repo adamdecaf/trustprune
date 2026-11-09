@@ -47,7 +47,7 @@ Connection to https://google.com passed!
 
 ## List
 
-The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `-app` flag.
+The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `-app` flag. `-out <path>` writes that formatted output to a file for every format and for `-count`. Stdout stays empty.
 
 Show certificates installed in the platform:
 
@@ -184,10 +184,11 @@ trusted_certificates:
 ...
 ```
 
-`-out <path>` writes that same report to a file instead of stdout. Other list output ignores `-out`.
+`-out <path>` writes this report to a file. The same flag writes `short`, `table`, `json`, `openssl`, and `-count` output to a file. Stdout stays empty.
 
 ```
 $ trustprune list -format observatory -out report.yaml
+$ trustprune list -format json -out certs.json
 ```
 
 ### Web
@@ -209,10 +210,10 @@ To capture a backup:
 
 ```
 $ trustprune backup
-Backup completed successfully
+Backup completed successfully: /home/you/.trustprune/linux/1513034181
 
 $ trustprune backup -app java
-Backup completed successfully
+Backup completed successfully: /home/you/.trustprune/java/cacerts-1513034181.bck
 ```
 
 Backups can be used as restore points.

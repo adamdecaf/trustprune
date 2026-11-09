@@ -136,8 +136,19 @@ func GetApps() []string {
 	return out
 }
 
-// ForApp returns a `Store` instance for the given app
+// platformAppName reports whether app is the running OS name (runtime.GOOS).
+// `apps` prints that name for the platform store. It is accepted by ForApp
+// and is intentionally absent from GetApps.
+func platformAppName(app string) bool {
+	return strings.ToLower(app) == runtime.GOOS
+}
+
+// ForApp returns a `Store` instance for the given app.
+// The platform OS name (runtime.GOOS) returns Platform and is not listed by GetApps.
 func ForApp(app string) (Store, error) {
+	if platformAppName(app) {
+		return Platform(), nil
+	}
 	key := strings.ToLower(app)
 	s, ok := appStores[key]
 	if !ok {
@@ -149,12 +160,15 @@ func ForApp(app string) (Store, error) {
 // ForAppWithStore returns a Store for app, optionally overriding the trust-store
 // path with storePath. java uses it as a keystore override; certifi uses it as a
 // cacert.pem override (one bundle per venv). Used by -store on list, backup,
-// connect, restore, add, and allowlist. Other apps reject a non-empty storePath.
-// Empty storePath is ForApp.
+// connect, restore, add, and allowlist. Other apps, including the platform OS
+// name, reject a non-empty storePath. Empty storePath is ForApp.
 func ForAppWithStore(app, storePath string) (Store, error) {
 	key := strings.ToLower(app)
 	if strings.TrimSpace(storePath) == "" {
 		return ForApp(app)
+	}
+	if platformAppName(app) {
+		return nil, fmt.Errorf("-store with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
 	}
 	if _, ok := appStores[key]; !ok {
 		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))

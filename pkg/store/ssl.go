@@ -81,9 +81,6 @@ func (s sslStore) GetInfo() *Info {
 		return info
 	}
 	info.Path = path
-	if st, err := os.Stat(path); err == nil && !st.IsDir() {
-		info.Version = fmt.Sprintf("%d bytes", st.Size())
-	}
 	return info
 }
 

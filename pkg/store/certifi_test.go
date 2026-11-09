@@ -373,8 +373,8 @@ func TestCertifiStore_GetInfo(t *testing.T) {
 	if info.Path != want {
 		t.Fatalf("path=%q want %q", info.Path, want)
 	}
-	if info.Version == "" {
-		t.Fatal("expected version/size")
+	if info.Version != "" {
+		t.Fatalf("version=%q, want empty", info.Version)
 	}
 }
 

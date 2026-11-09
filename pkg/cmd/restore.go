@@ -81,16 +81,43 @@ func restoreArgs(app, file, backup string) (storeFile, backupPath string, err er
 	}
 }
 
+// restoreSuccessPrefix is the historical success phrase. The live store path
+// is appended after ": " so existing prefix checks still match.
+const restoreSuccessPrefix = "Restore completed successfully"
+
 func restoreStore(s store.Store, where string) error {
 	err := s.Restore(where)
 	if err == nil {
-		if store.DryRun() {
-			fmt.Println("dry-run: no changes made")
-		} else {
-			fmt.Println("Restore completed successfully")
-		}
+		printRestoreSuccess(s, where)
 	}
 	return err
+}
+
+// printRestoreSuccess prints the dry-run notice, or the success phrase plus
+// the live store path (GetInfo().Path). When that path is empty it falls
+// back to the backup source, then the latest backup path.
+func printRestoreSuccess(s store.Store, where string) {
+	if store.DryRun() {
+		fmt.Println("dry-run: no changes made")
+		return
+	}
+	path := ""
+	if info := s.GetInfo(); info != nil {
+		path = strings.TrimSpace(info.Path)
+	}
+	if path == "" {
+		path = strings.TrimSpace(where)
+	}
+	if path == "" {
+		if latest, err := s.GetLatestBackup(); err == nil {
+			path = strings.TrimSpace(latest)
+		}
+	}
+	if path == "" {
+		fmt.Println(restoreSuccessPrefix)
+		return
+	}
+	fmt.Printf("%s: %s\n", restoreSuccessPrefix, path)
 }
 
 func RestoreForApp(app, path string) error {
