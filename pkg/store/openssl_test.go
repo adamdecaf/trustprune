@@ -883,3 +883,164 @@ func TestOpenSSLStore_DirRestoreRejectsFileWhere(t *testing.T) {
 	}
 	_ = dir
 }
+
+// backupOpenSSLPEMFile backs up a PEM bundle in the current HOME and returns
+// the backup directory. The backup is newer than any earlier openssl backup
+// created in this test.
+func backupOpenSSLPEMFile(t *testing.T, certs []*x509.Certificate) string {
+	t.Helper()
+	pemPath := filepath.Join(t.TempDir(), "ca-bundle.pem")
+	if err := certutil.ToFile(pemPath, certs); err != nil {
+		t.Fatal(err)
+	}
+	refuseIfSystemOpenSSL(t, pemPath)
+	s := opensslStoreAt(pemPath)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("PEM GetLatestBackup: %q err=%v", latest, err)
+	}
+	if _, err := os.Stat(filepath.Join(latest, opensslBackupSourceName)); err != nil {
+		t.Fatalf("PEM backup missing source: %v", err)
+	}
+	return latest
+}
+
+func opensslDirSnapshot(t *testing.T, dir string) string {
+	t.Helper()
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, ent := range ents {
+		body, err := os.ReadFile(filepath.Join(dir, ent.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString(ent.Name())
+		b.WriteByte('\n')
+		b.Write(body)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func TestOpenSSLStore_DirGetLatestBackupSkipsNewerPEM(t *testing.T) {
+	dirStore, _, certs := opensslDirEnv(t)
+	SetDryRun(false)
+	if err := dirStore.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	mirror, err := dirStore.GetLatestBackup()
+	if err != nil || mirror == "" {
+		t.Fatalf("directory mirror: %q err=%v", mirror, err)
+	}
+	if _, err := os.Stat(filepath.Join(mirror, opensslBackupSourceName)); !os.IsNotExist(err) {
+		t.Fatalf("directory mirror has source: %v", err)
+	}
+
+	pemBackup := backupOpenSSLPEMFile(t, certs[:1])
+	if pemBackup == mirror {
+		t.Fatal("PEM backup reused the directory mirror")
+	}
+	mirrorTS, ok1 := backupBasenameUnix(filepath.Base(mirror))
+	pemTS, ok2 := backupBasenameUnix(filepath.Base(pemBackup))
+	if !ok1 || !ok2 || pemTS <= mirrorTS {
+		t.Fatalf("expected newer PEM backup: mirror=%s pem=%s", mirror, pemBackup)
+	}
+
+	got, err := dirStore.GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != mirror {
+		t.Fatalf("directory GetLatestBackup=%q want mirror %q (skipped newer PEM %q)", got, mirror, pemBackup)
+	}
+}
+
+func TestOpenSSLStore_DirRestoreRefusesPEMBackup(t *testing.T) {
+	dirStore, dir, certs := opensslDirEnv(t)
+	SetDryRun(false)
+	t.Cleanup(func() { SetDryRun(false) })
+
+	pemBackup := backupOpenSSLPEMFile(t, certs[:1])
+	before := opensslDirSnapshot(t, dir)
+
+	err := dirStore.Restore(pemBackup)
+	if err == nil || !strings.Contains(err.Error(), "PEM bundle backup") || !strings.Contains(err.Error(), "cert directory") {
+		t.Fatalf("restore PEM into dir: %v", err)
+	}
+	if got := opensslDirSnapshot(t, dir); got != before {
+		t.Fatal("refused PEM restore wrote the cert directory")
+	}
+	for _, suffix := range []string{".restore-tmp", ".restore-old", ".restore-failed"} {
+		if _, statErr := os.Lstat(dir + suffix); !os.IsNotExist(statErr) {
+			t.Fatalf("refused restore left %s: %v", dir+suffix, statErr)
+		}
+	}
+
+	SetDryRun(true)
+	err = dirStore.Restore(pemBackup)
+	SetDryRun(false)
+	if err == nil || !strings.Contains(err.Error(), "PEM bundle backup") {
+		t.Fatalf("dry-run restore PEM into dir: %v", err)
+	}
+	if got := opensslDirSnapshot(t, dir); got != before {
+		t.Fatal("dry-run PEM restore wrote the cert directory")
+	}
+}
+
+func TestOpenSSLStore_DirMirrorRestoreStillWorks(t *testing.T) {
+	dirStore, dir, want := opensslDirEnv(t)
+	SetDryRun(false)
+	if err := dirStore.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	mirror, err := dirStore.GetLatestBackup()
+	if err != nil || mirror == "" {
+		t.Fatalf("directory mirror: %q err=%v", mirror, err)
+	}
+	removed := filepath.Join(dir, "ca-2.crt")
+	removedBytes, err := os.ReadFile(removed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(removed); err != nil {
+		t.Fatal(err)
+	}
+
+	// A newer PEM backup must not replace the directory mirror on restore.
+	pemBackup := backupOpenSSLPEMFile(t, want[:1])
+	mirrorTS, ok1 := backupBasenameUnix(filepath.Base(mirror))
+	pemTS, ok2 := backupBasenameUnix(filepath.Base(pemBackup))
+	if !ok1 || !ok2 || pemTS <= mirrorTS {
+		t.Fatalf("expected newer PEM backup: mirror=%s pem=%s", mirror, pemBackup)
+	}
+
+	if err := dirStore.Restore(""); err != nil {
+		t.Fatalf("directory mirror restore: %v", err)
+	}
+	gotBytes, err := os.ReadFile(removed)
+	if err != nil {
+		t.Fatalf("restored file missing: %v", err)
+	}
+	if !bytes.Equal(gotBytes, removedBytes) {
+		t.Fatal("directory restore did not put the mirror's cert file back")
+	}
+	after, err := dirStore.List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after) != len(want) {
+		t.Fatalf("after restore len=%d want %d", len(after), len(want))
+	}
+	if _, err := os.Stat(filepath.Join(dir, opensslBackupSourceName)); !os.IsNotExist(err) {
+		t.Fatalf("directory restore copied a PEM source sidecar: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, opensslBackupFilename)); !os.IsNotExist(err) {
+		t.Fatalf("directory restore copied ca-bundle.pem: %v", err)
+	}
+}

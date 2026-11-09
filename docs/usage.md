@@ -105,7 +105,7 @@ If no backup exists, `restore` (and `restore -dry-run`) refuses before writing a
 
 For **java** and **certifi**, `-file` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `-backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `-force` is given.
 
-For **openssl**, `-bundle <pem>` is the live PEM to restore into. `-file` and `-backup` stay the backup source. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `-force`. Without `-bundle`, openssl restore uses the discovered PEM: the newest backup recorded for that file, or a legacy backup with no `source`. A backup recorded for a different PEM is refused unless `-force`.
+For **openssl**, `-bundle <pem>` is the live PEM to restore into. `-file` and `-backup` stay the backup source; automatic selection runs only when neither is set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `-force`. Without `-bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `-force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `-backup` or `-file`.
 
 ```bash
 trustprune restore

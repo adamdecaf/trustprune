@@ -244,9 +244,9 @@ func (s opensslStore) Backup() error {
 func (s opensslStore) GetLatestBackup() (string, error) {
 	// Explicit PEM files match only backups recorded for that file. Discovery
 	// of a PEM also accepts legacy backups with no source and ignores backups
-	// recorded for another bundle. Cert directories have no source sidecar, so
-	// they keep newest-timestamp selection. If discovery cannot resolve a
-	// path, only unknown-source backups match.
+	// recorded for another bundle. A live cert directory skips PEM backups,
+	// which always write a source sidecar; directory mirrors never do. If
+	// discovery cannot resolve a path, only unknown-source backups match.
 	dest := s.path
 	allowUnknown := dest == ""
 	if dest == "" {
@@ -260,7 +260,7 @@ func (s opensslStore) GetLatestBackup() (string, error) {
 			return "", err
 		}
 		if isDir {
-			dir, err := getLatestStoreBackup(opensslBackupDir)
+			dir, err := latestOpenSSLDirBackup()
 			if err != nil {
 				return "", fmt.Errorf("getLatestBackup: error getting openssl backup directory err=%w", err)
 			}
@@ -523,6 +523,15 @@ func (s opensslStore) restoreDir(src, dst string) error {
 	if !st.IsDir() {
 		return fmt.Errorf("openssl restore source %s is not a directory; the live store is a cert directory", src)
 	}
+	// PEM file backups write a source sidecar (and ca-bundle.pem). Directory
+	// mirrors never do. Refuse before any write, including an explicit -backup.
+	pemBackup, err := opensslBackupHasSource(src)
+	if err != nil {
+		return fmt.Errorf("openssl backup %s: %w", src, err)
+	}
+	if pemBackup {
+		return fmt.Errorf("openssl backup %s is a PEM bundle backup and cannot restore into cert directory %s", src, dst)
+	}
 	certFiles, err := opensslCertFiles(src)
 	if err != nil {
 		return err
@@ -704,6 +713,70 @@ func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) erro
 		return nil
 	}
 	return fmt.Errorf("refusing restore: openssl backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, opensslCanonicalPath(dst))
+}
+
+// latestOpenSSLDirBackup returns the newest openssl backup directory that is
+// a cert-directory mirror. PEM backups record a source sidecar and are
+// skipped; directory mirrors never write one.
+func latestOpenSSLDirBackup() (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	dirs := []string{filepath.Join(primaryBackupParent(uhome), opensslBackupDir)}
+	if lp := legacyBackupParent(uhome); lp != "" {
+		dirs = append(dirs, filepath.Join(lp, opensslBackupDir))
+	}
+
+	best, bestTS := "", int64(-1)
+	for _, d := range dirs {
+		ents, err := os.ReadDir(d)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", err
+		}
+		for _, ent := range ents {
+			if !ent.IsDir() {
+				continue
+			}
+			ts, ok := backupBasenameUnix(ent.Name())
+			if !ok {
+				continue
+			}
+			if ts < bestTS {
+				continue
+			}
+			path := filepath.Join(d, ent.Name())
+			pemBackup, err := opensslBackupHasSource(path)
+			if err != nil {
+				return "", err
+			}
+			if pemBackup {
+				continue
+			}
+			if ts == bestTS && best != "" {
+				continue
+			}
+			best, bestTS = path, ts
+		}
+	}
+	return best, nil
+}
+
+// opensslBackupHasSource reports whether dir contains the PEM backup sidecar.
+// PEM file backups always write it; directory mirrors never do. A legacy PEM
+// backup with no sidecar is not detected here.
+func opensslBackupHasSource(dir string) (bool, error) {
+	_, err := os.Lstat(filepath.Join(dir, opensslBackupSourceName))
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return false, err
 }
 
 // latestOpenSSLFileBackupFor returns the newest openssl backup directory
