@@ -16,10 +16,13 @@ package ui
 
 import (
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -104,7 +107,8 @@ func TestListOutfileMatchesStdout(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if info.Mode().Perm() != 0o600 {
+			// Windows does not honor Unix permission bits.
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 				t.Fatalf("perm = %o, want 600", info.Mode().Perm())
 			}
 		})
@@ -146,59 +150,118 @@ func TestListOutfileOverwrites(t *testing.T) {
 	if strings.Contains(string(fileBytes), "stale") {
 		t.Fatal("outfile still contains previous contents")
 	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("perm = %o, want 600", info.Mode().Perm())
+		}
+	}
+}
+
+func TestListOutfilePreservedWhenOpenSSLFails(t *testing.T) {
+	certs := testListCerts(t)[:1]
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.txt")
+	const seed = "keep-me\n"
+	if err := os.WriteFile(path, []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// An empty PATH still searches "." on Unix. Point PATH at an empty
+	// directory, and skip Windows' current-directory search, so openssl
+	// cannot be resolved.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("NoDefaultCurrentDirectoryInExePath", "1")
+
+	gotOut, err := captureStdout(t, func() error {
+		return ListCertificatesWithMeta(Meta{Name: "file"}, certs, &Config{
+			Format:  "openssl",
+			UI:      DefaultUI(),
+			Outfile: path,
+		})
+	})
+	if !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("err = %v, want openssl not found", err)
+	}
+	if gotOut != "" {
+		t.Fatalf("stdout = %q, want empty", gotOut)
+	}
+	// #nosec G304 -- output path under t.TempDir
+	fileBytes, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(fileBytes) != seed {
+		t.Fatalf("outfile = %q, want %q", fileBytes, seed)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode().Perm() != before.Mode().Perm() {
+		t.Fatalf("perm = %o, want %o", after.Mode().Perm(), before.Mode().Perm())
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "out.txt" {
+		names := make([]string, len(entries))
+		for i := range entries {
+			names[i] = entries[i].Name()
+		}
+		t.Fatalf("dir entries = %v, want only out.txt", names)
+	}
 }
 
 func TestListOutfileCount(t *testing.T) {
 	certs := testListCerts(t)
-	want := fmt.Sprintf("%d\n", len(certs))
-	stdout, err := captureStdout(t, func() error {
-		return ListCertificatesWithMeta(Meta{}, certs, &Config{Count: true})
-	})
-	if err != nil {
-		t.Fatal(err)
+	cases := []struct {
+		name  string
+		certs []*x509.Certificate
+		want  string
+	}{
+		{name: "certs", certs: certs, want: fmt.Sprintf("%d\n", len(certs))},
+		{name: "zero", certs: nil, want: "0\n"},
 	}
-	if stdout != want {
-		t.Fatalf("stdout = %q, want %q", stdout, want)
-	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stdout, err := captureStdout(t, func() error {
+				return ListCertificatesWithMeta(Meta{}, tc.certs, &Config{Count: true})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stdout != tc.want {
+				t.Fatalf("stdout = %q, want %q", stdout, tc.want)
+			}
 
-	path := filepath.Join(t.TempDir(), "count.txt")
-	gotOut, err := captureStdout(t, func() error {
-		return ListCertificatesWithMeta(Meta{}, certs, &Config{Count: true, Outfile: path})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotOut != "" {
-		t.Fatalf("stdout = %q, want empty", gotOut)
-	}
-	// #nosec G304 -- output path under t.TempDir
-	fileBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(fileBytes) != want {
-		t.Fatalf("file = %q, want %q", fileBytes, want)
-	}
-}
-
-func TestListOutfileCountZero(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "count.txt")
-	gotOut, err := captureStdout(t, func() error {
-		return ListCertificatesWithMeta(Meta{}, nil, &Config{Count: true, Outfile: path})
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if gotOut != "" {
-		t.Fatalf("stdout = %q, want empty", gotOut)
-	}
-	// #nosec G304 -- output path under t.TempDir
-	fileBytes, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(fileBytes) != "0\n" {
-		t.Fatalf("file = %q, want 0", fileBytes)
+			path := filepath.Join(t.TempDir(), "count.txt")
+			gotOut, err := captureStdout(t, func() error {
+				return ListCertificatesWithMeta(Meta{}, tc.certs, &Config{Count: true, Outfile: path})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotOut != "" {
+				t.Fatalf("stdout = %q, want empty", gotOut)
+			}
+			// #nosec G304 -- output path under t.TempDir
+			fileBytes, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(fileBytes) != tc.want {
+				t.Fatalf("file = %q, want %q", fileBytes, tc.want)
+			}
+		})
 	}
 }
 

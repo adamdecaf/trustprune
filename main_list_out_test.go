@@ -16,6 +16,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,8 +27,13 @@ func TestListOutCLI(t *testing.T) {
 	lots := filepath.Join("testdata", "example.crt")
 	home := t.TempDir()
 
-	for _, format := range []string{"json", "short"} {
+	for _, format := range []string{"json", "short", "table", "openssl"} {
 		t.Run(format, func(t *testing.T) {
+			if format == "openssl" {
+				if _, err := exec.LookPath("openssl"); err != nil {
+					t.Skip("openssl not on PATH")
+				}
+			}
 			stdoutRun := runCLI(t, bin, home, "list", "-file", lots, "-format", format)
 			if stdoutRun.code != 0 {
 				t.Fatalf("code=%d\nstdout=%s\nstderr=%s", stdoutRun.code, stdoutRun.stdout, stdoutRun.stderr)

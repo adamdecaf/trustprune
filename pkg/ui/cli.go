@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
@@ -48,37 +49,55 @@ func showCertsOnCliWithPrinter(certs []*x509.Certificate, cfg *Config, p printer
 	return err
 }
 
-// writerForConfig returns where formatted list output goes.
-// A non-empty Outfile creates or truncates that file (mode 0600) and the
-// caller must close it. Otherwise the writer is stdout and closer is nil.
-// A set Outfile prints nothing on stdout, matching observatory.
-func writerForConfig(cfg *Config) (io.Writer, io.Closer, error) {
+// writeToConfiguredOutput runs write against stdout, or stages it beside
+// cfg.Outfile and renames that file into place only after write succeeds.
+// A failed write leaves any existing Outfile untouched. Stdout is unchanged
+// when Outfile is empty. A set Outfile prints nothing on stdout.
+func writeToConfiguredOutput(cfg *Config, write func(io.Writer) error) error {
 	if cfg == nil || cfg.Outfile == "" {
-		return os.Stdout, nil, nil
+		return write(os.Stdout)
 	}
-	// #nosec G304 -- -out is the user-requested output path
-	f, err := os.OpenFile(cfg.Outfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.TempFilePermissions)
-	if err != nil {
-		return nil, nil, err
-	}
-	return f, f, nil
+	return publishOutfile(cfg.Outfile, write)
 }
 
-// writeToConfiguredOutput runs write against stdout, or against cfg.Outfile
-// when that path is set. The file is closed before return.
-func writeToConfiguredOutput(cfg *Config, write func(io.Writer) error) (err error) {
-	w, closer, openErr := writerForConfig(cfg)
-	if openErr != nil {
-		return openErr
+// publishOutfile writes to a temporary file in the same directory as path
+// (mode file.TempFilePermissions) and renames it onto path only after write
+// returns nil. The rename stays on one filesystem and replaces an existing
+// file, including when path is also the input file. On failure the destination
+// is left as it was and the temporary file is removed.
+func publishOutfile(path string, write func(io.Writer) error) error {
+	dir := filepath.Dir(path)
+	// #nosec G304 -- -out is the user-requested output path; stage beside it so rename stays on one filesystem
+	tmp, err := os.CreateTemp(dir, ".trustprune-out-*")
+	if err != nil {
+		return err
 	}
-	if closer != nil {
-		defer func() {
-			cerr := closer.Close()
-			if err == nil {
-				err = cerr
-			}
-		}()
+	tmpName := tmp.Name()
+	published := false
+	defer func() {
+		if !published {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := tmp.Chmod(file.TempFilePermissions); err != nil {
+		_ = tmp.Close()
+		return err
 	}
-	err = write(w)
-	return err
+	writeErr := write(tmp)
+	closeErr := tmp.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	if closeErr != nil {
+		return closeErr
+	}
+	// os.Rename replaces an existing file (Unix rename; Windows MoveFileEx
+	// with MOVEFILE_REPLACE_EXISTING). The destination is untouched until here.
+	// #nosec G304 -- -out is the user-requested output path
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	published = true
+	return nil
 }
