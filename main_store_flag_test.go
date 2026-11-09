@@ -276,8 +276,13 @@ type cliResult struct {
 
 func runCLI(t *testing.T, bin, home string, args ...string) cliResult {
 	t.Helper()
+	return runCLIWithEnv(t, bin, envWithHome(home), args...)
+}
+
+func runCLIWithEnv(t *testing.T, bin string, env []string, args ...string) cliResult {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
-	cmd.Env = envWithHome(home)
+	cmd.Env = env
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

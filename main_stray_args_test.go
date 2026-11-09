@@ -143,6 +143,66 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 	})
 }
 
+// TestTraceNotTruncatedOnStrayArgs is the regression for opening TRACE
+// (os.Create truncates) before rejectUnexpectedArgs. A stray positional
+// must leave an existing trace file alone. Accepted help still opens it.
+func TestTraceNotTruncatedOnStrayArgs(t *testing.T) {
+	bin := cliBinary(t)
+	const sentinel = "preserve-me\n"
+
+	t.Run("stray positional", func(t *testing.T) {
+		tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+		res := runCLIWithEnv(t, bin, envWithTRACE(t.TempDir(), tracePath), "list", "x", "-count")
+		assertStrayRejected(t, res, "x")
+		assertSameBytes(t, tracePath, []byte(sentinel))
+	})
+
+	t.Run("list -help writes TRACE", func(t *testing.T) {
+		tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+		res := runCLIWithEnv(t, bin, envWithTRACE(t.TempDir(), tracePath), "list", "-help")
+		if res.code == 2 || strings.Contains(res.stdout, "unexpected argument") {
+			t.Fatalf("parsed -help should still print usage, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "Usage: trustprune list") {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		after := readTestFile(t, tracePath)
+		if string(after) == sentinel {
+			t.Fatal("TRACE file unchanged after accepted list -help")
+		}
+	})
+
+	t.Run("top-level -h writes and stops TRACE", func(t *testing.T) {
+		tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+		res := runCLIWithEnv(t, bin, envWithTRACE(t.TempDir(), tracePath), "-h")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "Usage of trustprune") {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "ERROR: stopping trace") || strings.Contains(res.stderr, "ERROR: stopping trace") {
+			t.Fatalf("trace stop failed: stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		after := readTestFile(t, tracePath)
+		if len(after) == 0 || string(after) == sentinel {
+			t.Fatalf("TRACE file not written on accepted -h (%d bytes)", len(after))
+		}
+	})
+}
+
+func envWithTRACE(home, tracePath string) []string {
+	base := envWithHome(home)
+	out := make([]string, 0, len(base)+1)
+	for _, e := range base {
+		if strings.HasPrefix(e, "TRACE=") {
+			continue
+		}
+		out = append(out, e)
+	}
+	return append(out, "TRACE="+tracePath)
+}
+
 func TestConnectPositionalStillAccepted(t *testing.T) {
 	bin := cliBinary(t)
 	home := t.TempDir()

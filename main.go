@@ -163,7 +163,11 @@ func trace() *cmd.Trace {
 
 func main() {
 	maybePrintCertManageAliasNotice(os.Args[0])
-	t := trace()
+
+	// Start TRACE only after argument checks. NewTrace's os.Create truncates,
+	// so rejectUnexpectedArgs (exit 2) must not open the file. t stays nil
+	// when TRACE is unset; Stop on a nil Trace is a no-op, as before.
+	var t *cmd.Trace
 	defer func() {
 		err := t.Stop()
 		if err != nil {
@@ -172,21 +176,26 @@ func main() {
 		}
 	}()
 
-	// Show help and exit non-zero if no sub-command was given
+	// Show help and exit non-zero if no sub-command was given.
+	// Leave TRACE untouched: this is a usage failure, not an accepted run.
 	if len(os.Args) < 2 {
 		fs.Usage()
 		os.Exit(1)
 	}
 	_ = fs.Parse(os.Args[1:])
 	if len(os.Args) == 2 && calledHelp() {
+		// Accepted top-level -h/-help returns after usage; still trace it.
+		t = trace()
 		fs.Usage()
 		return
 	}
 	_ = fs.Parse(os.Args[2:]) // reparse
 	// flag.Parse stops at the first non-flag, so a later -dry-run (or a shell
 	// glob that expanded into extra paths) would otherwise be ignored and a
-	// write could proceed. Reject that before any command runs.
+	// write could proceed. Reject that before any command runs, and before
+	// TRACE is opened.
 	rejectUnexpectedArgs(os.Args[1], fs.Args())
+	t = trace()
 
 	// Lift config options into a higher-level
 	cfg := &ui.Config{
