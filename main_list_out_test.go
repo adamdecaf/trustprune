@@ -152,8 +152,8 @@ func TestOutHelpText(t *testing.T) {
 	}
 
 	list := runCLI(t, bin, home, "list", "-h")
-	if list.code == 0 {
-		t.Fatal("expected list -h to exit non-zero")
+	if list.code != 0 {
+		t.Fatalf("expected list -h to exit 0, code=%d stdout=%q stderr=%q", list.code, list.stdout, list.stderr)
 	}
 	if strings.Contains(list.stdout, "used by -format observatory") {
 		t.Fatal("list help still limits -out to observatory")
