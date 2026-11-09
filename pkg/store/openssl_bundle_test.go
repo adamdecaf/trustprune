@@ -152,12 +152,14 @@ func TestOpenSSLBundle_BackupRestoreIsPerPEM(t *testing.T) {
 		t.Fatalf("source=%q want %q", strings.TrimSpace(string(recorded)), opensslCanonicalPath(pathA))
 	}
 
+	t.Setenv("SSL_CERT_FILE", pathA)
+	t.Setenv("CURL_CA_BUNDLE", "")
 	discLatest, err := (opensslStore{}).GetLatestBackup()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if discLatest != latestB {
-		t.Fatalf("discovery latest=%s want newest %s", discLatest, latestB)
+	if discLatest != latestA {
+		t.Fatalf("discovery latest=%s want backup of SSL_CERT_FILE %s (not newer %s)", discLatest, latestA, latestB)
 	}
 
 	if err := os.WriteFile(pathA, []byte("MUTATED\n"), 0o644); err != nil {
@@ -217,5 +219,266 @@ func TestOpenSSLBundle_BackupRestoreIsPerPEM(t *testing.T) {
 	}
 	if !bytes.Equal(gotB, origA) {
 		t.Fatal("forced restore did not write A's backup into B")
+	}
+}
+
+func opensslPEMPair(t *testing.T) (home, pathA, pathB string, origA, origB []byte) {
+	t.Helper()
+	home = opensslTestHome(t)
+	certsA, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil || len(certsA) < 2 {
+		t.Fatalf("lots.crt: len=%d err=%v", len(certsA), err)
+	}
+	certsB := extraExampleCert(t)
+	dir := t.TempDir()
+	pathA = filepath.Join(dir, "a.pem")
+	pathB = filepath.Join(dir, "b.pem")
+	if err := certutil.ToFile(pathA, certsA); err != nil {
+		t.Fatal(err)
+	}
+	if err := certutil.ToFile(pathB, certsB); err != nil {
+		t.Fatal(err)
+	}
+	refuseIfSystemOpenSSL(t, pathA)
+	refuseIfSystemOpenSSL(t, pathB)
+	origA, err = os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	origB, err = os.ReadFile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(origA, origB) {
+		t.Fatal("fixture PEMs are identical")
+	}
+	return home, pathA, pathB, origA, origB
+}
+
+// writeOpenSSLSourceLessBackup creates an openssl backup directory that has
+// ca-bundle.pem and no source sidecar. The timestamp is old so a later Backup
+// of another bundle is newer.
+func writeOpenSSLSourceLessBackup(t *testing.T, home string, pem []byte) string {
+	t.Helper()
+	dir := filepath.Join(primaryBackupParent(home), opensslBackupDir, "100")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, opensslBackupFilename), pem, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, opensslBackupSourceName)); !os.IsNotExist(err) {
+		t.Fatalf("source-less fixture has a source file: %v", err)
+	}
+	return dir
+}
+
+func TestOpenSSLBundle_DiscoveryRestoreRefusesMismatchedBackup(t *testing.T) {
+	_, pathA, pathB, origA, origB := opensslPEMPair(t)
+	SetDryRun(false)
+	SetForceRestore(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetForceRestore(false)
+	})
+	t.Setenv("SSL_CERT_FILE", pathA)
+	t.Setenv("CURL_CA_BUNDLE", "")
+
+	sB := opensslStoreAt(pathB)
+	if err := sB.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latestB, err := sB.GetLatestBackup()
+	if err != nil || latestB == "" {
+		t.Fatalf("backup B: %q err=%v", latestB, err)
+	}
+
+	disc := opensslStore{}
+	err = disc.Restore(latestB)
+	if err == nil || !strings.Contains(err.Error(), "refusing restore") {
+		t.Fatalf("discovery cross-path restore: %v", err)
+	}
+	gotA, err := os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, origA) {
+		t.Fatal("refused discovery restore mutated A")
+	}
+
+	SetDryRun(true)
+	err = disc.Restore(latestB)
+	SetDryRun(false)
+	if err == nil || !strings.Contains(err.Error(), "refusing restore") {
+		t.Fatalf("dry-run discovery cross-path: %v", err)
+	}
+	gotA, err = os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, origA) {
+		t.Fatal("dry-run discovery restore mutated A")
+	}
+
+	SetForceRestore(true)
+	if err := disc.Restore(latestB); err != nil {
+		t.Fatalf("forced discovery restore: %v", err)
+	}
+	gotA, err = os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, origB) {
+		t.Fatal("forced discovery restore did not write B's backup into A")
+	}
+	gotB, err := os.ReadFile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotB, origB) {
+		t.Fatal("forced discovery restore mutated B")
+	}
+}
+
+func TestOpenSSLBundle_DiscoveryGetLatestBackupRequiresMatchingSource(t *testing.T) {
+	_, pathA, pathB, _, _ := opensslPEMPair(t)
+	t.Setenv("SSL_CERT_FILE", pathA)
+	t.Setenv("CURL_CA_BUNDLE", "")
+
+	sB := opensslStoreAt(pathB)
+	if err := sB.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latestB, err := sB.GetLatestBackup()
+	if err != nil || latestB == "" {
+		t.Fatalf("backup B: %q err=%v", latestB, err)
+	}
+
+	got, err := (opensslStore{}).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("discovery GetLatestBackup=%q want empty when only B is backed up (%s)", got, latestB)
+	}
+
+	sA := opensslStoreAt(pathA)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latestA, err := sA.GetLatestBackup()
+	if err != nil || latestA == "" {
+		t.Fatalf("backup A: %q err=%v", latestA, err)
+	}
+	if latestA == latestB {
+		t.Fatal("A and B shared a backup directory")
+	}
+	got, err = (opensslStore{}).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != latestA {
+		t.Fatalf("discovery GetLatestBackup=%q want A's backup %q", got, latestA)
+	}
+}
+
+func TestOpenSSLBundle_DiscoveryAcceptsLegacySourceLessBackup(t *testing.T) {
+	home, pathA, pathB, origA, origB := opensslPEMPair(t)
+	SetDryRun(false)
+	SetForceRestore(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetForceRestore(false)
+	})
+	t.Setenv("SSL_CERT_FILE", pathA)
+	t.Setenv("CURL_CA_BUNDLE", "")
+
+	legacy := writeOpenSSLSourceLessBackup(t, home, origA)
+	sB := opensslStoreAt(pathB)
+	if err := sB.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latestB, err := sB.GetLatestBackup()
+	if err != nil || latestB == "" {
+		t.Fatalf("backup B: %q err=%v", latestB, err)
+	}
+	if latestB == legacy {
+		t.Fatal("B's backup reused the source-less directory")
+	}
+
+	got, err := (opensslStore{}).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != legacy {
+		t.Fatalf("discovery GetLatestBackup=%q want source-less %q (not newer %q)", got, legacy, latestB)
+	}
+	explicit, err := opensslStoreAt(pathA).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if explicit != "" {
+		t.Fatalf("explicit PEM GetLatestBackup=%q want empty (source-less and other bundles skipped)", explicit)
+	}
+
+	if err := os.WriteFile(pathA, []byte("MUTATED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := (opensslStore{}).Restore(""); err != nil {
+		t.Fatalf("discovery restore of source-less backup: %v", err)
+	}
+	gotA, err := os.ReadFile(pathA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotA, origA) {
+		t.Fatal("discovery restore did not apply the source-less backup")
+	}
+	gotB, err := os.ReadFile(pathB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotB, origB) {
+		t.Fatal("discovery restore mutated B")
+	}
+}
+
+func TestOpenSSLBundle_UnresolvedDiscoveryMatchesOnlySourceLess(t *testing.T) {
+	home, pathA, _, origA, _ := opensslPEMPair(t)
+	isolateOpenSSLLookup(t)
+	origPaths := openSSLCertPaths
+	t.Cleanup(func() { openSSLCertPaths = origPaths })
+	openSSLCertPaths = []string{filepath.Join(t.TempDir(), "missing-ca.pem")}
+
+	legacy := writeOpenSSLSourceLessBackup(t, home, origA)
+	sA := opensslStoreAt(pathA)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latestA, err := sA.GetLatestBackup()
+	if err != nil || latestA == "" {
+		t.Fatalf("backup A: %q err=%v", latestA, err)
+	}
+	if latestA == legacy {
+		t.Fatal("A's backup reused the source-less directory")
+	}
+
+	got, err := (opensslStore{}).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != legacy {
+		t.Fatalf("unresolved discovery GetLatestBackup=%q want source-less %q (not recorded %q)", got, legacy, latestA)
+	}
+
+	if err := os.RemoveAll(legacy); err != nil {
+		t.Fatal(err)
+	}
+	got, err = (opensslStore{}).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("unresolved discovery GetLatestBackup=%q want empty when only a recorded backup remains", got)
 	}
 }

@@ -242,23 +242,32 @@ func (s opensslStore) Backup() error {
 }
 
 func (s opensslStore) GetLatestBackup() (string, error) {
-	// An explicit PEM path (CLI -bundle or opensslStoreAt on a file) only
-	// matches backups recorded for that file. Discovery and cert directories
-	// keep timestamp selection across the openssl backup tree.
-	if s.path != "" {
-		isDir, err := opensslPathIsDir(s.path)
+	// Explicit PEM files match only backups recorded for that file. Discovery
+	// of a PEM also accepts legacy backups with no source and ignores backups
+	// recorded for another bundle. Cert directories have no source sidecar, so
+	// they keep newest-timestamp selection. If discovery cannot resolve a
+	// path, only unknown-source backups match.
+	dest := s.path
+	allowUnknown := dest == ""
+	if dest == "" {
+		if p, err := s.certPath(); err == nil {
+			dest = p
+		}
+	}
+	if dest != "" {
+		isDir, err := opensslPathIsDir(dest)
 		if err != nil {
 			return "", err
 		}
-		if !isDir {
-			dir, err := latestOpenSSLFileBackupFor(s.path)
+		if isDir {
+			dir, err := getLatestStoreBackup(opensslBackupDir)
 			if err != nil {
 				return "", fmt.Errorf("getLatestBackup: error getting openssl backup directory err=%w", err)
 			}
 			return dir, nil
 		}
 	}
-	dir, err := getLatestStoreBackup(opensslBackupDir)
+	dir, err := latestOpenSSLFileBackupFor(dest, allowUnknown)
 	if err != nil {
 		return "", fmt.Errorf("getLatestBackup: error getting openssl backup directory err=%w", err)
 	}
@@ -482,12 +491,10 @@ func (s opensslStore) restoreFile(src, path string) error {
 	if err != nil {
 		return err
 	}
-	// Explicit PEM paths refuse a backup recorded for a different file.
-	// Discovery (empty s.path) stays per app name, not per bundle path.
-	if s.path != "" {
-		if err := checkOpenSSLBackupSource(src, path, true, ForceRestore()); err != nil {
-			return err
-		}
+	// Discovery and explicit PEM restores both refuse a backup recorded for a
+	// different file unless -force. Source-less backups stay allowed.
+	if err := checkOpenSSLBackupSource(src, path, true, ForceRestore()); err != nil {
+		return err
 	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
@@ -678,8 +685,7 @@ func readOpenSSLBackupSource(src string) (string, error) {
 
 // checkOpenSSLBackupSource refuses a restore whose backup was taken from a
 // different PEM than dest. Backups without a recorded source are allowed only
-// when allowUnknown is set (explicit -backup of an older backup). force skips
-// a path mismatch.
+// when allowUnknown is set. force skips a path mismatch.
 func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) error {
 	recorded, err := readOpenSSLBackupSource(backup)
 	if err != nil {
@@ -700,10 +706,11 @@ func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) erro
 	return fmt.Errorf("refusing restore: openssl backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, opensslCanonicalPath(dst))
 }
 
-// latestOpenSSLFileBackupFor returns the newest openssl backup directory whose
-// recorded source is storePath. Directory mirrors and backups with no source
-// are skipped.
-func latestOpenSSLFileBackupFor(storePath string) (string, error) {
+// latestOpenSSLFileBackupFor returns the newest openssl backup directory
+// recorded for storePath. Backups without a recorded source are considered
+// only when allowUnknown is true. Empty storePath only matches unknown-source
+// backups.
+func latestOpenSSLFileBackupFor(storePath string, allowUnknown bool) (string, error) {
 	uhome := file.HomeDir()
 	if uhome == "" {
 		return "", fmt.Errorf("home directory is unavailable")
@@ -741,7 +748,14 @@ func latestOpenSSLFileBackupFor(storePath string) (string, error) {
 			if err != nil {
 				return "", err
 			}
-			if recorded == "" || !sameOpenSSLPath(recorded, storePath) {
+			match := false
+			switch {
+			case recorded != "" && storePath != "" && sameOpenSSLPath(recorded, storePath):
+				match = true
+			case recorded == "" && allowUnknown:
+				match = true
+			}
+			if !match {
 				continue
 			}
 			if ts == bestTS && best != "" {
