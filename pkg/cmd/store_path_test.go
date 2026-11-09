@@ -57,7 +57,11 @@ func TestAddCertsToAppFromStoreCertifiDryRun(t *testing.T) {
 	if err := AddCertsToAppFromStore("certifi", bundle, cert); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plan.String(), bundle) {
+	want, err := filepath.EvalSymlinks(bundle)
+	if err != nil {
+		want = bundle
+	}
+	if !strings.Contains(plan.String(), want) {
 		t.Fatalf("dry-run plan %q does not name the -store bundle", plan.String())
 	}
 	if !strings.Contains(plan.String(), "certifi") {
@@ -230,7 +234,11 @@ func TestAllowlistForAppWithStoreCertifiDryRun(t *testing.T) {
 	if err := AllowlistForAppWithStore("certifi", bundle, al); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(plan.String(), bundle) {
+	want, err := filepath.EvalSymlinks(bundle)
+	if err != nil {
+		want = bundle
+	}
+	if !strings.Contains(plan.String(), want) {
 		t.Fatalf("dry-run plan %q does not name the -store bundle", plan.String())
 	}
 	after, err := os.ReadFile(bundle)

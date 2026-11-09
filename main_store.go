@@ -44,10 +44,11 @@ func fileIsStorePath(command, app string) bool {
 
 // resolveStorePath merges -store with the deprecated -file store-path alias.
 // fileIsAlias is true when -file means a store path on this command.
-// storePath wins when both are set. Values that match after trim and
-// filepath.Clean are the same path (/tmp/a and /tmp/./a agree). The returned
-// path stays the trimmed text the caller passed. A non-empty file alias
-// sets warn even when -store has the same value.
+// storePath wins when both are set. Values that match after trim, and after
+// Abs then Clean (Clean of the original if Abs fails), are the same path
+// (/tmp/a and /tmp/./a agree, as do a relative path and its absolute form).
+// The returned path stays the trimmed text the caller passed. A non-empty
+// file alias sets warn even when -store has the same value.
 // When fileIsAlias is false, filePath is ignored and storePath is returned as-is.
 func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string, warn bool, err error) {
 	storePath = strings.TrimSpace(storePath)
@@ -55,7 +56,7 @@ func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string
 	if !fileIsAlias {
 		return storePath, false, nil
 	}
-	if storePath != "" && filePath != "" && filepath.Clean(storePath) != filepath.Clean(filePath) {
+	if storePath != "" && filePath != "" && comparableStorePath(storePath) != comparableStorePath(filePath) {
 		return "", false, fmt.Errorf("-store and -file disagree (%s vs %s); -file as a store path is deprecated, use -store", storePath, filePath)
 	}
 	warn = filePath != ""
@@ -63,6 +64,15 @@ func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string
 		return storePath, warn, nil
 	}
 	return filePath, warn, nil
+}
+
+// comparableStorePath is the form used to decide whether two store paths agree.
+// Abs then Clean; if Abs fails, Clean the original text.
+func comparableStorePath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
 }
 
 // applyStoreFlag resolves -store and the deprecated -file alias for command.
