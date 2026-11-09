@@ -94,10 +94,13 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 	}
 
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "backup", "-app", "openssl", "-bundle", live)
-	if err != nil || !strings.Contains(stdout, "Backup completed successfully") {
+	if err != nil || !strings.HasPrefix(strings.TrimSpace(stdout), "Backup completed successfully:") {
 		t.Fatalf("backup: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
 	backupDir := opensslCLIBackup(t, home)
+	if !strings.Contains(stdout, "Backup completed successfully: "+backupDir) {
+		t.Fatalf("backup stdout %q missing %s", stdout, backupDir)
+	}
 	backed, err := os.ReadFile(filepath.Join(backupDir, "ca-bundle.pem"))
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +136,7 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "restore", "-app", "openssl", "-bundle", live)
-	if err != nil || !strings.Contains(stdout, "Restore completed successfully") {
+	if err != nil || !strings.Contains(stdout, "Restore completed successfully: "+canonicalBundlePath(t, live)) {
 		t.Fatalf("restore latest: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
 	restored, err := os.ReadFile(live)
@@ -165,7 +168,7 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 	}
 
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "restore", "-app", "openssl", "-bundle", other, "-backup", backupDir, "-force")
-	if err != nil || !strings.Contains(stdout, "Restore completed successfully") {
+	if err != nil || !strings.Contains(stdout, "Restore completed successfully: "+canonicalBundlePath(t, other)) {
 		t.Fatalf("cross-path -force: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
 	forced, err := os.ReadFile(other)

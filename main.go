@@ -568,11 +568,16 @@ APPS
 	c, ok := commands[strings.ToLower(os.Args[1])]
 	if (!ok && calledHelp()) || c == nil { // sub-command wasn't found
 		fs.Usage()
+		// Help was requested (trustprune -h, or an unknown name with -h).
+		// A bare unknown subcommand still exits non-zero.
+		if calledHelp() {
+			os.Exit(0)
+		}
 		os.Exit(1)
 	}
 	if ok && calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(1)
+		os.Exit(0)
 	}
 
 	if err := cmd.CheckBundleFlag(os.Args[1], *flagApp, bundleFlag); err != nil {
@@ -591,7 +596,7 @@ APPS
 		// here too; otherwise -app exits 0 before the check below.
 		if calledHelp() {
 			fmt.Println(c.help)
-			os.Exit(1)
+			os.Exit(0)
 		}
 		os.Exit(0)
 	}
@@ -604,7 +609,7 @@ APPS
 	// some flags can set callForHelp, so let's check again
 	if calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(1)
+		os.Exit(0)
 	}
 }
 

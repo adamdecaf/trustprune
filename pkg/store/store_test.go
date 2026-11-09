@@ -15,6 +15,7 @@
 package store
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -359,5 +360,57 @@ func TestForAppWithFileUnknown(t *testing.T) {
 	}
 	if !strings.HasPrefix(err.Error(), "unknown app NoPe (apps: ") {
 		t.Fatalf("got %q", err.Error())
+	}
+}
+
+func TestForAppPlatformOSName(t *testing.T) {
+	for _, name := range []string{runtime.GOOS, strings.ToUpper(runtime.GOOS)} {
+		got, err := ForApp(name)
+		if err != nil {
+			t.Fatalf("ForApp(%q): %v", name, err)
+		}
+		want := Platform()
+		if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", want) {
+			t.Fatalf("ForApp(%q) type %T, platform type %T", name, got, want)
+		}
+		gi, wi := got.GetInfo(), want.GetInfo()
+		if gi == nil || wi == nil || gi.Name != wi.Name || gi.Path != wi.Path || gi.Version != wi.Version {
+			t.Fatalf("ForApp(%q) info %#v, platform %#v", name, gi, wi)
+		}
+
+		got, err = ForAppWithStore(name, "")
+		if err != nil {
+			t.Fatalf("ForAppWithStore(%q, empty): %v", name, err)
+		}
+		if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", want) {
+			t.Fatalf("empty -store type %T, platform type %T", got, want)
+		}
+		got, err = ForAppWithStore(name, "  ")
+		if err != nil {
+			t.Fatalf("ForAppWithStore(%q, blank): %v", name, err)
+		}
+		if fmt.Sprintf("%T", got) != fmt.Sprintf("%T", want) {
+			t.Fatalf("blank -store type %T, platform type %T", got, want)
+		}
+	}
+
+	_, err := ForAppWithStore(runtime.GOOS, "/tmp/not-a-store")
+	if err == nil || !strings.Contains(err.Error(), "-store with -app "+runtime.GOOS) {
+		t.Fatalf("expected -store rejection, got %v", err)
+	}
+
+	other := "darwin"
+	if other == runtime.GOOS {
+		other = "linux"
+	}
+	_, err = ForApp(other)
+	if err == nil || !strings.Contains(err.Error(), "unknown app "+other) {
+		t.Fatalf("ForApp(%q) = %v, want unknown app", other, err)
+	}
+
+	for _, name := range GetApps() {
+		if name == runtime.GOOS {
+			t.Fatalf("GetApps includes platform OS name %s", runtime.GOOS)
+		}
 	}
 }

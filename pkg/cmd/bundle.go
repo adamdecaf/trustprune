@@ -63,11 +63,7 @@ func BackupForBundle(bundle string) error {
 	}
 	err = s.Backup()
 	if err == nil {
-		if store.DryRun() {
-			fmt.Println("dry-run: no changes made")
-		} else {
-			fmt.Println("Backup completed successfully")
-		}
+		printBackupSuccess(s)
 	}
 	return err
 }

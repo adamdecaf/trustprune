@@ -68,6 +68,15 @@ func TestCertManage_help(t *testing.T) {
 		t.Error("expected Usage() text")
 	}
 
+	// unknown subcommand with help still prints usage, and exits 0
+	out, err = run(t, "bad-arg", "-h")
+	if err != nil {
+		t.Errorf("bad-arg -h should exit 0, err=%v output=%q", err, out)
+	}
+	if !strings.Contains(out, usage) {
+		t.Error("bad-arg -h expected Usage() text")
+	}
+
 	// no sub-command, with help flag
 	helpChoices := []string{"-h", "-help", "--help"}
 	for i := range helpChoices {
@@ -80,11 +89,11 @@ func TestCertManage_help(t *testing.T) {
 		}
 	}
 
-	// sub-command, but no args
+	// sub-command, but no args. Missing -file prints usage and exits 0.
 	subCommands := []string{"add", "allowlist"}
 	for i := range subCommands {
 		out, err := run(t, subCommands[i])
-		if err != nil && !strings.Contains(err.Error(), "exit status 1") {
+		if err != nil {
 			t.Errorf("sub-command %q, err=%v", subCommands[i], err)
 		}
 		if !strings.Contains(out, subCmdUsage(subCommands[i])) {
@@ -97,8 +106,8 @@ func TestCertManage_help(t *testing.T) {
 	for i := range subCommands {
 		for j := range helpChoices {
 			out, err := run(t, subCommands[i], helpChoices[j])
-			if err != nil && !strings.Contains(err.Error(), "exit status 1") {
-				t.Errorf("sub-command %q, err=%v", subCommands[i], err)
+			if err != nil {
+				t.Errorf("sub-command %q %s, err=%v", subCommands[i], helpChoices[j], err)
 			}
 			if !strings.Contains(out, subCmdUsage(subCommands[i])) {
 				t.Errorf("sub-command %q, expected sub-command usage", subCommands[i])
@@ -113,13 +122,20 @@ func TestCertManage_help(t *testing.T) {
 	if !strings.Contains(out, "ERROR: unknown app nope (apps:") || !strings.Contains(out, "java") {
 		t.Errorf("expected ERROR: unknown app with apps list, got %q", out)
 	}
+
+	// -store is rejected before listing, so this checks the runtime.GOOS
+	// platform alias without reading host certificates.
+	out, err = run(t, "list", "-app", runtime.GOOS, "-store", filepath.Join(t.TempDir(), "nope"))
+	if err == nil || !strings.Contains(out, "ERROR:") || !strings.Contains(out, "-store with -app") || strings.Contains(out, "unknown app") {
+		t.Errorf("list -app %s -store err=%v output=%q", runtime.GOOS, err, out)
+	}
 	out, _ = run(t, "list", "-h")
 	if !strings.Contains(out, "-out ") {
 		t.Error("expected -out documented in list help")
 	}
 
 	out, err = run(t, "list", "-h")
-	if err != nil && !strings.Contains(err.Error(), "exit status 1") {
+	if err != nil {
 		t.Errorf("list -h err=%v", err)
 	}
 	if !strings.Contains(out, "Options: cli, web") {
@@ -143,8 +159,8 @@ func TestCertManage_help(t *testing.T) {
 	}
 	for i := range aliases {
 		out, err := run(t, append([]string{aliases[i].name}, aliases[i].args...)...)
-		if err != nil && !strings.Contains(err.Error(), "exit status 1") {
-			t.Errorf("alias %q, err=%v", aliases[i].name, err)
+		if err != nil {
+			t.Errorf("alias %q, err=%v output=%q", aliases[i].name, err, out)
 		}
 		if strings.Contains(out, "SUB-COMMANDS") {
 			t.Errorf("alias %q fell through to top-level help", aliases[i].name)
@@ -154,8 +170,8 @@ func TestCertManage_help(t *testing.T) {
 		}
 		for j := range helpChoices {
 			out, err = run(t, aliases[i].name, helpChoices[j])
-			if err != nil && !strings.Contains(err.Error(), "exit status 1") {
-				t.Errorf("alias %q, err=%v", aliases[i].name, err)
+			if err != nil {
+				t.Errorf("alias %q %s, err=%v", aliases[i].name, helpChoices[j], err)
 			}
 			if strings.Contains(out, "SUB-COMMANDS") {
 				t.Errorf("alias %q %s fell through to top-level help", aliases[i].name, helpChoices[j])

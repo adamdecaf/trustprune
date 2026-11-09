@@ -158,3 +158,41 @@ func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 		t.Fatal("forced restore did not copy backup into -file store")
 	}
 }
+
+func TestRestorePrintsLivePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetDryRun(false)
+	store.SetForceRestore(false)
+	t.Cleanup(func() {
+		store.SetDryRun(false)
+		store.SetForceRestore(false)
+	})
+
+	bundle := writeLotsBundle(t, filepath.Join(t.TempDir(), "cacert.pem"))
+	if err := BackupForAppWithFile("certifi", bundle); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundle, []byte("MUTATED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := captureStdout(t, func() error {
+		return RestoreForAppWithFile("certifi", bundle, "")
+	})
+	info := store.CertifiStoreAt(bundle).GetInfo()
+	if info == nil || info.Path == "" {
+		t.Fatalf("certifi info %#v", info)
+	}
+	if out != "Restore completed successfully: "+info.Path+"\n" {
+		t.Fatalf("restore output %q", out)
+	}
+
+	store.SetDryRun(true)
+	out = captureStdout(t, func() error {
+		return RestoreForAppWithFile("certifi", bundle, "")
+	})
+	if !strings.Contains(out, "dry-run: no changes made\n") || strings.Contains(out, "Restore completed successfully") {
+		t.Fatalf("dry-run output %q", out)
+	}
+}

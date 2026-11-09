@@ -21,8 +21,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
 
@@ -67,5 +71,43 @@ func TestCmdList__url(t *testing.T) {
 	err := ListCertsFromURL(fmt.Sprintf("http://%s", ts.Listener.Addr().String()), &cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestListCertsFromURLReturnsError(t *testing.T) {
+	t.Parallel()
+	err := ListCertsFromURL("http://127.0.0.1:1/", &ui.Config{Count: true})
+	if err == nil {
+		t.Fatal("expected dial error, got nil")
+	}
+}
+
+func TestListCertsForAppWithFileMissingStore(t *testing.T) {
+	t.Parallel()
+	missing := filepath.Join(t.TempDir(), "missing.pem")
+	err := ListCertsForAppWithFile("certifi", missing, &ui.Config{Count: true})
+	if err == nil || !strings.Contains(err.Error(), "not found") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestListCertsForAppReturnsStoreError(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("ssl store is available on darwin")
+	}
+	err := ListCertsForApp("ssl", &ui.Config{Count: true})
+	if err == nil || !strings.Contains(err.Error(), "Darwin") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestListCertsForAppPlatformOSName(t *testing.T) {
+	got, err := store.ForApp(runtime.GOOS)
+	if err != nil {
+		t.Fatalf("ForApp(%s): %v", runtime.GOOS, err)
+	}
+	gi, wi := got.GetInfo(), store.Platform().GetInfo()
+	if gi == nil || wi == nil || gi.Name != wi.Name || gi.Path != wi.Path || gi.Version != wi.Version {
+		t.Fatalf("ForApp(%s) info %#v, platform %#v", runtime.GOOS, gi, wi)
 	}
 }

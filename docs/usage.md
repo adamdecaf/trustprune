@@ -8,7 +8,7 @@ nav_order: 4
 
 Global flags work with the subcommands that accept them. Add `-dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes (files, certificates by subject and SHA-256, refresh commands) without writing to any store.
 
-Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). An unknown `-app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
+Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `-app` and selects the platform store; it is left off the apps list on purpose. `-store` with that name is rejected. An unknown `-app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 1.
 
