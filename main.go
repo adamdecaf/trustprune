@@ -183,6 +183,10 @@ func main() {
 		return
 	}
 	_ = fs.Parse(os.Args[2:]) // reparse
+	// flag.Parse stops at the first non-flag, so a later -dry-run (or a shell
+	// glob that expanded into extra paths) would otherwise be ignored and a
+	// write could proceed. Reject that before any command runs.
+	rejectUnexpectedArgs(os.Args[1], fs.Args())
 
 	// Lift config options into a higher-level
 	cfg := &ui.Config{
@@ -651,6 +655,33 @@ func certManageAliasActive(version string) bool {
 
 func getVersion() string {
 	return fmt.Sprintf("%s (Go: %s)", Version, runtime.Version())
+}
+
+// unexpectedArgsHint is printed with the unexpected-argument error. Flags
+// after a non-flag are not parsed; a shell glob can expand into that tail.
+const unexpectedArgsHint = "flags must come before any non-flag arguments; a shell glob may have expanded into multiple files"
+
+// flagOnlyCommand reports whether name accepts flags only. connect is the
+// exception: it takes one optional positional URL via parseConnectUrl.
+func flagOnlyCommand(name string) bool {
+	switch strings.ToLower(name) {
+	case "add", "allowlist", "whitelist", "apps", "backup", "gen-allowlist", "gen-whitelist", "list", "restore", "version":
+		return true
+	default:
+		return false
+	}
+}
+
+// rejectUnexpectedArgs exits 2 when a flags-only command is given positional
+// arguments. Help still wins when -h/-help was actually parsed: the flag
+// package never saw a trailing -help that came after a positional.
+func rejectUnexpectedArgs(cmdName string, args []string) {
+	if calledHelp() || len(args) == 0 || !flagOnlyCommand(cmdName) {
+		return
+	}
+	fmt.Printf("ERROR: unexpected argument(s): %s\n", strings.Join(args, " "))
+	fmt.Println(unexpectedArgsHint)
+	os.Exit(2)
 }
 
 func parseConnectUrl(fs *flag.FlagSet) (*url.URL, error) {

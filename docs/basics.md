@@ -4,6 +4,8 @@ title: Basics
 nav_order: 3
 ---
 
+Subcommands other than `connect` accept only flags. An unexpected positional argument is rejected with exit status 2 before any write. Put flags first: flags after a non-flag argument are not parsed, and a shell glob that expands into multiple files can cause that.
+
 ## Add
 
 `trustprune` can add certificates into a given trust store with the `add` sub command.
