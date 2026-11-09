@@ -53,7 +53,8 @@ Show trusted certificates from the platform store, an app store, a local file, o
 trustprune list
 trustprune list -count
 trustprune list -app java
-trustprune list -app java -file /path/to/cacerts
+trustprune list -app java -store /path/to/cacerts
+trustprune list -app certifi -store /path/to/venv/.../cacert.pem
 trustprune list -app openssl -bundle /path/to/ca-bundle.pem
 trustprune list -file example.crt
 trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
@@ -62,11 +63,13 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | List from an application store |
-| `-file <path>` | List certificates from a local file (PEM or similar). With `-app java` or `-app certifi`, this is the store path |
+| `-store <path>` | With `-app java` or `-app certifi`: read that keystore or `cacert.pem` instead of discovery |
+| `-file <path>` | Without `-app`: list certificates from a local file (PEM or similar). With `-app`: deprecated alias for `-store` (prints a WARNING to stderr) |
 | `-bundle <path>` | With `-app openssl`: list that PEM CA bundle instead of discovery |
 | `-url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `-count` | Print only the number of certificates |
 | `-format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
+| `-out <path>` | With `-format observatory`, write the YAML report to `<path>` instead of stdout. Other list output ignores `-out` |
 | `-v` | In `table` output, show the full fingerprint, serial, source or store path (`-` for URLs), and NOT BEFORE / NOT AFTER. DAYS stays numeric (including negative when expired) |
 | `-ui <type>` | Presentation: `cli` (default) or `web` (local page) |
 
@@ -79,8 +82,8 @@ Capture the current trust store so you can restore later. Allowlisting refuses t
 ```bash
 trustprune backup
 trustprune backup -app java
-trustprune backup -app java -file /path/to/cacerts   # Java keystore override; backup records its source keystore
-trustprune backup -app certifi -file /path/to/venv/.../cacert.pem
+trustprune backup -app java -store /path/to/cacerts   # Java keystore override; backup records its source keystore
+trustprune backup -app certifi -store /path/to/venv/.../cacert.pem
 trustprune backup -app chrome
 trustprune backup -app firefox
 trustprune backup -app openssl
@@ -91,7 +94,8 @@ trustprune backup -app certifi
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Back up that application's store instead of the platform |
-| `-file <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery. |
+| `-store <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery |
+| `-file <path>` | With `-app`: deprecated alias for `-store` (prints a WARNING to stderr) |
 | `-bundle <path>` | With `-app openssl`: back up that PEM CA bundle instead of discovery. The backup records the path |
 | `-dry-run` | Print what would be backed up; creates nothing |
 
@@ -103,7 +107,9 @@ Revert to a backup. With no `-backup` (and no `-file` on stores other than java/
 
 If no backup exists, `restore` (and `restore -dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For app stores the hint is `trustprune backup -app <name>`.
 
-For **java** and **certifi**, `-file` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `-backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `-force` is given.
+For **java** and **certifi**, `-store` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `-file` is a deprecated alias for that store path and prints a WARNING to stderr. `-backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `-force` is given.
+
+On the platform store and on NSS, ssl, and openssl, `-file` remains the backup source (the same role as `-backup`).
 
 For **openssl**, `-bundle <pem>` is the live PEM to restore into. `-file` and `-backup` stay the backup source; automatic selection runs only when neither is set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `-force`. Without `-bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `-force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `-backup` or `-file`.
 
@@ -112,9 +118,9 @@ trustprune restore
 trustprune restore -backup /path/to/backup
 trustprune restore -file /path/to/backup          # platform, NSS, ssl, openssl: backup source
 trustprune restore -app java
-trustprune restore -app java -file /path/to/cacerts
-trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
-trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
+trustprune restore -app java -store /path/to/cacerts
+trustprune restore -app java -store /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
+trustprune restore -app certifi -store /path/to/venv/.../cacert.pem
 trustprune restore -app chrome
 trustprune restore -app openssl
 trustprune restore -app openssl -bundle /path/to/ca-bundle.pem
@@ -125,7 +131,8 @@ trustprune restore -app java -dry-run
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Restore that application's store |
-| `-file <path>` | Java/certifi: store to restore into. Other stores, including openssl: explicit backup path (directory or file) |
+| `-store <path>` | Java/certifi: store to restore into |
+| `-file <path>` | Java/certifi: deprecated alias for `-store` (WARNING on stderr). Other stores, including openssl: explicit backup path (directory or file) |
 | `-backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
 | `-bundle <path>` | With `-app openssl`: PEM CA bundle to restore into. `-file` and `-backup` remain the backup source |
 | `-force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, and openssl `-bundle`) |
@@ -157,24 +164,25 @@ Python's [certifi](https://github.com/certifi/python-certifi) package ships a Mo
 
 Path discovery (first existing wins):
 
-1. `-file <cacert.pem>` override on `list`, `backup`, `connect`, and `restore` (one bundle per venv)
+1. `-store <cacert.pem>` on `list`, `backup`, `connect`, `restore`, `add`, and `allowlist` (one bundle per venv). On `list`, `backup`, `connect`, and `restore`, `-file` is a deprecated alias for that path and prints a WARNING to stderr.
 2. `python3 -c 'import certifi; print(certifi.where())'` (then `python`)
 3. The same probe against `pip._vendor.certifi`
 4. Common `site-packages/certifi/cacert.pem` fallbacks
 
-On `add` and `allowlist`, `-file` keeps its usual meaning (certificate to import, or allowlist YAML/JSON). To target a specific venv for those commands, put that venv's `python` first on `PATH` so discovery selects its certifi. For `restore`, pass `-file` as the venv's `cacert.pem` (same as `backup` / `list`); use `-backup` to pick a specific backup.
+On `add`, `-file` is the certificate to import. On `allowlist`, `-file` is the allowlist YAML/JSON. Pass `-store` to target a venv bundle for those commands. For `restore`, pass `-store` as the venv's `cacert.pem` (same as `backup` / `list`); use `-backup` to pick a specific backup.
 
 Some Linux distros patch certifi so `where()` returns the system CA bundle (for example `/etc/ssl/certs/ca-certificates.crt`). That path is still managed as a PEM file. Upstream installs keep a dedicated `cacert.pem` beside the package.
 
 ```
 trustprune list -app certifi
-trustprune list -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
+trustprune list -app certifi -store /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
 trustprune backup -app certifi
-trustprune backup -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
-trustprune allowlist -app certifi -file allowlist.yaml -dry-run
-trustprune allowlist -app certifi -file allowlist.yaml
+trustprune backup -app certifi -store /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
+trustprune add -file cert.pem -app certifi -store /path/to/cacert.pem
+trustprune allowlist -app certifi -store /path/to/venv/.../cacert.pem -file allowlist.yaml -dry-run
+trustprune allowlist -app certifi -store /path/to/venv/.../cacert.pem -file allowlist.yaml
 trustprune restore -app certifi
-trustprune restore -app certifi -file /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
+trustprune restore -app certifi -store /path/to/venv/lib/python3.12/site-packages/certifi/cacert.pem
 ```
 
 Writes reuse the same atomic sibling-temp install as `-app ssl` / `-app openssl` (copy aside to `.restore-old`, refuse a leftover aside, refuse an empty allowlist result). Restore with no backup refuses before any filesystem write.
@@ -218,6 +226,7 @@ Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `cou
 ```bash
 trustprune allowlist -file allowlist.yaml
 trustprune allowlist -file allowlist.json -app java
+trustprune allowlist -app java -store /path/to/cacerts -file allowlist.yaml
 trustprune allowlist -file allowlist.yaml -app openssl -bundle /path/to/ca-bundle.pem
 trustprune allowlist -file allowlist.yaml -dry-run
 ```
@@ -225,6 +234,7 @@ trustprune allowlist -file allowlist.yaml -dry-run
 | Flag | Meaning |
 |------|---------|
 | `-file <path>` | **Required.** Path to the allowlist |
+| `-store <path>` | With `-app java` or `-app certifi`: operate on that keystore or `cacert.pem`. Independent of `-file` |
 | `-app <name>` | Apply against an application store |
 | `-bundle <path>` | With `-app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
 | `-dry-run` | Print the plan without writing |
@@ -263,11 +273,14 @@ Add certificate(s) from a file into the platform or an app store.
 ```bash
 trustprune add -file cert.pem
 trustprune add -file cert.pem -app java
+trustprune add -file cert.pem -app certifi -store /path/to/cacert.pem
+trustprune add -file cert.pem -app java -store /path/to/cacerts
 ```
 
 | Flag | Meaning |
 |------|---------|
-| `-file <path>` | **Required.** Certificate file to import |
+| `-file <path>` | **Required.** Certificate file to import. `-store` alone is not a certificate path |
+| `-store <path>` | With `-app java` or `-app certifi`: import into that keystore or `cacert.pem` |
 | `-app <name>` | Target an application store |
 | `-dry-run` | Print the plan without writing |
 
@@ -278,14 +291,16 @@ Attempt an HTTPS connection using the platform store or an app store. Useful aft
 ```bash
 trustprune connect https://example.com
 trustprune connect -app java https://example.com
-trustprune connect -app java -file /path/to/cacerts https://example.com
+trustprune connect -app java -store /path/to/cacerts https://example.com
+trustprune connect -app certifi -store /path/to/venv/.../cacert.pem https://example.com
 trustprune connect -url https://example.com
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
-| `-file <keystore>` | With `-app java` or `-app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`). Without `-app`, `-file` is ignored and connect uses the platform store |
+| `-store <path>` | With `-app java` or `-app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
+| `-file <keystore>` | With `-app`: deprecated alias for `-store` (prints a WARNING to stderr). Without `-app`, `-file` is ignored and connect uses the platform store |
 | `-url <url>` | URL to connect to, instead of the positional argument (e.g. `-url https://example.com`) |
 
 The URL must use the `https` scheme.

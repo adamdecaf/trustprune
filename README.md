@@ -25,7 +25,8 @@ This project was renamed from **cert-manage** to **trustprune**. The repository 
 trustprune list
 trustprune list -count
 trustprune list -app java
-trustprune list -app java -file /path/to/cacerts   # skip JAVA_HOME search
+trustprune list -app java -store /path/to/cacerts          # skip JAVA_HOME search
+trustprune list -app certifi -store /path/to/venv/.../cacert.pem
 
 # 2. Always take a backup before changing trust
 trustprune backup
@@ -34,6 +35,7 @@ trustprune backup -app java
 # 3. Allowlist: keep only the CAs you want (requires a prior backup)
 trustprune allowlist -file urls.yaml
 trustprune allowlist -app java -file urls.yaml
+trustprune allowlist -app java -store /path/to/cacerts -file allowlist.yaml
 
 # 4. Roll back if something breaks
 trustprune restore
@@ -79,7 +81,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv; no CLI flag; no other passwords are guessed). |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
-| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-file` overrides the bundle on list/backup/connect/restore (put the venv's python first on `PATH` for add/allowlist). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
+| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-store` overrides the bundle on list/backup/connect/restore/add/allowlist (`-file` remains a deprecated alias for that override on list/backup/connect/restore and prints a WARNING to stderr). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
 | **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`-app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. `-bundle <pem>` selects an explicit PEM file for list, backup, restore, and allowlist and skips that discovery. PEM backups record the bundle path; restore into a different PEM (discovery or `-bundle`) is refused unless `-force`. Discovery allowlist accepts a backup recorded for the discovered PEM or a legacy backup with no `source` (a source-less backup may belong to another PEM and does not show the live file is recoverable). Hashed cert directories are not selected by `-bundle`. Darwin `/etc/ssl/cert.pem` stays `-app ssl`. |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
 
@@ -100,7 +102,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 3. **Preview with `-dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `-dry-run` to print the plan without writing to any store.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
 
-Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `-backup` (and `-file` on platform/NSS/ssl/openssl). For java and certifi, restore `-file` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `-force`. For openssl, `-bundle <pem>` is the live PEM for list, backup, restore, and allowlist; restore `-file` stays the backup source, and a backup recorded for a different PEM is refused unless `-force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-backup` / `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
+Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `-backup` (and `-file` on platform/NSS/ssl/openssl). For java and certifi, restore `-store` is the store to restore into, matching backup/list (`-file` is a deprecated alias for that path); a backup taken from a different path is refused unless `-force`. For openssl, `-bundle <pem>` is the live PEM for list, backup, restore, and allowlist; restore `-file` stays the backup source, and a backup recorded for a different PEM is refused unless `-force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-backup` / `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 
 ## Install
 
@@ -129,6 +131,7 @@ go install github.com/adamdecaf/trustprune@master
 trustprune list
 trustprune list -format table       # short (default), table, json, openssl, observatory
 trustprune list -format openssl
+trustprune list -format observatory -out report.yaml  # observatory YAML to a file (other formats ignore -out)
 trustprune list -ui web             # cli (default) or web (prints URL if headless)
 
 # Apps
@@ -143,6 +146,7 @@ trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/securit
 # Add
 trustprune add -file cert.pem
 trustprune add -file cert.pem -app java
+trustprune add -file cert.pem -app certifi -store /path/to/cacert.pem
 
 # Allowlist, backup, restore
 trustprune backup
@@ -150,7 +154,7 @@ trustprune allowlist -file urls.yaml
 trustprune restore                 # latest backup
 trustprune restore -backup <path>  # explicit backup path
 trustprune restore -file <path>    # platform/NSS/ssl/openssl: explicit backup path
-trustprune restore -app java -file /path/to/cacerts   # java/certifi: store to restore into
+trustprune restore -app java -store /path/to/cacerts   # java/certifi: store to restore into
 
 # Generate an allowlist
 trustprune gen-allowlist -out allowlist.yaml -from firefox

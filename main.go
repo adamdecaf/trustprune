@@ -38,8 +38,15 @@ var (
 	flagHelp1 = fs.Bool("h", false, "")
 	flagHelp2 = fs.Bool("help", false, "")
 
-	// -file is used to specify an input file path
+	// -file is an input file. On add it is the certificate. On allowlist it is
+	// the allowlist. On list without -app it is a PEM (or similar) to list.
+	// On restore for stores other than java and certifi it is a backup path.
+	// On list, backup, restore, and connect it is also a deprecated alias for
+	// -store when that command uses -file as a store path.
 	flagFile = fs.String("file", "", "")
+
+	// -store overrides the trust-store path for java and certifi.
+	flagStore = fs.String("store", "", "")
 
 	// -backup selects the backup source for restore (distinct from -file)
 	flagBackup = fs.String("backup", "", "")
@@ -99,11 +106,12 @@ FLAGS
   -backup <path>   Backup to restore from (restore command)
   -bundle <path>   With -app openssl: explicit PEM CA bundle for list, backup, restore, and allowlist
   -dry-run         Preview add/backup/restore/allowlist changes without writing to stores
-  -file <path>     Local file path
+  -file <path>     Input file (see each command). Deprecated alias for -store when overriding a java or certifi store on list, backup, restore, and connect
   -force           Allow restore into a different store path than the backup came from
   -from <type(s)>  Which sources to capture urls from. Comma separated list. (Options: browser, browsers, chrome, firefox, safari, file)
   -help            Show this help dialog
   -out <path>      Output file path, used by gen-allowlist
+  -store <path>    Trust-store path for -app java (cacerts) or -app certifi (cacert.pem) on list, backup, restore, connect, add, and allowlist
   -ui <type>       Method of adjusting certificates to be removed/untrusted. (default: %s, options: %s)
   -url <where>     Remote URL to download and use in a command
 
@@ -113,9 +121,10 @@ OUTPUT
   -v      Show full fingerprints, serials, and paths in table output
 
 DEBUGGING
-  Alongside command line flags are two environment variables read by trustprune:
+  Alongside command line flags, trustprune reads these environment variables:
   - DEBUG=1        Enables debug logging, GODEBUG=x509roots=1 also works and enables Go's debugging
   - TRACE=<where>  Saves a binary trace file at <where> of the execution
+  - TRUSTPRUNE_JAVA_STOREPASS  Java keystore password for -app java (see docs/usage.md#environment)
 `,
 			getVersion(),
 			store.FormatAppsHelpLine(),
@@ -195,22 +204,34 @@ func main() {
 				callForHelp = true
 				return nil
 			}
+			if err := platformStoreUnsupported(); err != nil {
+				return err
+			}
 			return cmd.AddCertsFromFile(*flagFile)
 		},
 		appfn: func(a string) error {
+			// -file is the certificate. -store alone is not a certificate path.
 			if *flagFile == "" {
 				callForHelp = true
 				return nil
 			}
+			if storePath := strings.TrimSpace(*flagStore); storePath != "" {
+				return cmd.AddCertsToAppFromStore(a, storePath, *flagFile)
+			}
 			return cmd.AddCertsToAppFromFile(a, *flagFile)
 		},
-		help: fmt.Sprintf(`Usage: trustprune add -file <path> [-app <name>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune add -file <path> [-app <name>] [-store <path>] [-dry-run]
 
   Add a certificate to the platform store
     trustprune add -file <path>
 
   Add a certificate to an application's store
     trustprune add -file <path> -app <name>
+
+  Add a certificate to a specific certifi bundle or Java keystore.
+  -file is the certificate to import. -store is the trust store.
+    trustprune add -file <path> -app certifi -store /path/to/cacert.pem
+    trustprune add -file <path> -app java -store /path/to/cacerts
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -243,26 +264,30 @@ APPS
 	}
 	commands["backup"] = &command{
 		fn: func() error {
+			if err := platformStoreUnsupported(); err != nil {
+				return err
+			}
 			return cmd.BackupForPlatform()
 		},
 		appfn: func(a string) error {
 			if bundleFlag != "" {
-				if *flagFile != "" {
-					return fmt.Errorf("backup: -bundle names the openssl PEM; -file is not a bundle override for openssl")
+				if strings.TrimSpace(*flagStore) != "" || strings.TrimSpace(*flagFile) != "" {
+					return fmt.Errorf("backup: -bundle names the openssl PEM; do not pass -store or -file with -bundle")
 				}
 				return cmd.BackupForBundle(bundleFlag)
 			}
-			if *flagFile != "" {
-				return cmd.BackupForAppWithFile(a, *flagFile)
+			if path := applyStoreFlag("backup", a); path != "" {
+				return cmd.BackupForAppWithFile(a, path)
 			}
 			return cmd.BackupForApp(a)
 		},
-		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-file <keystore>] [-bundle <pem>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune backup [-app <name>] [-store <path>] [-bundle <pem>] [-dry-run]
 
   Backup a certificate store. This can be done for the platform or a given app.
 
-  Java: -file <cacerts> overrides trust-store search and backs up that keystore.
-  Certifi: -file <cacert.pem> overrides discovery and backs up that bundle.
+  Java: -store <cacerts> overrides trust-store search and backs up that keystore.
+  Certifi: -store <cacert.pem> overrides discovery and backs up that bundle.
+  With -app, -file is a deprecated alias for -store.
   OpenSSL: -bundle <ca-bundle.pem> backs up that PEM file instead of discovery.
     trustprune backup -app openssl -bundle /path/to/ca-bundle.pem
 
@@ -271,6 +296,9 @@ APPS
 	}
 	commands["connect"] = &command{
 		fn: func() error {
+			if err := platformStoreUnsupported(); err != nil {
+				return err
+			}
 			u, err := parseConnectUrl(fs)
 			if err != nil {
 				return err
@@ -278,20 +306,24 @@ APPS
 			return cmd.ConnectWithPlatformStore(u)
 		},
 		appfn: func(a string) error {
+			path := applyStoreFlag("connect", a)
 			u, err := parseConnectUrl(fs)
 			if err != nil {
 				return err
 			}
-			if *flagFile != "" {
-				return cmd.ConnectWithAppStoreFile(u, a, *flagFile)
+			if path != "" {
+				return cmd.ConnectWithAppStoreFile(u, a, path)
 			}
 			return cmd.ConnectWithAppStore(u, a)
 		},
-		help: fmt.Sprintf(`Usage: trustprune connect [-app <name>] [-file <keystore>] (-url <url> | <url>)
+		help: fmt.Sprintf(`Usage: trustprune connect [-app <name>] [-store <path>] (-url <url> | <url>)
 
 Attempt an HTTP connect to a URL with the given certificate store. Pass the URL as
 -url <url> or as a positional argument. If -app is provided then the certificates for
 that application are loaded and used for the connection.
+
+  -store <path> overrides discovery for -app java (cacerts) and -app certifi (cacert.pem).
+  With -app, -file is a deprecated alias for -store. Without -app, -file is ignored.
 
 APPS
   Supported apps: %s`, store.FormatAppsHelpLine()),
@@ -330,6 +362,11 @@ APPS
 	commands["gen-whitelist"] = genAllowlistCmd // hidden alias
 	commands["list"] = &command{
 		fn: func() error {
+			// Without -app, -file lists certificates from a PEM (or similar).
+			// That is not a store override, and -store does not apply.
+			if err := platformStoreUnsupported(); err != nil {
+				return err
+			}
 			if *flagFile != "" {
 				return cmd.ListCertsFromFile(*flagFile, cfg)
 			}
@@ -339,16 +376,16 @@ APPS
 			return cmd.ListCertsForPlatform(cfg)
 		},
 		appfn: func(a string) error {
-			// -app java -file <cacerts> or -app certifi -file <cacert.pem> overrides discovery.
+			// -app java/certifi -store overrides discovery (-file is a deprecated alias).
 			// -app openssl -bundle <pem> lists that PEM instead of discovery.
 			if bundleFlag != "" {
-				if *flagFile != "" {
-					return fmt.Errorf("list: pass -bundle for the openssl PEM, or -file for a certificate file, not both")
+				if strings.TrimSpace(*flagStore) != "" || strings.TrimSpace(*flagFile) != "" {
+					return fmt.Errorf("list: pass -bundle for the openssl PEM, or -store for a java/certifi path, not both")
 				}
 				return cmd.ListCertsForBundle(bundleFlag, cfg)
 			}
-			if *flagFile != "" {
-				return cmd.ListCertsForAppWithFile(a, *flagFile, cfg)
+			if path := applyStoreFlag("list", a); path != "" {
+				return cmd.ListCertsForAppWithFile(a, path, cfg)
 			}
 			return cmd.ListCertsForApp(a, cfg)
 		},
@@ -359,11 +396,14 @@ APPS
   List certificates from an application
     trustprune list -app firefox
 
-  List certificates from a file
+  List certificates from a file (no -app). -file here is not a store path.
     trustprune list -file <path>
 
-  List certificates from a Java keystore path (skips JAVA_HOME search)
-    trustprune list -app java -file <cacerts>
+  List certificates from a Java keystore or certifi bundle (skips discovery)
+    trustprune list -app java -store <cacerts>
+    trustprune list -app certifi -store /path/to/cacert.pem
+
+  With -app, -file is a deprecated alias for -store.
 
   List certificates in an explicit OpenSSL PEM CA bundle
     trustprune list -app openssl -bundle /path/to/ca-bundle.pem
@@ -405,18 +445,34 @@ APPS
 	}
 	commands["restore"] = &command{
 		fn: func() error {
-			if bundleFlag != "" {
-				return cmd.RestoreForBundle("", *flagFile, *flagBackup, bundleFlag)
+			// Platform restore keeps -file as the backup source. -bundle needs -app openssl
+			// (CheckBundleFlag enforces that before the command runs).
+			if err := platformStoreUnsupported(); err != nil {
+				return err
 			}
 			return cmd.Restore("", *flagFile, *flagBackup)
 		},
 		appfn: func(a string) error {
 			if bundleFlag != "" {
+				if strings.TrimSpace(*flagStore) != "" {
+					return fmt.Errorf("restore: -bundle names the openssl PEM to restore into; -store is only for java/certifi")
+				}
 				return cmd.RestoreForBundle(a, *flagFile, *flagBackup, bundleFlag)
+			}
+			if fileIsStorePath("restore", a) {
+				return cmd.Restore(a, applyStoreFlag("restore", a), *flagBackup)
+			}
+			if strings.TrimSpace(*flagStore) != "" {
+				// ForAppWithStore rejects every app other than java and certifi.
+				// Do not continue into Restore, where -file is the backup source.
+				if _, err := store.ForAppWithStore(a, *flagStore); err != nil {
+					return err
+				}
+				return fmt.Errorf("-store with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", a)
 			}
 			return cmd.Restore(a, *flagFile, *flagBackup)
 		},
-		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-file <path>] [-backup <path>] [-bundle <pem>] [-force] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune restore [-app <name>] [-store <path>] [-file <path>] [-backup <path>] [-bundle <pem>] [-force] [-dry-run]
 
   Restore certificates from the latest backup
     trustprune restore
@@ -428,12 +484,15 @@ APPS
   Restore an application from its latest matching backup
     trustprune restore -app java
 
-  Java and certifi: -file is the store to restore into (same as backup/list).
-  -backup selects the backup source. A backup taken from a different path is
-  refused before any write unless -force is given.
-    trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
-    trustprune restore -app java -file /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
-    trustprune restore -app java -file /other/cacerts -backup <backup> -force
+  Java and certifi: -store is the store to restore into (same as backup/list).
+  -file is a deprecated alias for that store path. -backup selects the backup
+  source. A backup taken from a different path is refused before any write
+  unless -force is given.
+    trustprune restore -app certifi -store /path/to/venv/.../cacert.pem
+    trustprune restore -app java -store /path/to/cacerts -backup /path/to/cacerts-<ts>.bck
+    trustprune restore -app java -store /other/cacerts -backup <backup> -force
+
+  On other stores, -file remains the backup source.
 
   OpenSSL: -bundle is the live PEM to restore into. -file and -backup stay the
   backup source. A backup recorded for a different PEM is refused unless -force.
@@ -450,25 +509,39 @@ APPS
 				callForHelp = true
 				return nil
 			}
+			if err := platformStoreUnsupported(); err != nil {
+				return err
+			}
 			return cmd.AllowlistForPlatform(*flagFile)
 		},
 		appfn: func(a string) error {
+			// -file is the allowlist. -store is an independent store override.
 			if *flagFile == "" {
 				callForHelp = true
 				return nil
 			}
 			if bundleFlag != "" {
+				if strings.TrimSpace(*flagStore) != "" {
+					return fmt.Errorf("allowlist: -bundle names the openssl PEM; -store is only for java/certifi")
+				}
 				return cmd.AllowlistForBundle(a, *flagFile, bundleFlag)
+			}
+			if storePath := strings.TrimSpace(*flagStore); storePath != "" {
+				return cmd.AllowlistForAppWithStore(a, storePath, *flagFile)
 			}
 			return cmd.AllowlistForApp(a, *flagFile)
 		},
-		help: fmt.Sprintf(`Usage: trustprune allowlist [-app <name>] -file <path> [-bundle <pem>] [-dry-run]
+		help: fmt.Sprintf(`Usage: trustprune allowlist [-app <name>] -file <path> [-store <path>] [-bundle <pem>] [-dry-run]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist -file allowlist.json
 
   Remove untrusted certificates in an app
     trustprune allowlist -file allowlist.json -app java
+
+  -file is the allowlist. -store overrides the java or certifi store path.
+    trustprune allowlist -file allowlist.yaml -app certifi -store /path/to/cacert.pem
+    trustprune allowlist -file allowlist.yaml -app java -store /path/to/cacerts
 
   Remove untrusted certificates in an explicit OpenSSL PEM CA bundle
     trustprune allowlist -app openssl -file allowlist.json -bundle /path/to/ca-bundle.pem
@@ -510,6 +583,12 @@ APPS
 		err := c.appfn(*flagApp)
 		if err != nil {
 			fmt.Printf("ERROR: %v\n", err)
+			os.Exit(1)
+		}
+		// add/allowlist set callForHelp when -file is missing. Honor that
+		// here too; otherwise -app exits 0 before the check below.
+		if calledHelp() {
+			fmt.Println(c.help)
 			os.Exit(1)
 		}
 		os.Exit(0)

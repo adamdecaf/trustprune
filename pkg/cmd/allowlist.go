@@ -31,6 +31,17 @@ func AllowlistForApp(app, path string) error {
 	return allowlistStore(s, app, path)
 }
 
+// AllowlistForAppWithStore applies the allowlist at path to app, using
+// storePath as the trust-store override (java keystore or certifi bundle).
+// path is the allowlist file. It is not the store path.
+func AllowlistForAppWithStore(app, storePath, path string) error {
+	s, err := store.ForAppWithStore(app, storePath)
+	if err != nil {
+		return err
+	}
+	return allowlistStore(s, app, path)
+}
+
 func AllowlistForPlatform(path string) error {
 	return allowlistStore(store.Platform(), "", path)
 }

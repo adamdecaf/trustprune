@@ -12,7 +12,11 @@ nav_order: 3
 $ trustprune add -file cert.pem
 
 $ trustprune add -file cert.pem -app java
+
+$ trustprune add -file cert.pem -app certifi -store /path/to/cacert.pem
 ```
+
+`-file` is the certificate to import. `-store` selects a Java keystore or a certifi `cacert.pem`. `-store` alone is not the certificate file.
 
 ## Connect
 
@@ -25,7 +29,7 @@ Connection to https://google.com passed!
 $ ./trustprune connect -app java https://google.com
 Connection to https://google.com passed!
 
-$ ./trustprune connect -app java -file /path/to/cacerts https://google.com
+$ ./trustprune connect -app java -store /path/to/cacerts https://google.com
 Connection to https://google.com passed!
 
 $ ./trustprune connect -url https://google.com
@@ -35,7 +39,8 @@ Connection to https://google.com passed!
 | Flag | Meaning |
 |------|---------|
 | `-app <name>` | Use that application's certificates for the TLS handshake |
-| `-file <keystore>` | With `-app java` or `-app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`). Without `-app`, `-file` is ignored and connect uses the platform store |
+| `-store <path>` | With `-app java` or `-app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
+| `-file <keystore>` | With `-app`: deprecated alias for `-store` (prints a WARNING to stderr). Without `-app`, `-file` is ignored and connect uses the platform store |
 | `-url <url>` | URL to connect to, instead of the positional argument |
 
 ## List
@@ -73,6 +78,15 @@ Certificate
     http://crl.usertrust.com/AddTrustExternalCARoot.crl
 ...
 ```
+
+Point `-store` at a venv certifi bundle or a Java keystore:
+
+```
+$ trustprune list -app certifi -store /path/to/venv/.../cacert.pem
+$ trustprune list -app java -store /path/to/cacerts
+```
+
+Without `-app`, `-file` lists certificates from a PEM file (`trustprune list -file lots.crt`). On `list`, `backup`, `restore`, and `connect` with `-app`, `-file` is a deprecated alias for `-store` and prints a WARNING to stderr.
 
 `-format table` prints an aligned table with uppercase headers: SUBJECT, ISSUER, KEY, DAYS, and SHA256 FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Pass `-v` for the full fingerprint, serial, source or store path (`-` for URLs), and the NOT BEFORE and NOT AFTER dates (DAYS stays numeric).
 
@@ -168,6 +182,12 @@ trusted_certificates:
 ...
 ```
 
+`-out <path>` writes that same report to a file instead of stdout. Other list output ignores `-out`.
+
+```
+$ trustprune list -format observatory -out report.yaml
+```
+
 ### Web
 
 `trustprune` can present certificates on a local web page with `-ui web` on `list` only (other commands ignore `-ui`). It prints the local URL (and still serves it) when a browser cannot be opened, such as on a headless host. Each certificate row shows Subject, Issuer, SHA256 fingerprint, serial, and validity dates; the full formatted dump stays behind Details.
@@ -199,10 +219,12 @@ Backups can be used as restore points.
 # Restore from the latest backup
 $ trustprune restore -app chrome
 
-# Java / certifi: -file is the store to restore into (same as backup/list)
-$ trustprune restore -app java -file /path/to/cacerts
-$ trustprune restore -app certifi -file /path/to/venv/.../cacert.pem
+# Java / certifi: -store is the store to restore into (same as backup/list).
+# -file is a deprecated alias for that path and prints a WARNING to stderr.
+$ trustprune restore -app java -store /path/to/cacerts
+$ trustprune restore -app certifi -store /path/to/venv/.../cacert.pem
 
-# Explicit backup source (all stores)
+# Other stores: -file remains the backup source
 $ trustprune restore -backup /path/to/backup
+$ trustprune restore -file /path/to/backup
 ```

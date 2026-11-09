@@ -23,10 +23,12 @@ import (
 
 // Restore runs restore for app (empty app is the platform store).
 //
-// file and backup are the CLI -file and -backup values:
-//   - For java and certifi, -file is the store to restore into (same as
-//     backup/list) and -backup is the backup source (empty means latest).
-//   - For every other store, -file and -backup both name the backup source.
+// file and backup are the store path and the backup source:
+//   - For java and certifi, file is the store to restore into (CLI -store,
+//     or the deprecated -file alias) and backup is the backup source
+//     (empty means latest).
+//   - For every other store, file and backup both name the backup source
+//     (CLI -file and -backup). -store is rejected by the CLI for those stores.
 func Restore(app, file, backup string) error {
 	storeFile, backupPath, err := restoreArgs(app, file, backup)
 	if err != nil {
@@ -99,8 +101,8 @@ func RestoreForApp(app, path string) error {
 	return restoreStore(s, path)
 }
 
-func RestoreForAppWithFile(app, filePath, backupPath string) error {
-	s, err := store.ForAppWithFile(app, filePath)
+func RestoreForAppWithFile(app, storePath, backupPath string) error {
+	s, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err
 	}

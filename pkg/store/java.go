@@ -132,8 +132,10 @@ func environWithOverrides(base []string, overrides []string) []string {
 
 type javaStore struct {
 	// keystoreOverride, when set, is the cacerts (or other) keystore file to
-	// use instead of searching JAVA_HOME / platform install paths. CLI -file
-	// with -app java sets this for list/backup/connect/restore.
+	// use instead of searching JAVA_HOME / platform install paths. CLI -store
+	// with -app java sets this for list, backup, connect, restore, add, and
+	// allowlist. The deprecated -file alias still sets it on list, backup,
+	// connect, and restore.
 	keystoreOverride string
 }
 
@@ -234,7 +236,7 @@ func (s javaStore) Backup() error {
 	_, filename := filepath.Split(kpath)
 	// The backup is published together with a record of which keystore it
 	// came from, so restore never copies it over a different keystore
-	// (-file backups share the java/ directory).
+	// (-store backups share the java/ directory).
 	_, err = createJavaBackupFile(dir, filename, time.Now().Unix(), kpath)
 	return err
 }
@@ -653,7 +655,7 @@ type keytool struct {
 	relativeKeystorePaths []string
 
 	// explicitKeystore, when set, skips JAVA_HOME / install-path search and
-	// uses this file directly (CLI -file with -app java on list/backup/connect/restore).
+	// uses this file directly (CLI -store with -app java).
 	explicitKeystore string
 }
 
