@@ -218,52 +218,94 @@ type shortPrinter struct{}
 
 func (shortPrinter) close() {}
 func (shortPrinter) write(w io.Writer, certs []*x509.Certificate) error {
+	writef := func(format string, args ...any) error {
+		_, err := fmt.Fprintf(w, format, args...)
+		return err
+	}
 	for i := range certs {
-		fmt.Fprintf(w, "Certificate\n")
-		fmt.Fprintf(w, "  SHA256 Fingerprint: %s\n", certutil.GetHexSHA256Fingerprint(*certs[i]))
-		fmt.Fprintf(w, "  SerialNumber: %d\n", certs[i].SerialNumber)
-		fmt.Fprintf(w, "  Subject: %s\n", certutil.StringifyPKIXName(certs[i].Subject))
-		fmt.Fprintf(w, "  Issuer: %s\n", certutil.StringifyPKIXName(certs[i].Issuer))
-		fmt.Fprintf(w, "  NotBefore: %s | NotAfter: %s\n", certs[i].NotBefore, certs[i].NotAfter)
-		fmt.Fprintf(w, "  KEY: %s\n", certutil.FormatKeyLabel(certs[i]))
-		fmt.Fprintf(w, "  DAYS: %d\n", certutil.DaysUntilExpiry(certs[i], time.Now()))
+		if err := writef("Certificate\n"); err != nil {
+			return err
+		}
+		if err := writef("  SHA256 Fingerprint: %s\n", certutil.GetHexSHA256Fingerprint(*certs[i])); err != nil {
+			return err
+		}
+		if err := writef("  SerialNumber: %d\n", certs[i].SerialNumber); err != nil {
+			return err
+		}
+		if err := writef("  Subject: %s\n", certutil.StringifyPKIXName(certs[i].Subject)); err != nil {
+			return err
+		}
+		if err := writef("  Issuer: %s\n", certutil.StringifyPKIXName(certs[i].Issuer)); err != nil {
+			return err
+		}
+		if err := writef("  NotBefore: %s | NotAfter: %s\n", certs[i].NotBefore, certs[i].NotAfter); err != nil {
+			return err
+		}
+		if err := writef("  KEY: %s\n", certutil.FormatKeyLabel(certs[i])); err != nil {
+			return err
+		}
+		if err := writef("  DAYS: %d\n", certutil.DaysUntilExpiry(certs[i], time.Now())); err != nil {
+			return err
+		}
 
 		if certs[i].IsCA {
-			fmt.Fprintf(w, "  IsCA: %t\n", certs[i].IsCA)
+			if err := writef("  IsCA: %t\n", certs[i].IsCA); err != nil {
+				return err
+			}
 		}
 
 		if len(certs[i].DNSNames) > 0 {
-			fmt.Fprintf(w, "  DNSNames:\n")
+			if err := writef("  DNSNames:\n"); err != nil {
+				return err
+			}
 			for j := range certs[i].DNSNames {
-				fmt.Fprintf(w, "    %s\n", certs[i].DNSNames[j])
+				if err := writef("    %s\n", certs[i].DNSNames[j]); err != nil {
+					return err
+				}
 			}
 		}
 
 		if len(certs[i].EmailAddresses) > 0 {
-			fmt.Fprintf(w, "  EmailAddresses:\n")
+			if err := writef("  EmailAddresses:\n"); err != nil {
+				return err
+			}
 			for j := range certs[i].EmailAddresses {
-				fmt.Fprintf(w, "    %s\n", certs[i].EmailAddresses[j])
+				if err := writef("    %s\n", certs[i].EmailAddresses[j]); err != nil {
+					return err
+				}
 			}
 		}
 
 		if len(certs[i].IPAddresses) > 0 {
-			fmt.Fprintf(w, "  IPAddresses:\n")
+			if err := writef("  IPAddresses:\n"); err != nil {
+				return err
+			}
 			for j := range certs[i].IPAddresses {
-				fmt.Fprintf(w, "    %s\n", certs[i].IPAddresses[j])
+				if err := writef("    %s\n", certs[i].IPAddresses[j]); err != nil {
+					return err
+				}
 			}
 		}
 
 		if len(certs[i].PermittedDNSDomains) > 0 {
-			fmt.Fprintf(w, "  PermittedDNSDomains:\n")
+			if err := writef("  PermittedDNSDomains:\n"); err != nil {
+				return err
+			}
 			for j := range certs[i].PermittedDNSDomains {
-				fmt.Fprintf(w, "    %s\n", certs[i].PermittedDNSDomains[j])
+				if err := writef("    %s\n", certs[i].PermittedDNSDomains[j]); err != nil {
+					return err
+				}
 			}
 		}
 
 		if len(certs[i].CRLDistributionPoints) > 0 {
-			fmt.Fprintf(w, "  CRLDistributionPoints:\n")
+			if err := writef("  CRLDistributionPoints:\n"); err != nil {
+				return err
+			}
 			for j := range certs[i].CRLDistributionPoints {
-				fmt.Fprintf(w, "    %s\n", certs[i].CRLDistributionPoints[j])
+				if err := writef("    %s\n", certs[i].CRLDistributionPoints[j]); err != nil {
+					return err
+				}
 			}
 		}
 	}

@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 )
@@ -56,7 +57,8 @@ type Config struct {
 	// checked in print.go
 	Format string
 
-	// Outfile holds where to write the output to. Used if non-empty
+	// Outfile, when non-empty, receives formatted list output (any format,
+	// including -count) instead of stdout.
 	Outfile string
 
 	// Which user interface to show users, e.g. cli or web
@@ -88,9 +90,13 @@ func ListCertificatesWithMeta(meta Meta, certs []*x509.Certificate, cfg *Config)
 		cfg = &c
 	}
 
-	if cfg.Count { // ignore any cfg.UI setting
-		fmt.Printf("%d\n", len(certs))
-		return nil
+	// -count ignores cfg.UI. The line is "N\n", written to cfg.Outfile when set
+	// so stdout stays empty, the same as other list formats.
+	if cfg.Count {
+		return writeToConfiguredOutput(cfg, func(w io.Writer) error {
+			_, err := fmt.Fprintf(w, "%d\n", len(certs))
+			return err
+		})
 	}
 
 	// Show something meaningful if there's nothing otherwise

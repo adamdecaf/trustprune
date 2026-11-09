@@ -16,11 +16,10 @@ package ui
 
 import (
 	"crypto/x509"
-	"os"
+	"io"
 	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
-	"github.com/adamdecaf/trustprune/pkg/file"
 	"gopkg.in/yaml.v3"
 )
 
@@ -69,18 +68,12 @@ func writeObservatoryReport(meta Meta, certs []*x509.Certificate, cfg *Config) e
 	}
 	report.Certificates = obsCerts
 
-	// write the report somewhere
 	bs, err := yaml.Marshal(&report)
 	if err != nil {
 		return err
 	}
-	if cfg.Outfile != "" {
-		return os.WriteFile(cfg.Outfile, bs, file.TempFilePermissions)
-	}
-	// write yaml to stdout
-	_, err = os.Stdout.Write(bs)
-	if err != nil {
+	return writeToConfiguredOutput(cfg, func(w io.Writer) error {
+		_, err := w.Write(bs)
 		return err
-	}
-	return nil
+	})
 }

@@ -45,6 +45,13 @@ func TestCertManage_help(t *testing.T) {
 	if !strings.Contains(out, "-out <path>") {
 		t.Error("expected -out in top-level FLAGS")
 	}
+	outLine := extractFlagLine(out, "-out <path>")
+	if !strings.Contains(outLine, "list") || !strings.Contains(outLine, "gen-allowlist") {
+		t.Errorf("top-level -out help should describe list and gen-allowlist, got %q", outLine)
+	}
+	if strings.Contains(outLine, "used by gen-allowlist") {
+		t.Errorf("top-level -out help still says it is only for gen-allowlist: %q", outLine)
+	}
 	if !strings.Contains(out, "options: cli, web") {
 		t.Errorf("expected stable -ui options order in top-level help, got snippet around -ui: %q", extractFlagLine(out, "-ui"))
 	}
@@ -117,6 +124,12 @@ func TestCertManage_help(t *testing.T) {
 	}
 	if !strings.Contains(out, "Options: cli, web") {
 		t.Errorf("list help should list UI options as cli, web; got %q", extractFlagLine(out, "Options:"))
+	}
+	if strings.Contains(out, "used by -format observatory") {
+		t.Error("list help still limits -out to -format observatory")
+	}
+	if !strings.Contains(out, "every -format") {
+		t.Errorf("list help should document -out for every format, got %q", out)
 	}
 
 	// hidden aliases still invoke the same commands and share allowlist help

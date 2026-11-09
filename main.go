@@ -69,7 +69,8 @@ var (
 	// -from is used by 'gen-allowlist' to specify url sources
 	flagFrom = fs.String("from", "", "")
 
-	// -out is used by 'gen-allowlist' to specify output file location
+	// -out is the output path for list (any format, including -count) and the
+	// required allowlist path for gen-allowlist.
 	flagOutFile = fs.String("out", "", "")
 
 	// Output
@@ -110,7 +111,7 @@ FLAGS
   -force           Allow restore into a different store path than the backup came from
   -from <type(s)>  Which sources to capture urls from. Comma separated list. (Options: browser, browsers, chrome, firefox, safari, file)
   -help            Show this help dialog
-  -out <path>      Output file path, used by gen-allowlist
+  -out <path>      Output file for list (any -format, including -count) and required path for gen-allowlist
   -store <path>    Trust-store path for -app java (cacerts) or -app certifi (cacert.pem) on list, backup, restore, connect, add, and allowlist
   -ui <type>       Method of adjusting certificates to be removed/untrusted. (default: %s, options: %s)
   -url <where>     Remote URL to download and use in a command
@@ -432,7 +433,8 @@ FORMATTING
   Show the certificates on a local webpage (Default: %s, Options: %s)
     trustprune list -ui web
 
-  Write the report to a file instead of stdout (-out <path>, used by -format observatory)
+  Write formatted output to a file instead of stdout (-out <path>, every -format and -count)
+    trustprune list -format json -out certs.json
     trustprune list -format observatory -out report.yaml
 
 APPS
