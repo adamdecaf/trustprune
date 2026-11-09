@@ -32,7 +32,7 @@ Parent directory (created as needed):
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
 | Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
-| OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem`, or a mirror of a hashed cert directory |
+| OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `-app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `-app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
 
@@ -119,10 +119,12 @@ Path discovery matches `docs/usage.md`: `-store` overrides the bundle on `list`,
 
 Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolution (first existing wins): `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then `git config --get http.sslCAInfo`. Darwin `/etc/ssl/cert.pem` is never chosen as the openssl default; that file is `-app ssl`.
 
-- **PEM file** (for example `/etc/ssl/certs/ca-certificates.crt`): backup copies into `openssl/<unix-timestamp>/ca-bundle.pem`. Restore and other writers use the same atomic sibling-temp install as `-app ssl`. An empty allowlist result is refused.
-- **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then runs `c_rehash` if that binary is available.
+- **PEM file** (for example `/etc/ssl/certs/ca-certificates.crt`): backup copies into `openssl/<unix-timestamp>/ca-bundle.pem` and writes a `source` file recording the bundle path. Restore and other writers use the same atomic sibling-temp install as `-app ssl`. An empty allowlist result is refused.
+- **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then runs `c_rehash` if that binary is available. `-bundle` does not select a directory.
 
-Restore with no backup refuses before any filesystem write (dry-run included). Explicit `-backup` / `-file` / `where` is honored.
+Restore with no backup refuses before any filesystem write (dry-run included). Explicit `-backup` / `-file` / `where` is honored and still names the backup source.
+
+`-bundle <pem>` on `list`, `backup`, `restore`, and `allowlist` uses that PEM and skips `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro defaults, and git. On `allowlist`, `-file` remains the allowlist. On `restore`, `-file` and `-backup` remain the backup source. With `-bundle` and neither `-file` nor `-backup`, restore picks the newest backup whose `source` matches that PEM (backups with no `source` file are skipped). A backup recorded for a different path is refused before any write unless `-force`. Backups with no `source` file can still be applied with an explicit `-backup` or `-file`. Discovery restore (no `-bundle`) of a PEM uses the newest backup recorded for that file and also accepts a legacy backup with no `source`; a backup recorded for a different bundle is refused unless `-force`. Allowlist uses the same selection. Automatic restore of a discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup (directory mirrors have no `source` file). Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `-backup` or `-file`. If discovery cannot resolve a path, only backups with no `source` file match.
 
 ## Windows
 

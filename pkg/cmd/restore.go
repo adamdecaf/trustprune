@@ -43,6 +43,24 @@ func Restore(app, file, backup string) error {
 	return RestoreForApp(app, backupPath)
 }
 
+// RestoreForBundle restores an explicit openssl PEM CA bundle (-bundle).
+// file and backup keep their openssl meaning: both name the backup source.
+// app must be openssl.
+func RestoreForBundle(app, file, backup, bundle string) error {
+	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
+		return fmt.Errorf("-bundle requires -app openssl")
+	}
+	_, backupPath, err := restoreArgs(app, file, backup)
+	if err != nil {
+		return err
+	}
+	s, err := store.OpenSSLBundleAt(bundle)
+	if err != nil {
+		return err
+	}
+	return restoreStore(s, backupPath)
+}
+
 // restoreArgs maps CLI -file / -backup onto a store override and a backup
 // source. See Restore for the per-app meanings.
 func restoreArgs(app, file, backup string) (storeFile, backupPath string, err error) {
