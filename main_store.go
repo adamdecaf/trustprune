@@ -17,6 +17,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -43,8 +44,10 @@ func fileIsStorePath(command, app string) bool {
 
 // resolveStorePath merges -store with the deprecated -file store-path alias.
 // fileIsAlias is true when -file means a store path on this command.
-// storePath wins when both are set. Identical values (after trim) are not a
-// conflict. A non-empty file alias sets warn even when -store has the same value.
+// storePath wins when both are set. Values that match after trim and
+// filepath.Clean are the same path (/tmp/a and /tmp/./a agree). The returned
+// path stays the trimmed text the caller passed. A non-empty file alias
+// sets warn even when -store has the same value.
 // When fileIsAlias is false, filePath is ignored and storePath is returned as-is.
 func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string, warn bool, err error) {
 	storePath = strings.TrimSpace(storePath)
@@ -52,7 +55,7 @@ func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string
 	if !fileIsAlias {
 		return storePath, false, nil
 	}
-	if storePath != "" && filePath != "" && storePath != filePath {
+	if storePath != "" && filePath != "" && filepath.Clean(storePath) != filepath.Clean(filePath) {
 		return "", false, fmt.Errorf("-store and -file disagree (%s vs %s); -file as a store path is deprecated, use -store", storePath, filePath)
 	}
 	warn = filePath != ""

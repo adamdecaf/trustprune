@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -28,6 +29,10 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
+
+// defaultJavaStorePassword matches pkg/store defaultKeystorePassword.
+// The Java store reads this password; the test cannot see that unexported name.
+const defaultJavaStorePassword = "changeit"
 
 func TestAddCertsToAppFromStoreCertifiDryRun(t *testing.T) {
 	home := t.TempDir()
@@ -154,29 +159,12 @@ func TestJavaStorePathListUsesOverride(t *testing.T) {
 }
 
 func TestAllowlistForAppWithStoreJavaDryRun(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("fake keytool shell script is unix-only")
-	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 
-	pem, err := filepath.Abs(filepath.Join("..", "..", "testdata", "lots.crt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	binDir := t.TempDir()
-	script := "#!/bin/sh\nrfc=0\nfor a in \"$@\"; do\n  if [ \"$a\" = \"-rfc\" ]; then rfc=1; fi\ndone\nif [ \"$rfc\" = 1 ]; then\n  cat \"$TRUSTPRUNE_TEST_PEM\"\nfi\nexit 0\n"
-	if err := os.WriteFile(filepath.Join(binDir, "keytool"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("TRUSTPRUNE_TEST_PEM", pem)
-
 	ks := filepath.Join(t.TempDir(), "cacerts")
-	if err := os.WriteFile(ks, []byte("not-a-real-keystore"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writeJavaKeystore(t, ks)
 	before, err := os.ReadFile(ks)
 	if err != nil {
 		t.Fatal(err)
@@ -277,6 +265,48 @@ func captureStdout(t *testing.T, fn func() error) string {
 		t.Fatal(fnErr)
 	}
 	return buf.String()
+}
+
+// writeJavaKeystore imports testdata/example.crt into a new keystore at dest
+// using keytool and the default store password. The Java store calls
+// $JAVA_HOME/bin/keytool when that file exists, so the keystore is created
+// with that binary; otherwise keytool on PATH is used. Skips when neither
+// is available.
+func writeJavaKeystore(t *testing.T, dest string) {
+	t.Helper()
+	bin, err := javaKeytoolBin()
+	if err != nil {
+		t.Skipf("keytool not on PATH and JAVA_HOME has no keytool; cannot create a Java keystore: %v", err)
+	}
+	crt := filepath.Join("..", "..", "testdata", "example.crt")
+	cmd := exec.Command(bin,
+		"-importcert", "-noprompt", "-alias", "example",
+		"-file", crt,
+		"-keystore", dest,
+		"-storepass", defaultJavaStorePassword,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("keytool -importcert: %v: %s", err, bytes.TrimSpace(out))
+	}
+}
+
+// javaKeytoolBin returns the keytool binary the Java store will run.
+func javaKeytoolBin() (string, error) {
+	if home := strings.TrimSpace(os.Getenv("JAVA_HOME")); home != "" {
+		names := []string{"keytool"}
+		if runtime.GOOS == "windows" {
+			names = []string{"keytool.exe", "keytool.bat", "keytool.cmd", "keytool"}
+		}
+		for _, name := range names {
+			p := filepath.Join(home, "bin", name)
+			st, err := os.Stat(p)
+			if err == nil && !st.IsDir() {
+				return p, nil
+			}
+		}
+	}
+	return exec.LookPath("keytool")
 }
 
 func writeLotsBundle(t *testing.T, path string) string {
