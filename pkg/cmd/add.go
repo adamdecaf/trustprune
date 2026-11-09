@@ -35,6 +35,17 @@ func AddCertsToAppFromFile(app string, where string) error {
 	return addCerts(st, where)
 }
 
+// AddCertsToAppFromStore adds certificates from certFile into app, using
+// storePath as the trust-store override (java keystore or certifi bundle).
+// certFile is the certificate to import. It is not the store path.
+func AddCertsToAppFromStore(app, storePath, certFile string) error {
+	st, err := store.ForAppWithStore(app, storePath)
+	if err != nil {
+		return err
+	}
+	return addCerts(st, certFile)
+}
+
 func addCerts(st store.Store, where string) error {
 	bs, err := os.ReadFile(where)
 	if err != nil {

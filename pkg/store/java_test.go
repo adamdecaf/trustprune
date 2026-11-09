@@ -209,8 +209,13 @@ func TestGetKeystorePath_JavaHomeMissingCacerts(t *testing.T) {
 }
 
 func TestForAppWithFile_RejectsOtherApps(t *testing.T) {
-	if _, err := ForAppWithFile("firefox", "/tmp/x"); err == nil {
-		t.Fatal("expected error for non-java -file override")
+	_, err := ForAppWithFile("firefox", "/tmp/x")
+	if err == nil || !strings.Contains(err.Error(), "-store with -app firefox") {
+		t.Fatalf("expected -store error, got %v", err)
+	}
+	_, err = ForAppWithStore("firefox", "/tmp/x")
+	if err == nil || !strings.Contains(err.Error(), "-store with -app firefox") {
+		t.Fatalf("expected -store error, got %v", err)
 	}
 }
 

@@ -48,8 +48,8 @@ func BackupForPlatform() error {
 	return err
 }
 
-func BackupForAppWithFile(app, filePath string) error {
-	s, err := store.ForAppWithFile(app, filePath)
+func BackupForAppWithFile(app, storePath string) error {
+	s, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err
 	}

@@ -65,7 +65,7 @@ func defaultCertifiFallbackPaths() []string {
 
 // certifiStore manages Python certifi's cacert.pem (or the path certifi.where()
 // returns on distro-patched installs). The path field is overridable for tests
-// and for -app certifi -file <cacert.pem> so real system CAs are never touched
+// and for -app certifi -store <cacert.pem> so real system CAs are never touched
 // by the unit suite.
 type certifiStore struct {
 	path string
@@ -79,8 +79,7 @@ func CertifiStore() Store {
 }
 
 // CertifiStoreAt returns a certifiStore pointed at path. Intended for tests and
-// for -app certifi -file overrides on list/backup/connect/restore (one cacert.pem
-// per venv).
+// for -app certifi -store overrides (one cacert.pem per venv).
 func CertifiStoreAt(path string) Store {
 	return certifiStore{path: path}
 }
@@ -466,7 +465,7 @@ func (s certifiStore) findCertPath() (string, error) {
 			return pattern, nil
 		}
 	}
-	return "", errors.New("unable to find certifi cacert.pem; install the Python certifi package or pass -app certifi -file <path>")
+	return "", errors.New("unable to find certifi cacert.pem; install the Python certifi package or pass -app certifi -store <path>")
 }
 
 // lookupCertifiWhere asks the active Python interpreters for certifi.where(),

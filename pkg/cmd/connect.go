@@ -39,8 +39,8 @@ func ConnectWithAppStore(uri *url.URL, app string) error {
 	return ConnectWithAppStoreFile(uri, app, "")
 }
 
-func ConnectWithAppStoreFile(uri *url.URL, app, filePath string) error {
-	st, err := store.ForAppWithFile(app, filePath)
+func ConnectWithAppStoreFile(uri *url.URL, app, storePath string) error {
+	st, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err
 	}

@@ -146,13 +146,14 @@ func ForApp(app string) (Store, error) {
 	return s, nil
 }
 
-// ForAppWithFile returns a Store for app, optionally overriding the trust-store
-// path with filePath. java uses it as a keystore override; certifi uses it as a
-// cacert.pem override (one bundle per venv). Used by list/backup/connect/restore
-// -file. Other apps reject a non-empty filePath. Empty filePath is ForApp.
-func ForAppWithFile(app, filePath string) (Store, error) {
+// ForAppWithStore returns a Store for app, optionally overriding the trust-store
+// path with storePath. java uses it as a keystore override; certifi uses it as a
+// cacert.pem override (one bundle per venv). Used by -store on list, backup,
+// connect, restore, add, and allowlist. Other apps reject a non-empty storePath.
+// Empty storePath is ForApp.
+func ForAppWithStore(app, storePath string) (Store, error) {
 	key := strings.ToLower(app)
-	if strings.TrimSpace(filePath) == "" {
+	if strings.TrimSpace(storePath) == "" {
 		return ForApp(app)
 	}
 	if _, ok := appStores[key]; !ok {
@@ -160,12 +161,18 @@ func ForAppWithFile(app, filePath string) (Store, error) {
 	}
 	switch key {
 	case "java":
-		return JavaStoreAt(filePath), nil
+		return JavaStoreAt(storePath), nil
 	case "certifi":
-		return CertifiStoreAt(filePath), nil
+		return CertifiStoreAt(storePath), nil
 	default:
-		return nil, fmt.Errorf("-file with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
+		return nil, fmt.Errorf("-store with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
 	}
+}
+
+// ForAppWithFile is ForAppWithStore. The store path used to be passed as -file
+// on list, backup, connect, and restore. New code should call ForAppWithStore.
+func ForAppWithFile(app, filePath string) (Store, error) {
+	return ForAppWithStore(app, filePath)
 }
 
 // getCertManageDir returns the fs location (always creating first) where a specific

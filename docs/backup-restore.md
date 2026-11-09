@@ -84,7 +84,7 @@ A failed stage leaves the live profile files untouched. Restore from a **legacy 
 
 Backup copies the live `cacerts` file into `~/.trustprune/java/` (or `~/Library/trustprune/java/` on Darwin) and writes a `.source` sidecar recording the keystore path. Restore copies the chosen backup over the live keystore (`SudoCopyFile` when permissions require it).
 
-`-app java -file <cacerts>` overrides trust-store search on `list`, `backup`, `connect`, and `restore` (the keystore to operate on, not the backup). Use `-backup <path>` to restore a specific `.bck` file. Restore into a different path than the backup recorded is refused before any write unless `-force` is given. Latest-backup selection prefers the newest `.bck` whose recorded source matches the target keystore.
+`-app java -store <cacerts>` overrides trust-store search on `list`, `backup`, `connect`, `restore`, `add`, and `allowlist` (the keystore to operate on, not the backup). On `list`, `backup`, `connect`, and `restore`, `-file` is a deprecated alias for `-store` and prints a WARNING to stderr. Use `-backup <path>` to restore a specific `.bck` file. Restore into a different path than the backup recorded is refused before any write unless `-force` is given. Latest-backup selection prefers the newest `.bck` whose recorded source matches the target keystore.
 
 ## Darwin notes
 
@@ -113,7 +113,7 @@ Backup copies the live certifi CA bundle into `~/.trustprune/certifi/<unix-times
 
 Restore and other writers use the same atomic sibling-temp install as `-app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). An empty allowlist result is refused. Restore with no backup returns an error before any filesystem write (dry-run included). Restore into a different path than the backup recorded is refused before any write unless `-force` is given. Latest-backup selection prefers the newest directory whose recorded source matches the target bundle.
 
-Path discovery matches `docs/usage.md`: on `list`/`backup`/`connect`/`restore`, `-file` overrides the bundle; Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. For `add`/`allowlist`, `-file` is the command input (cert or allowlist) — put the venv's `python` first on `PATH` to select that venv's certifi. For restore, `-backup` selects the backup source.
+Path discovery matches `docs/usage.md`: `-store` overrides the bundle on `list`, `backup`, `connect`, `restore`, `add`, and `allowlist`. On `list`, `backup`, `connect`, and `restore`, `-file` is a deprecated alias for that path and prints a WARNING to stderr. Then Python `certifi.where()`, pip's vendored certifi, then site-packages fallbacks. On `add` and `allowlist`, `-file` stays the certificate or allowlist file. For restore, `-backup` selects the backup source.
 
 ## OpenSSL (`-app openssl`)
 
