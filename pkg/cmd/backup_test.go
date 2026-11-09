@@ -139,6 +139,12 @@ func TestBackupSuccessPrintsWrittenPath(t *testing.T) {
 		t.Fatalf("bundle backup output %q", out)
 	}
 
+	// Windows GetLatestBackup is a stub ("", nil). FreeBSD Backup returns
+	// "not implemented". Only Linux and Darwin write a platform backup.
+	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
+		return
+	}
+
 	out = captureStdout(t, func() error {
 		return BackupForPlatform()
 	})

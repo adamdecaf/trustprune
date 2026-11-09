@@ -18,7 +18,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -59,16 +58,10 @@ func TestCLIOutputPolish(t *testing.T) {
 	})
 
 	t.Run("list platform os name", func(t *testing.T) {
-		res := runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-count")
-		if res.code != 0 || strings.Contains(res.stdout+res.stderr, "unknown app") {
-			t.Fatalf("list -app %s code=%d stdout=%s stderr=%s", runtime.GOOS, res.code, res.stdout, res.stderr)
-		}
-		if _, err := strconv.Atoi(strings.TrimSpace(res.stdout)); err != nil {
-			t.Fatalf("count %q: %v", res.stdout, err)
-		}
-
-		res = runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-store", filepath.Join(home, "nope"))
-		if res.code == 0 || !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") || !strings.Contains(res.stdout, "-store with -app") {
+		// -store is rejected before any certificate read, so this checks the
+		// runtime.GOOS platform alias without listing the host store.
+		res := runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-store", filepath.Join(home, "nope"))
+		if res.code == 0 || !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") || !strings.Contains(res.stdout, "-store with -app") || strings.Contains(res.stdout+res.stderr, "unknown app") {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
 	})

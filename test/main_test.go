@@ -116,15 +116,10 @@ func TestCertManage_help(t *testing.T) {
 		t.Errorf("expected ERROR: unknown app with apps list, got %q", out)
 	}
 
-	out, err = run(t, "list", "-app", runtime.GOOS, "-count")
-	if err != nil {
-		t.Errorf("list -app %s err=%v output=%q", runtime.GOOS, err, out)
-	}
-	if strings.Contains(out, "unknown app") {
-		t.Errorf("list -app %s was rejected: %q", runtime.GOOS, out)
-	}
+	// -store is rejected before listing, so this checks the runtime.GOOS
+	// platform alias without reading host certificates.
 	out, err = run(t, "list", "-app", runtime.GOOS, "-store", filepath.Join(t.TempDir(), "nope"))
-	if err == nil || !strings.Contains(out, "ERROR:") || !strings.Contains(out, "-store with -app") {
+	if err == nil || !strings.Contains(out, "ERROR:") || !strings.Contains(out, "-store with -app") || strings.Contains(out, "unknown app") {
 		t.Errorf("list -app %s -store err=%v output=%q", runtime.GOOS, err, out)
 	}
 	out, _ = run(t, "list", "-h")

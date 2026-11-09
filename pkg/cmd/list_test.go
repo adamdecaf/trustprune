@@ -23,10 +23,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
 
@@ -102,10 +102,12 @@ func TestListCertsForAppReturnsStoreError(t *testing.T) {
 }
 
 func TestListCertsForAppPlatformOSName(t *testing.T) {
-	out := captureStdout(t, func() error {
-		return ListCertsForApp(runtime.GOOS, &ui.Config{Count: true})
-	})
-	if _, err := strconv.Atoi(strings.TrimSpace(out)); err != nil {
-		t.Fatalf("count %q: %v", out, err)
+	got, err := store.ForApp(runtime.GOOS)
+	if err != nil {
+		t.Fatalf("ForApp(%s): %v", runtime.GOOS, err)
+	}
+	gi, wi := got.GetInfo(), store.Platform().GetInfo()
+	if gi == nil || wi == nil || gi.Name != wi.Name || gi.Path != wi.Path || gi.Version != wi.Version {
+		t.Fatalf("ForApp(%s) info %#v, platform %#v", runtime.GOOS, gi, wi)
 	}
 }
