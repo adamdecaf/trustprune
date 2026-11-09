@@ -186,7 +186,10 @@ func TestIntegration__AllowlistAndRemove(t *testing.T) {
 
 	// take a backup
 	cmd := CertManage("backup").Trim()
-	cmd.EqualT(t, "Backup completed successfully")
+	if !strings.HasPrefix(cmd.output, "Backup completed successfully:") {
+		t.Errorf("backup output %q", cmd.output)
+	}
+	cmd.SuccessT(t)
 
 	// allowlist
 	cmd = CertManage("allowlist", "-file", "../testdata/us-whitelist.yaml")
@@ -211,7 +214,9 @@ func TestIntegration__AllowlistAndRemove(t *testing.T) {
 
 	// restore
 	cmd = CertManage("restore").Trim()
-	cmd.EqualT(t, "Restore completed successfully")
+	if !strings.HasPrefix(cmd.output, "Restore completed successfully:") {
+		t.Errorf("restore output %q", cmd.output)
+	}
 	cmd.SuccessT(t)
 
 	// verify cert count

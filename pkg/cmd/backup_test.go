@@ -17,6 +17,7 @@ package cmd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -50,8 +51,14 @@ func TestBackupForAppWithFileCertifiDryRun(t *testing.T) {
 
 	store.SetDryRun(true)
 	t.Cleanup(func() { store.SetDryRun(false) })
-	if err := BackupForAppWithFile("certifi", bundle); err != nil {
-		t.Fatal(err)
+	out := captureStdout(t, func() error {
+		return BackupForAppWithFile("certifi", bundle)
+	})
+	if !strings.Contains(out, "dry-run: no changes made\n") {
+		t.Fatalf("dry-run output %q", out)
+	}
+	if strings.Contains(out, "Backup completed successfully") {
+		t.Fatalf("dry-run printed a backup path: %q", out)
 	}
 	// Dry-run must not create a backup tree under the temp HOME.
 	entries, err := os.ReadDir(home)
@@ -71,7 +78,86 @@ func TestBackupForPlatformDryRun(t *testing.T) {
 	t.Setenv("USERPROFILE", home)
 	store.SetDryRun(true)
 	t.Cleanup(func() { store.SetDryRun(false) })
-	if err := BackupForPlatform(); err != nil {
+	out := captureStdout(t, func() error {
+		return BackupForPlatform()
+	})
+	if !strings.Contains(out, "dry-run: no changes made\n") || strings.Contains(out, "Backup completed successfully") {
+		t.Fatalf("dry-run output %q", out)
+	}
+}
+
+func TestBackupForAppAcceptsPlatformOSName(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetDryRun(true)
+	t.Cleanup(func() { store.SetDryRun(false) })
+	out := captureStdout(t, func() error {
+		return BackupForApp(runtime.GOOS)
+	})
+	if !strings.Contains(out, "dry-run: no changes made\n") || strings.Contains(out, "Backup completed successfully") {
+		t.Fatalf("dry-run output %q", out)
+	}
+}
+
+func TestBackupSuccessPrintsWrittenPath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetDryRun(false)
+	t.Cleanup(func() { store.SetDryRun(false) })
+
+	certifiBundle := writeLotsBundle(t, filepath.Join(t.TempDir(), "cacert.pem"))
+	out := captureStdout(t, func() error {
+		return BackupForAppWithFile("certifi", certifiBundle)
+	})
+	st, err := store.ForAppWithStore("certifi", certifiBundle)
+	if err != nil {
 		t.Fatal(err)
+	}
+	latest, err := st.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("latest backup: %q err=%v", latest, err)
+	}
+	if out != "Backup completed successfully: "+latest+"\n" {
+		t.Fatalf("certifi backup output %q", out)
+	}
+
+	pem := writeLotsBundle(t, filepath.Join(t.TempDir(), "ca-bundle.pem"))
+	out = captureStdout(t, func() error {
+		return BackupForBundle(pem)
+	})
+	ost, err := store.OpenSSLBundleAt(pem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	latest, err = ost.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("openssl backup: %q err=%v", latest, err)
+	}
+	if out != "Backup completed successfully: "+latest+"\n" {
+		t.Fatalf("bundle backup output %q", out)
+	}
+
+	out = captureStdout(t, func() error {
+		return BackupForPlatform()
+	})
+	latest, err = store.Platform().GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("platform backup: %q err=%v", latest, err)
+	}
+	if out != "Backup completed successfully: "+latest+"\n" {
+		t.Fatalf("platform backup output %q", out)
+	}
+
+	out = captureStdout(t, func() error {
+		return BackupForApp(runtime.GOOS)
+	})
+	latest, err = store.Platform().GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("second platform backup: %q err=%v", latest, err)
+	}
+	if out != "Backup completed successfully: "+latest+"\n" {
+		t.Fatalf("ForApp(%s) backup output %q", runtime.GOOS, out)
 	}
 }

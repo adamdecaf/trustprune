@@ -207,10 +207,10 @@ To capture a backup:
 
 ```
 $ trustprune backup
-Backup completed successfully
+Backup completed successfully: /home/you/.trustprune/linux/1513034181
 
 $ trustprune backup -app java
-Backup completed successfully
+Backup completed successfully: /home/you/.trustprune/java/cacerts-1513034181.bck
 ```
 
 Backups can be used as restore points.
