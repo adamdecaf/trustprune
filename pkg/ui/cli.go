@@ -17,10 +17,14 @@ package ui
 import (
 	"crypto/x509"
 	"fmt"
+	"io"
 	"os"
+
+	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
-// showCertsOnCli outputs the slice of certificates in `cfg.Format` to stdout
+// showCertsOnCli outputs the slice of certificates in `cfg.Format`.
+// A non-empty cfg.Outfile receives that output and stdout is left empty.
 func showCertsOnCli(certs []*x509.Certificate, cfg *Config) error {
 	p, ok := getPrinter(cfg.Format)
 	if !ok {
@@ -37,7 +41,44 @@ func showCertsOnCliWithPrinter(certs []*x509.Certificate, cfg *Config, p printer
 		}
 		p = tp
 	}
-	err := p.write(os.Stdout, certs)
+	err := writeToConfiguredOutput(cfg, func(w io.Writer) error {
+		return p.write(w, certs)
+	})
 	p.close()
+	return err
+}
+
+// writerForConfig returns where formatted list output goes.
+// A non-empty Outfile creates or truncates that file (mode 0600) and the
+// caller must close it. Otherwise the writer is stdout and closer is nil.
+// A set Outfile prints nothing on stdout, matching observatory.
+func writerForConfig(cfg *Config) (io.Writer, io.Closer, error) {
+	if cfg == nil || cfg.Outfile == "" {
+		return os.Stdout, nil, nil
+	}
+	// #nosec G304 -- -out is the user-requested output path
+	f, err := os.OpenFile(cfg.Outfile, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.TempFilePermissions)
+	if err != nil {
+		return nil, nil, err
+	}
+	return f, f, nil
+}
+
+// writeToConfiguredOutput runs write against stdout, or against cfg.Outfile
+// when that path is set. The file is closed before return.
+func writeToConfiguredOutput(cfg *Config, write func(io.Writer) error) (err error) {
+	w, closer, openErr := writerForConfig(cfg)
+	if openErr != nil {
+		return openErr
+	}
+	if closer != nil {
+		defer func() {
+			cerr := closer.Close()
+			if err == nil {
+				err = cerr
+			}
+		}()
+	}
+	err = write(w)
 	return err
 }
