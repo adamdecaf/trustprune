@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -259,6 +260,9 @@ func assertExitOne(t *testing.T, err error) {
 func opensslCLIBackup(t *testing.T, home string) string {
 	t.Helper()
 	root := filepath.Join(home, ".trustprune", "openssl")
+	if runtime.GOOS == "darwin" {
+		root = filepath.Join(home, "Library", "trustprune", "openssl")
+	}
 	ents, err := os.ReadDir(root)
 	if err != nil {
 		t.Fatalf("backup dir %s: %v", root, err)
