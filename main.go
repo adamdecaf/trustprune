@@ -579,11 +579,15 @@ APPS
 	c, ok := commands[strings.ToLower(os.Args[1])]
 	if (!ok && calledHelp()) || c == nil { // sub-command wasn't found
 		fs.Usage()
+		// Accepted help returns so deferred TRACE Stop runs (os.Exit skips it).
+		if calledHelp() {
+			return
+		}
 		os.Exit(1)
 	}
 	if ok && calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(1)
+		return // keep TRACE Stop; matches top-level -h
 	}
 
 	if err := cmd.CheckBundleFlag(os.Args[1], *flagApp, bundleFlag); err != nil {
@@ -602,7 +606,7 @@ APPS
 		// here too; otherwise -app exits 0 before the check below.
 		if calledHelp() {
 			fmt.Println(c.help)
-			os.Exit(1)
+			return
 		}
 		os.Exit(0)
 	}
@@ -615,7 +619,7 @@ APPS
 	// some flags can set callForHelp, so let's check again
 	if calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(1)
+		return
 	}
 }
 

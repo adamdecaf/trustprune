@@ -167,8 +167,8 @@ func TestTraceNotTruncatedOnStrayArgs(t *testing.T) {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		after := readTestFile(t, tracePath)
-		if string(after) == sentinel {
-			t.Fatal("TRACE file unchanged after accepted list -help")
+		if len(after) == 0 || string(after) == sentinel {
+			t.Fatalf("TRACE file not written on accepted list -help (%d bytes)", len(after))
 		}
 	})
 

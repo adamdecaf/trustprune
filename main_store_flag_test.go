@@ -211,8 +211,8 @@ func TestCLIStoreFlag(t *testing.T) {
 			t.Fatal(err)
 		}
 		res := runCLI(t, bin, home, "add", "-app", "certifi", "-store", bundle, "-dry-run")
-		if res.code == 0 {
-			t.Fatalf("expected failure, stdout=%q stderr=%q", res.stdout, res.stderr)
+		if res.code != 0 {
+			t.Fatalf("missing -file should print help and exit 0, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
 		if !strings.Contains(res.stdout, "Usage: trustprune add") {
 			t.Fatalf("expected add help, stdout=%q stderr=%q", res.stdout, res.stderr)
