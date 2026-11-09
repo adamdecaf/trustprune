@@ -12,6 +12,8 @@ Supported `-app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 1.
 
+Unexpected positional arguments are rejected with exit status 2 before any write (`ERROR: unexpected argument(s): …`). Flag parsing stops at the first non-flag argument, so flags after that argument are not applied. Put flags first. A shell glob that expands into multiple files can leave a later `-dry-run` unparsed and is rejected the same way. `connect` still accepts one optional positional URL.
+
 
 ## apps
 

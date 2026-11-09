@@ -164,7 +164,11 @@ func trace() *cmd.Trace {
 
 func main() {
 	maybePrintCertManageAliasNotice(os.Args[0])
-	t := trace()
+
+	// Start TRACE only after argument checks. NewTrace's os.Create truncates,
+	// so rejectUnexpectedArgs (exit 2) must not open the file. t stays nil
+	// when TRACE is unset; Stop on a nil Trace is a no-op, as before.
+	var t *cmd.Trace
 	defer func() {
 		err := t.Stop()
 		if err != nil {
@@ -173,17 +177,26 @@ func main() {
 		}
 	}()
 
-	// Show help and exit non-zero if no sub-command was given
+	// Show help and exit non-zero if no sub-command was given.
+	// Leave TRACE untouched: this is a usage failure, not an accepted run.
 	if len(os.Args) < 2 {
 		fs.Usage()
 		os.Exit(1)
 	}
 	_ = fs.Parse(os.Args[1:])
 	if len(os.Args) == 2 && calledHelp() {
+		// Accepted top-level -h/-help returns after usage; still trace it.
+		t = trace()
 		fs.Usage()
 		return
 	}
 	_ = fs.Parse(os.Args[2:]) // reparse
+	// flag.Parse stops at the first non-flag, so a later -dry-run (or a shell
+	// glob that expanded into extra paths) would otherwise be ignored and a
+	// write could proceed. Reject that before any command runs, and before
+	// TRACE is opened.
+	rejectUnexpectedArgs(os.Args[1], fs.Args())
+	t = trace()
 
 	// Lift config options into a higher-level
 	cfg := &ui.Config{
@@ -569,15 +582,15 @@ APPS
 	if (!ok && calledHelp()) || c == nil { // sub-command wasn't found
 		fs.Usage()
 		// Help was requested (trustprune -h, or an unknown name with -h).
-		// A bare unknown subcommand still exits non-zero.
+		// Return so deferred TRACE Stop runs (os.Exit skips it); exit 0.
 		if calledHelp() {
-			os.Exit(0)
+			return
 		}
 		os.Exit(1)
 	}
 	if ok && calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(0)
+		return // keep TRACE Stop; matches top-level -h (exit 0)
 	}
 
 	if err := cmd.CheckBundleFlag(os.Args[1], *flagApp, bundleFlag); err != nil {
@@ -596,7 +609,7 @@ APPS
 		// here too; otherwise -app exits 0 before the check below.
 		if calledHelp() {
 			fmt.Println(c.help)
-			os.Exit(0)
+			return
 		}
 		os.Exit(0)
 	}
@@ -609,7 +622,7 @@ APPS
 	// some flags can set callForHelp, so let's check again
 	if calledHelp() {
 		fmt.Println(c.help)
-		os.Exit(0)
+		return
 	}
 }
 
@@ -658,6 +671,33 @@ func certManageAliasActive(version string) bool {
 
 func getVersion() string {
 	return fmt.Sprintf("%s (Go: %s)", Version, runtime.Version())
+}
+
+// unexpectedArgsHint is printed with the unexpected-argument error. Flags
+// after a non-flag are not parsed; a shell glob can expand into that tail.
+const unexpectedArgsHint = "flags must come before any non-flag arguments; a shell glob may have expanded into multiple files"
+
+// flagOnlyCommand reports whether name accepts flags only. connect is the
+// exception: it takes one optional positional URL via parseConnectUrl.
+func flagOnlyCommand(name string) bool {
+	switch strings.ToLower(name) {
+	case "add", "allowlist", "whitelist", "apps", "backup", "gen-allowlist", "gen-whitelist", "list", "restore", "version":
+		return true
+	default:
+		return false
+	}
+}
+
+// rejectUnexpectedArgs exits 2 when a flags-only command is given positional
+// arguments. Help still wins when -h/-help was actually parsed: the flag
+// package never saw a trailing -help that came after a positional.
+func rejectUnexpectedArgs(cmdName string, args []string) {
+	if calledHelp() || len(args) == 0 || !flagOnlyCommand(cmdName) {
+		return
+	}
+	fmt.Printf("ERROR: unexpected argument(s): %s\n", strings.Join(args, " "))
+	fmt.Println(unexpectedArgsHint)
+	os.Exit(2)
 }
 
 func parseConnectUrl(fs *flag.FlagSet) (*url.URL, error) {
