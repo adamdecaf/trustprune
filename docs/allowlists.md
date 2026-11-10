@@ -42,39 +42,34 @@ countries:
 To apply an allowlist against a platform:
 
 ```
-$ trustprune allowlist -file wh.json
+$ trustprune allowlist --file wh.json
 Allowlist completed successfully
 ```
 
 You can also apply an allowlist against an application's certificate store:
 
 ```
-$ trustprune allowlist -file wh.json -app java
+$ trustprune allowlist --file wh.json --app java
 Allowlist completed successfully
 ```
 
-The older `whitelist` command name remains as a hidden alias.
-
-
 ## Generating allowlists
 
-`trustprune` supports generating allowlists from browser history. Either all browsers `-from browser` or specific browsers `-from chrome`.
+`trustprune` supports generating allowlists from browser history. Either all browsers `--from browser` or specific browsers `--from chrome`.
 
-`-out` is required. Without it, `gen-allowlist` prints `ERROR: -out is required` and exits with status 2. With `-out` but neither `-from` nor `-file`, it prints usage and exits 0. The `-out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
+`--out` is required. Without it, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but neither `--from` nor `--file`, it prints usage and exits 0. The `--out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
 
 ```
-$ trustprune gen-allowlist -from browser -out wh.yaml
+$ trustprune gen-allowlist --from browser --out wh.yaml
 CA                                             Fingerprint      Count Example DNSNames
 GeoTrust Inc.                                  ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
 ...
 
-$ trustprune gen-allowlist -from chrome -out wh.yaml
+$ trustprune gen-allowlist --from chrome --out wh.yaml
 CA                                             Fingerprint      Count Example DNSNames
 GeoTrust Inc.                                  ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
 ...
 ```
-
-The older `gen-whitelist` command name remains as a hidden alias.
 
 ### Blocklisted certificates
 
@@ -94,7 +89,7 @@ https://google.com
 https://yahoo.com
 https://bing.com
 
-$ trustprune gen-allowlist -out wh.yaml -file urls.txt
+$ trustprune gen-allowlist --out wh.yaml --file urls.txt
 CA                             Fingerprint      Count Example DNSNames
 DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
 Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
@@ -110,11 +105,11 @@ fingerprints:
 
 ##### CSV files
 
-There are several services which offer "Top N Domains" lists, such as the [Tranco list](https://tranco-list.eu/). These are usually `rank,domain` CSV files. `gen-allowlist -file` reads that format directly and prefixes `https://` onto each domain. Keep only the top N rows you want to scan (for example with `head`). The file may also be gzip-compressed. One `https://` URL per line still works.
+There are several services which offer "Top N Domains" lists, such as the [Tranco list](https://tranco-list.eu/). These are usually `rank,domain` CSV files. `gen-allowlist --file` reads that format directly and prefixes `https://` onto each domain. Keep only the top N rows you want to scan (for example with `head`). The file may also be gzip-compressed. One `https://` URL per line still works.
 
 ```
 $ unzip -p tranco.zip | head -n 1000 > top-sites.csv
-$ trustprune gen-allowlist -out wh.yaml -file top-sites.csv
+$ trustprune gen-allowlist --out wh.yaml --file top-sites.csv
 CA                             Fingerprint      Count Example DNSNames
 DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
 Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
