@@ -156,3 +156,19 @@ func TestRestorePrintsLivePath(t *testing.T) {
 		t.Fatalf("dry-run output %q", out)
 	}
 }
+
+// TestRestore_StoreRejectedForUnsupportedApp checks that --store is only a
+// restore target for java and certifi; other apps must error, not treat it as
+// a backup source.
+func TestRestore_StoreRejectedForUnsupportedApp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	storePath := filepath.Join(t.TempDir(), "cert9.db")
+	if err := Restore("firefox", storePath, ""); err == nil {
+		t.Fatal("expected error for --store with -app firefox")
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path should not be created: %v", err)
+	}
+}
