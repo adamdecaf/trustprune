@@ -70,7 +70,7 @@ func TestCertManageAliasNoticePrinted(t *testing.T) {
 	}
 	old := os.Stderr
 	os.Stderr = w
-	maybePrintCertManageAliasNotice("cert-manage")
+	maybePrintCertManageAliasNotice("cert-manage", w)
 	_ = w.Close()
 	os.Stderr = old
 	out, err := io.ReadAll(r)
@@ -93,7 +93,7 @@ func TestCertManageAliasNoticeSkippedForTrustprune(t *testing.T) {
 	}
 	old := os.Stderr
 	os.Stderr = w
-	maybePrintCertManageAliasNotice("trustprune")
+	maybePrintCertManageAliasNotice("trustprune", w)
 	_ = w.Close()
 	os.Stderr = old
 	out, err := io.ReadAll(r)
@@ -105,4 +105,3 @@ func TestCertManageAliasNoticeSkippedForTrustprune(t *testing.T) {
 		t.Fatalf("expected no notice for trustprune, got %q", out)
 	}
 }
-

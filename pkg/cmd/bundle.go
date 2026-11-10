@@ -22,20 +22,20 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
 
-// CheckBundleFlag reports whether -bundle is allowed for this command.
-// An empty bundle means the flag was not set. Non-empty requires -app openssl
-// and one of list, backup, restore, allowlist, or the whitelist alias.
+// CheckBundleFlag reports whether --bundle is allowed for this command.
+// An empty bundle means the flag was not set. Non-empty requires --app openssl
+// and one of list, backup, restore, or allowlist.
 func CheckBundleFlag(command, app, bundle string) error {
 	if strings.TrimSpace(bundle) == "" {
 		return nil
 	}
 	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "list", "backup", "restore", "allowlist", "whitelist":
+	case "list", "backup", "restore", "allowlist":
 	default:
-		return fmt.Errorf("-bundle is only supported for list, backup, restore, and allowlist")
+		return fmt.Errorf("--bundle is only supported for list, backup, restore, and allowlist")
 	}
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
-		return fmt.Errorf("-bundle requires -app openssl")
+		return fmt.Errorf("--bundle requires --app openssl")
 	}
 	return nil
 }
@@ -69,10 +69,10 @@ func BackupForBundle(bundle string) error {
 }
 
 // AllowlistForBundle applies an allowlist to an explicit openssl PEM CA bundle.
-// allowlistPath is the allowlist file (-file). bundle is the PEM (-bundle).
+// allowlistPath is the allowlist file (--file). bundle is the PEM (--bundle).
 func AllowlistForBundle(app, allowlistPath, bundle string) error {
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
-		return fmt.Errorf("-bundle requires -app openssl")
+		return fmt.Errorf("--bundle requires --app openssl")
 	}
 	s, err := store.OpenSSLBundleAt(bundle)
 	if err != nil {

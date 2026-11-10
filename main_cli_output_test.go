@@ -43,8 +43,9 @@ func TestCLIOutputPolish(t *testing.T) {
 			{"list", "-h"},
 			{"list", "--help"},
 			{"backup", "-help"},
-			{"add"},
 			{"bad-arg", "-h"},
+			{},
+			{"help"},
 		} {
 			res := runCLI(t, bin, home, args...)
 			if res.code != 0 {
@@ -61,7 +62,7 @@ func TestCLIOutputPolish(t *testing.T) {
 		// -store is rejected before any certificate read, so this checks the
 		// runtime.GOOS platform alias without listing the host store.
 		res := runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-store", filepath.Join(home, "nope"))
-		if res.code == 0 || !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") || !strings.Contains(res.stdout, "-store with -app") || strings.Contains(res.stdout+res.stderr, "unknown app") {
+		if res.code == 0 || !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") || !strings.Contains(res.stdout, "--store with --app") || strings.Contains(res.stdout+res.stderr, "unknown app") {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
 	})

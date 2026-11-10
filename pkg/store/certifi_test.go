@@ -144,7 +144,7 @@ func TestCertifiStore_RestoreNoBackupRefusesBeforeWrite(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error with no backup")
 			}
-			want := errNoBackupCmd("certifi", certifiBackupDir, "trustprune backup -app certifi").Error()
+			want := errNoBackupCmd("certifi", certifiBackupDir, "trustprune backup --app certifi").Error()
 			if err.Error() != want {
 				t.Fatalf("got %q, want %q", err.Error(), want)
 			}
@@ -629,8 +629,8 @@ func TestCertifiStore_RestoreCrossPathRefuseForceAndSamePath(t *testing.T) {
 			if !strings.Contains(err.Error(), "refusing restore") {
 				t.Fatalf("expected refusing restore, got %v", err)
 			}
-			if !strings.Contains(err.Error(), "-force") {
-				t.Fatalf("error should mention -force: %v", err)
+			if !strings.Contains(err.Error(), "--force") {
+				t.Fatalf("error should mention --force: %v", err)
 			}
 			assertNoCertifiRestoreWrite(t, pathB, beforeB)
 		})

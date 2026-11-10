@@ -15,24 +15,13 @@
 package main
 
 import (
-	"flag"
 	"strings"
 	"testing"
 )
 
-func TestParseConnectUrl(t *testing.T) {
-	reset := func() {
-		*flagURL = ""
-	}
-	t.Cleanup(reset)
-
+func TestParseConnectURL(t *testing.T) {
 	t.Run("positional", func(t *testing.T) {
-		reset()
-		fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-		if err := fs.Parse([]string{"https://example.com"}); err != nil {
-			t.Fatal(err)
-		}
-		u, err := parseConnectUrl(fs)
+		u, err := parseConnectURL("", []string{"https://example.com"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,13 +31,7 @@ func TestParseConnectUrl(t *testing.T) {
 	})
 
 	t.Run("flagURL", func(t *testing.T) {
-		reset()
-		*flagURL = "https://example.com/via-flag"
-		fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-		if err := fs.Parse([]string{}); err != nil {
-			t.Fatal(err)
-		}
-		u, err := parseConnectUrl(fs)
+		u, err := parseConnectURL("https://example.com/via-flag", nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -58,27 +41,22 @@ func TestParseConnectUrl(t *testing.T) {
 	})
 
 	t.Run("both rejected", func(t *testing.T) {
-		reset()
-		*flagURL = "https://example.com/flag"
-		fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-		if err := fs.Parse([]string{"https://example.com/pos"}); err != nil {
-			t.Fatal(err)
-		}
-		_, err := parseConnectUrl(fs)
+		_, err := parseConnectURL("https://example.com/flag", []string{"https://example.com/pos"})
 		if err == nil || !strings.Contains(err.Error(), "not both") {
 			t.Fatalf("expected both-rejected error, got %v", err)
+		}
+		if !isUsageErr(err) {
+			t.Fatalf("expected usage error, got %v", err)
 		}
 	})
 
 	t.Run("missing", func(t *testing.T) {
-		reset()
-		fs := flag.NewFlagSet("connect", flag.ContinueOnError)
-		if err := fs.Parse([]string{}); err != nil {
-			t.Fatal(err)
-		}
-		_, err := parseConnectUrl(fs)
+		_, err := parseConnectURL("", nil)
 		if err == nil || !strings.Contains(err.Error(), "no url") {
 			t.Fatalf("expected missing url error, got %v", err)
+		}
+		if !isUsageErr(err) {
+			t.Fatalf("expected usage error, got %v", err)
 		}
 	})
 }

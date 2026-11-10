@@ -16,13 +16,13 @@ func TestCertManage_help(t *testing.T) {
 
 	usage := "Usage of trustprune version"
 	subCmdUsage := func(name string) string {
-		return fmt.Sprintf("Usage: trustprune %s ", name)
+		return fmt.Sprintf("trustprune %s ", name)
 	}
 
-	// no args, fs.Usage() and exit 1
+	// no args: accepted help, exit 0
 	out, err := run(t)
-	if err == nil || !strings.Contains(err.Error(), "exit status 1") {
-		t.Errorf("expected exit status 1 with no sub-command, got err=%v", err)
+	if err != nil {
+		t.Errorf("expected exit 0 with no sub-command, got err=%v output=%q", err, out)
 	}
 	if strings.Contains(out, "\n\n  ") {
 		t.Error("expected no blank lines between SUB-COMMANDS entries")
@@ -42,30 +42,32 @@ func TestCertManage_help(t *testing.T) {
 	if strings.Contains(out, "whitelist") {
 		t.Error("top-level help should not list whitelist aliases")
 	}
-	if !strings.Contains(out, "-out <path>") {
-		t.Error("expected -out in top-level FLAGS")
+	if !strings.Contains(out, "COMMANDS") {
+		t.Error("expected COMMANDS in top-level help")
 	}
-	outLine := extractFlagLine(out, "-out <path>")
-	if !strings.Contains(outLine, "list") || !strings.Contains(outLine, "gen-allowlist") {
-		t.Errorf("top-level -out help should describe list and gen-allowlist, got %q", outLine)
+	if !strings.Contains(out, "APPS") {
+		t.Error("expected APPS in top-level help")
 	}
-	if strings.Contains(outLine, "used by gen-allowlist") {
-		t.Errorf("top-level -out help still says it is only for gen-allowlist: %q", outLine)
+	if !strings.Contains(out, "DEBUGGING") {
+		t.Error("expected DEBUGGING in top-level help")
 	}
-	if !strings.Contains(out, "options: cli, web") {
-		t.Errorf("expected stable -ui options order in top-level help, got snippet around -ui: %q", extractFlagLine(out, "-ui"))
+	if !strings.Contains(out, "TRUSTPRUNE_JAVA_STOREPASS") {
+		t.Error("expected TRUSTPRUNE_JAVA_STOREPASS in top-level help")
+	}
+	if !strings.Contains(out, "Run 'trustprune <command> --help' for that command's flags.") {
+		t.Error("expected per-command flags hint in top-level help")
+	}
+	if strings.Contains(out, "\nFLAGS") || strings.Contains(out, "\nOUTPUT") {
+		t.Error("top-level help should not list FLAGS/OUTPUT")
 	}
 
-	// bad argument, fs.Usage()
+	// unknown command is a usage error (exit 2), not full help
 	out, err = run(t, "bad-arg")
-	if err == nil {
-		t.Errorf("expected error, got nothing. output=%q", out)
+	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
+		t.Errorf("expected exit status 2 for unknown command, got err=%v output=%q", err, out)
 	}
-	if err != nil && !strings.Contains(err.Error(), "exit status 1") {
-		t.Errorf("unexpected error: %v", err)
-	}
-	if !strings.Contains(out, usage) {
-		t.Error("expected Usage() text")
+	if !strings.Contains(out, `unknown command "bad-arg"`) {
+		t.Errorf("expected unknown command message, got %q", out)
 	}
 
 	// unknown subcommand with help still prints usage, and exits 0
@@ -89,15 +91,15 @@ func TestCertManage_help(t *testing.T) {
 		}
 	}
 
-	// sub-command, but no args. Missing -file prints usage and exits 0.
+	// sub-command, but no args. Missing required --file is a usage error (exit 2).
 	subCommands := []string{"add", "allowlist"}
 	for i := range subCommands {
 		out, err := run(t, subCommands[i])
-		if err != nil {
-			t.Errorf("sub-command %q, err=%v", subCommands[i], err)
+		if err == nil || !strings.Contains(err.Error(), "exit status 2") {
+			t.Errorf("sub-command %q, expected exit 2, err=%v output=%q", subCommands[i], err, out)
 		}
-		if !strings.Contains(out, subCmdUsage(subCommands[i])) {
-			t.Errorf("sub-command %q, expected sub-command usage", subCommands[i])
+		if !strings.Contains(out, "required flag --file not set") {
+			t.Errorf("sub-command %q, expected required --file error, got %q", subCommands[i], out)
 		}
 	}
 
@@ -126,7 +128,7 @@ func TestCertManage_help(t *testing.T) {
 	// -store is rejected before listing, so this checks the runtime.GOOS
 	// platform alias without reading host certificates.
 	out, err = run(t, "list", "-app", runtime.GOOS, "-store", filepath.Join(t.TempDir(), "nope"))
-	if err == nil || !strings.Contains(out, "ERROR:") || !strings.Contains(out, "-store with -app") || strings.Contains(out, "unknown app") {
+	if err == nil || !strings.Contains(out, "ERROR:") || !strings.Contains(out, "--store with --app") || strings.Contains(out, "unknown app") {
 		t.Errorf("list -app %s -store err=%v output=%q", runtime.GOOS, err, out)
 	}
 	out, _ = run(t, "list", "-h")
@@ -144,42 +146,16 @@ func TestCertManage_help(t *testing.T) {
 	if strings.Contains(out, "used by -format observatory") {
 		t.Error("list help still limits -out to -format observatory")
 	}
-	if !strings.Contains(out, "every -format") {
+	if !strings.Contains(out, "every --format") {
 		t.Errorf("list help should document -out for every format, got %q", out)
 	}
 
-	// hidden aliases still invoke the same commands and share allowlist help
-	aliases := []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"whitelist", nil, subCmdUsage("allowlist")},
-		{"gen-whitelist", []string{"-out", filepath.Join(t.TempDir(), "allowlist.yaml")}, subCmdUsage("gen-allowlist")},
+	out, err = run(t, "whitelist")
+	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
+		t.Errorf("expected exit status 2 for whitelist, got err=%v output=%q", err, out)
 	}
-	for i := range aliases {
-		out, err := run(t, append([]string{aliases[i].name}, aliases[i].args...)...)
-		if err != nil {
-			t.Errorf("alias %q, err=%v output=%q", aliases[i].name, err, out)
-		}
-		if strings.Contains(out, "SUB-COMMANDS") {
-			t.Errorf("alias %q fell through to top-level help", aliases[i].name)
-		}
-		if !strings.Contains(out, aliases[i].want) {
-			t.Errorf("alias %q, expected %q in output, got %q", aliases[i].name, aliases[i].want, out)
-		}
-		for j := range helpChoices {
-			out, err = run(t, aliases[i].name, helpChoices[j])
-			if err != nil {
-				t.Errorf("alias %q %s, err=%v", aliases[i].name, helpChoices[j], err)
-			}
-			if strings.Contains(out, "SUB-COMMANDS") {
-				t.Errorf("alias %q %s fell through to top-level help", aliases[i].name, helpChoices[j])
-			}
-			if !strings.Contains(out, aliases[i].want) {
-				t.Errorf("alias %q %s, expected %q in output", aliases[i].name, helpChoices[j], aliases[i].want)
-			}
-		}
+	if !strings.Contains(out, `unknown command "whitelist"`) {
+		t.Errorf("expected unknown command message for whitelist, got %q", out)
 	}
 }
 
@@ -253,8 +229,8 @@ func TestCertManage_genAllowlistNoFlags(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
 		t.Fatalf("expected exit status 2, got err=%v output=%q", err, out)
 	}
-	if !strings.Contains(out, "ERROR: -out is required") {
-		t.Errorf("expected -out error, got %q", out)
+	if !strings.Contains(out, "required flag --out not set") {
+		t.Errorf("expected --out error, got %q", out)
 	}
 	if strings.Contains(out, "Usage: trustprune gen-allowlist") {
 		t.Errorf("expected no usage text, got %q", out)

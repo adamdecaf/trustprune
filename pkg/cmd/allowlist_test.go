@@ -150,7 +150,7 @@ func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 					}
 					hint := "run: trustprune backup"
 					if app != "" {
-						hint += " -app " + app
+						hint += " --app " + app
 					}
 					if !strings.HasSuffix(want, hint) {
 						t.Fatalf("%q missing hint %q", want, hint)

@@ -116,7 +116,7 @@ func TestAddCertsToAppFromStoreJavaDryRun(t *testing.T) {
 
 func TestAddCertsToAppFromStoreRejectsOtherApps(t *testing.T) {
 	err := AddCertsToAppFromStore("firefox", "/tmp/cert9.db", filepath.Join("..", "..", "testdata", "example.crt"))
-	if err == nil || !strings.Contains(err.Error(), "-store with -app firefox") {
+	if err == nil || !strings.Contains(err.Error(), "--store with --app firefox") {
 		t.Fatalf("got %v", err)
 	}
 }

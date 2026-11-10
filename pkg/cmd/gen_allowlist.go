@@ -40,7 +40,7 @@ var (
 
 func GenerateAllowlist(output string, from, file string) error {
 	if output == "" || (from == "" && file == "") {
-		return errors.New("you need to specify -out <path> and either -from or -file")
+		return errors.New("you need to specify --out <path> and either --from or --file")
 	}
 	output, err := filepath.Abs(output)
 	if err != nil {

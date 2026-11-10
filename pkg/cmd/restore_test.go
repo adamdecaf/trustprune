@@ -25,46 +25,6 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-func TestRestoreArgs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		app        string
-		file       string
-		backup     string
-		storeFile  string
-		backupPath string
-		wantErr    string
-	}{
-		{name: "java file is store", app: "java", file: "/ks", backup: "/b.bck", storeFile: "/ks", backupPath: "/b.bck"},
-		{name: "certifi file is store", app: "certifi", file: "/venv/cacert.pem", storeFile: "/venv/cacert.pem"},
-		{name: "platform file is backup", file: "/linux-backup", backupPath: "/linux-backup"},
-		{name: "platform backup flag", backup: "/linux-backup", backupPath: "/linux-backup"},
-		{name: "platform both same", file: "/p", backup: "/p", backupPath: "/p"},
-		{name: "platform both different", file: "/a", backup: "/b", wantErr: "-file and -backup both set"},
-		{name: "firefox file is backup", app: "firefox", file: "/nss-backup", backupPath: "/nss-backup"},
-		{name: "ssl both different", app: "ssl", file: "/a", backup: "/b", wantErr: "-file and -backup both set"},
-		{name: "java case insensitive", app: "Java", file: "/ks", storeFile: "/ks"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			storeFile, backupPath, err := restoreArgs(tt.app, tt.file, tt.backup)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("err=%v want %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if storeFile != tt.storeFile || backupPath != tt.backupPath {
-				t.Fatalf("storeFile=%q backupPath=%q want %q %q", storeFile, backupPath, tt.storeFile, tt.backupPath)
-			}
-		})
-	}
-}
-
 func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -116,16 +76,16 @@ func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 	if err := os.WriteFile(pathA, []byte("MUTATED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// -file is the store to restore into, not the backup source.
+	// storePath is the store to restore into, not the backup source.
 	if err := Restore("certifi", pathA, ""); err != nil {
-		t.Fatalf("same-path restore via -file: %v", err)
+		t.Fatalf("same-path restore via --store: %v", err)
 	}
 	gotA, err := os.ReadFile(pathA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(gotA, originalA) {
-		t.Fatal("restore -file did not restore into the overridden store")
+		t.Fatal("restore --store did not restore into the overridden store")
 	}
 
 	st := store.CertifiStoreAt(pathA)
@@ -155,7 +115,7 @@ func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(gotB, originalA) {
-		t.Fatal("forced restore did not copy backup into -file store")
+		t.Fatal("forced restore did not copy backup into --store store")
 	}
 }
 

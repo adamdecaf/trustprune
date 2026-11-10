@@ -137,18 +137,23 @@ func TestOutHelpText(t *testing.T) {
 	if top.code != 0 {
 		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", top.code, top.stdout, top.stderr)
 	}
-	outLine := ""
-	for _, line := range strings.Split(top.stdout, "\n") {
-		if strings.Contains(line, "-out <path>") {
-			outLine = strings.TrimSpace(line)
-			break
-		}
+	if !strings.Contains(top.stdout, "COMMANDS") {
+		t.Fatal("root help missing COMMANDS")
 	}
-	if !strings.Contains(outLine, "list") || !strings.Contains(outLine, "gen-allowlist") {
-		t.Fatalf("top-level -out help = %q", outLine)
+	if !strings.Contains(top.stdout, "APPS") {
+		t.Fatal("root help missing APPS")
 	}
-	if strings.Contains(outLine, "used by gen-allowlist") {
-		t.Fatalf("top-level -out help still says it is only for gen-allowlist: %q", outLine)
+	if !strings.Contains(top.stdout, "DEBUGGING") {
+		t.Fatal("root help missing DEBUGGING")
+	}
+	if !strings.Contains(top.stdout, "TRUSTPRUNE_JAVA_STOREPASS") {
+		t.Fatal("root help missing TRUSTPRUNE_JAVA_STOREPASS")
+	}
+	if !strings.Contains(top.stdout, "Run 'trustprune <command> --help' for that command's flags.") {
+		t.Fatalf("root help missing per-command flags line:\n%s", top.stdout)
+	}
+	if strings.Contains(top.stdout, "\nFLAGS") || strings.Contains(top.stdout, "\nOUTPUT") {
+		t.Fatalf("root help still has FLAGS/OUTPUT:\n%s", top.stdout)
 	}
 
 	list := runCLI(t, bin, home, "list", "-h")
@@ -158,10 +163,10 @@ func TestOutHelpText(t *testing.T) {
 	if strings.Contains(list.stdout, "used by -format observatory") {
 		t.Fatal("list help still limits -out to observatory")
 	}
-	if !strings.Contains(list.stdout, "every -format") {
+	if !strings.Contains(list.stdout, "every --format") {
 		t.Fatalf("list help missing every-format -out text:\n%s", list.stdout)
 	}
-	if !strings.Contains(list.stdout, "-format json -out") {
+	if !strings.Contains(list.stdout, "--format json --out") {
 		t.Fatalf("list help missing json -out example:\n%s", list.stdout)
 	}
 }

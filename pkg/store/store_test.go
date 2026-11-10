@@ -395,7 +395,7 @@ func TestForAppPlatformOSName(t *testing.T) {
 	}
 
 	_, err := ForAppWithStore(runtime.GOOS, "/tmp/not-a-store")
-	if err == nil || !strings.Contains(err.Error(), "-store with -app "+runtime.GOOS) {
+	if err == nil || !strings.Contains(err.Error(), "--store with --app "+runtime.GOOS) {
 		t.Fatalf("expected -store rejection, got %v", err)
 	}
 

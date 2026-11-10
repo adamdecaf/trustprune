@@ -103,8 +103,8 @@ type Store interface {
 	// dry-run; it never falls back to a system default state.
 	//
 	// Optionally, this can take a specific filepath to use as the
-	// restore point (the backup source; CLI -backup, and -file on stores
-	// other than java/certifi). This may not be supported on all stores.
+	// restore point (the backup source; CLI --backup). This may not be
+	// supported on all stores.
 	//
 	// Note: It is strongly advised that any additional certs installed
 	// be verified are still properly installed and working after
@@ -168,7 +168,7 @@ func ForAppWithStore(app, storePath string) (Store, error) {
 		return ForApp(app)
 	}
 	if platformAppName(app) {
-		return nil, fmt.Errorf("-store with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
+		return nil, fmt.Errorf("--store with --app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
 	}
 	if _, ok := appStores[key]; !ok {
 		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
@@ -179,7 +179,7 @@ func ForAppWithStore(app, storePath string) (Store, error) {
 	case "certifi":
 		return CertifiStoreAt(storePath), nil
 	default:
-		return nil, fmt.Errorf("-store with -app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
+		return nil, fmt.Errorf("--store with --app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
 	}
 }
 
@@ -260,13 +260,13 @@ func backupParentDisplay() string {
 }
 
 // errNoBackup is returned by Restore when no backup exists for a store. It is
-// raised before any filesystem write (including under -dry-run).
+// raised before any filesystem write (including under --dry-run).
 func errNoBackup(store, name string) error {
 	return errNoBackupCmd(store, name, "trustprune backup")
 }
 
 // errNoBackupCmd is errNoBackup with a custom suggested backup command, used by
-// app stores (e.g. "trustprune backup -app firefox").
+// app stores (e.g. "trustprune backup --app firefox").
 func errNoBackupCmd(store, name, backupCmd string) error {
 	parent := "~/.trustprune"
 	if runtime.GOOS == "darwin" {
@@ -276,7 +276,7 @@ func errNoBackupCmd(store, name, backupCmd string) error {
 }
 
 // NoBackupError is the error the allowlist command returns, before any
-// write, when no backup exists for a store. app is the -app name, or "" for
+// write, when no backup exists for a store. app is the --app name, or "" for
 // the platform store. It matches the wording Restore uses.
 func NoBackupError(app string) error {
 	app = strings.ToLower(strings.TrimSpace(app))
@@ -291,7 +291,7 @@ func NoBackupError(app string) error {
 		// Chrome wraps the platform store here, so backups land in its dir.
 		name = runtime.GOOS
 	}
-	return errNoBackupCmd(app, name, "trustprune backup -app "+app)
+	return errNoBackupCmd(app, name, "trustprune backup --app "+app)
 }
 
 // primaryBackupParent is where new backups are written.
