@@ -57,10 +57,7 @@ APPS
 }
 
 func addBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
-	if flagString(c, "app") == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func addAction(_ context.Context, c *cli.Command) error {
@@ -118,10 +115,7 @@ func allowlistBefore(ctx context.Context, c *cli.Command) (context.Context, erro
 	if err := rejectStoreWithBundle(c, "allowlist: --bundle names the openssl PEM; --store is only for java/certifi"); err != nil {
 		return ctx, err
 	}
-	if flagString(c, "app") == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func allowlistAction(_ context.Context, c *cli.Command) error {
@@ -210,10 +204,7 @@ func backupBefore(ctx context.Context, c *cli.Command) (context.Context, error) 
 	if err := rejectStoreWithBundle(c, "backup: --bundle names the openssl PEM; do not pass --store with --bundle"); err != nil {
 		return ctx, err
 	}
-	if flagString(c, "app") == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func backupAction(_ context.Context, c *cli.Command) error {
@@ -259,10 +250,7 @@ APPS
 }
 
 func connectBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
-	if flagString(c, "app") == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func connectAction(_ context.Context, c *cli.Command) error {
@@ -404,10 +392,7 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi path, not both"); err != nil {
 		return ctx, err
 	}
-	if app == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func listAction(_ context.Context, c *cli.Command) error {
@@ -485,10 +470,7 @@ func restoreBefore(ctx context.Context, c *cli.Command) (context.Context, error)
 	if err := rejectStoreWithBundle(c, "restore: --bundle names the openssl PEM to restore into; --store is only for java/certifi"); err != nil {
 		return ctx, err
 	}
-	if flagString(c, "app") == "" {
-		return ctx, rejectPlatformStore(c)
-	}
-	return ctx, nil
+	return ctx, rejectIncompatibleStore(c)
 }
 
 func restoreAction(_ context.Context, c *cli.Command) error {
@@ -499,7 +481,10 @@ func restoreAction(_ context.Context, c *cli.Command) error {
 	path := storePath(c)
 	backup := flagString(c, "backup")
 	if app == "" {
-		return cmd.Restore("", "", backup)
+		// Pass path through. Before already rejects a non-empty --store with
+		// no app; Restore repeats that check so a missed Before cannot fall
+		// through to the platform store.
+		return cmd.Restore("", path, backup)
 	}
 	if bundle != "" {
 		return cmd.RestoreForBundle(app, backup, bundle)

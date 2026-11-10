@@ -165,10 +165,73 @@ func TestRestore_StoreRejectedForUnsupportedApp(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	storePath := filepath.Join(t.TempDir(), "cert9.db")
-	if err := Restore("firefox", storePath, ""); err == nil {
-		t.Fatal("expected error for --store with -app firefox")
+	err := Restore("firefox", storePath, "")
+	const want = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error %v, want %q", err, want)
 	}
 	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
 		t.Fatalf("store path should not be created: %v", err)
+	}
+}
+
+// TestRestore_EmptyAppWithStoreRejected checks that a store path with no app
+// does not fall through to the platform store. RestoreForPlatform can replace
+// the host CA directory, so this must fail before any write.
+func TestRestore_EmptyAppWithStoreRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetDryRun(false)
+	store.SetForceRestore(false)
+	t.Cleanup(func() {
+		store.SetDryRun(false)
+		store.SetForceRestore(false)
+	})
+
+	// Empty backup on purpose. A non-empty backup handed to RestoreForPlatform
+	// can rewrite the host CA directory. This case must fail before that call.
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "nested", "cacerts")
+	const want = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+
+	for _, app := range []string{"", "   "} {
+		err := Restore(app, storePath, "")
+		if err == nil || err.Error() != want {
+			t.Fatalf("Restore(%q) error %v, want %q", app, err, want)
+		}
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path should not be created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(storePath)); !os.IsNotExist(err) {
+		t.Fatalf("store parent should not be created: %v", err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("HOME not empty: %v", entries)
+	}
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("store dir not empty: %v", entries)
+	}
+
+	// A blank store path still restores the platform store (no backup here).
+	err = Restore("", "  ", "")
+	if err == nil || err.Error() == want || !strings.Contains(err.Error(), "no backup for") {
+		t.Fatalf("blank store path should reach the platform store, got %v", err)
+	}
+	entries, err = os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("platform no-backup path wrote under HOME: %v", entries)
 	}
 }

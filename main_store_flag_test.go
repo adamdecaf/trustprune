@@ -119,6 +119,109 @@ func TestCLIStoreFlag(t *testing.T) {
 	})
 }
 
+// TestCLIStoreOverrideRejectedBeforeWrite checks every command that accepts
+// --store. An unsupported app, and no --app, are usage errors before TRACE
+// opens and before any write.
+func TestCLIStoreOverrideRejectedBeforeWrite(t *testing.T) {
+	bin := cliBinary(t)
+	cert := filepath.Join("testdata", "example.crt")
+	if _, err := os.Stat(cert); err != nil {
+		t.Fatal(err)
+	}
+	const sentinel = "preserve-me\n"
+	const wantFirefox = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	const wantNoApp = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+
+	// Commands that take --store: add, allowlist, backup, connect, list, restore.
+	// --file is required on add and allowlist. connect gets a URL so a missed
+	// store check cannot be mistaken for "no url", and http fails before any dial.
+	commands := []struct {
+		name  string
+		extra []string
+	}{
+		{"add", []string{"--file", cert}},
+		{"allowlist", []string{"--file", cert}},
+		{"backup", nil},
+		{"connect", []string{"--url", "http://127.0.0.1"}},
+		{"list", nil},
+		{"restore", nil},
+	}
+	modes := []struct {
+		name   string
+		prefix []string
+		want   string
+	}{
+		{"firefox", []string{"--app", "firefox"}, wantFirefox},
+		{"no app", nil, wantNoApp},
+	}
+
+	for _, cmd := range commands {
+		for _, mode := range modes {
+			t.Run(cmd.name+" "+mode.name, func(t *testing.T) {
+				home := t.TempDir()
+				storePath := filepath.Join(home, "not-a-store")
+				tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+				args := append([]string{cmd.name}, mode.prefix...)
+				args = append(args, "--store", storePath)
+				args = append(args, cmd.extra...)
+				res := runCLIWithEnv(t, bin, envWithTRACE(home, tracePath), args...)
+				if res.code != 2 {
+					t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+				}
+				if !strings.Contains(res.stderr, mode.want) || !strings.Contains(res.stderr, "--help") {
+					t.Fatalf("stderr=%q\nwant %q", res.stderr, mode.want)
+				}
+				if strings.TrimSpace(res.stdout) != "" {
+					t.Fatalf("stdout=%q", res.stdout)
+				}
+				assertSameBytes(t, tracePath, []byte(sentinel))
+				if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+					t.Fatalf("store path created: %v", err)
+				}
+				entries, err := os.ReadDir(home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) != 0 {
+					t.Fatalf("HOME not empty: %v", entries)
+				}
+			})
+		}
+	}
+}
+
+// TestCLIUnknownAppWithStoreKeepsUnknownError records the unknown-app choice:
+// --store with an unknown app still returns ForApp's error (exit 1), and
+// Before returns it so TRACE is not opened.
+func TestCLIUnknownAppWithStoreKeepsUnknownError(t *testing.T) {
+	bin := cliBinary(t)
+	const sentinel = "preserve-me\n"
+	home := t.TempDir()
+	storePath := filepath.Join(home, "not-a-store")
+	tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+	res := runCLIWithEnv(t, bin, envWithTRACE(home, tracePath), "list", "--app", "nope", "--store", storePath)
+	if res.code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "ERROR: unknown app nope (apps:") || !strings.Contains(res.stdout, "java") {
+		t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	if strings.Contains(res.stderr, "--store with --app") || strings.Contains(res.stdout, "--store with --app") {
+		t.Fatalf("unknown app was reported as an unsupported --store app\nstdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	assertSameBytes(t, tracePath, []byte(sentinel))
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path created: %v", err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("HOME not empty: %v", entries)
+	}
+}
+
 var (
 	cliOnce sync.Once
 	cliBin  string

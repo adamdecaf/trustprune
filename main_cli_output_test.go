@@ -59,11 +59,20 @@ func TestCLIOutputPolish(t *testing.T) {
 	})
 
 	t.Run("list platform os name", func(t *testing.T) {
-		// -store is rejected before any certificate read, so this checks the
-		// runtime.GOOS platform alias without listing the host store.
-		res := runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-store", filepath.Join(home, "nope"))
-		if res.code == 0 || !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") || !strings.Contains(res.stdout, "--store with --app") || strings.Contains(res.stdout+res.stderr, "unknown app") {
+		// --store with the platform OS name is a usage error before any
+		// certificate read, so this checks the runtime.GOOS alias without
+		// listing the host store.
+		storePath := filepath.Join(home, "nope")
+		res := runCLI(t, bin, home, "list", "-app", runtime.GOOS, "-store", storePath)
+		if res.code != 2 {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		want := "--store with --app " + runtime.GOOS + " is only supported for java (keystore override) and certifi (cacert.pem override)"
+		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stdout+res.stderr, "unknown app") || !strings.Contains(res.stderr, want) {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+			t.Fatalf("store path created: %v", err)
 		}
 	})
 

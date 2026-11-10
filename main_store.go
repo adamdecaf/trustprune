@@ -17,6 +17,7 @@ package main
 import (
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/urfave/cli/v3"
 )
 
@@ -24,11 +25,21 @@ func storePath(c *cli.Command) string {
 	return strings.TrimSpace(c.String("store"))
 }
 
-// rejectPlatformStore rejects --store when --app is not set. The platform
-// store has no path override.
-func rejectPlatformStore(c *cli.Command) error {
-	if storePath(c) == "" {
+// rejectIncompatibleStore rejects --store unless --app supports a trust-store
+// path override. The allowed apps come from store.SupportsStoreOverride
+// (java and certifi), not a second list here.
+//
+// No --app, and a recognized app that does not support --store (for example
+// firefox, or the platform OS name), are usage errors. An unknown app keeps
+// the error ForApp returns, but it is returned from Before so the action
+// does not open TRACE.
+func rejectIncompatibleStore(c *cli.Command) error {
+	usage, err := store.CheckStoreOverride(flagString(c, "app"), storePath(c))
+	if err == nil {
 		return nil
 	}
-	return usageExit(c, "--store overrides the trust store path and is only supported with --app java or --app certifi")
+	if !usage {
+		return err
+	}
+	return usageExit(c, err.Error())
 }

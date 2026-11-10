@@ -143,6 +143,118 @@ func platformAppName(app string) bool {
 	return strings.ToLower(app) == runtime.GOOS
 }
 
+// storeOverrideApp is an app that accepts a non-empty trust-store path
+// (CLI --store). storeOverrideApps is the only such list. ForAppWithStore and
+// the rejection messages are built from it. Order is part of the text:
+// java, then certifi.
+type storeOverrideApp struct {
+	name string
+	// what is the parenthetical in the rejection message.
+	what string
+	at   func(path string) Store
+}
+
+var storeOverrideApps = []storeOverrideApp{
+	{name: "java", what: "keystore override", at: JavaStoreAt},
+	{name: "certifi", what: "cacert.pem override", at: CertifiStoreAt},
+}
+
+// SupportsStoreOverride reports whether app accepts a non-empty trust-store
+// path (CLI --store). The check is case-insensitive and does not trim.
+// java and certifi return true. Every other name, including the platform OS
+// name and unknown apps, returns false.
+func SupportsStoreOverride(app string) bool {
+	key := strings.ToLower(app)
+	for i := range storeOverrideApps {
+		if storeOverrideApps[i].name == key {
+			return true
+		}
+	}
+	return false
+}
+
+// StoreOverrideNoAppError is returned when a trust-store path is set and app
+// is empty. Callers must not fall through to the platform store. The text is
+// built from storeOverrideApps.
+func StoreOverrideNoAppError() error {
+	return errors.New(storeOverrideNoAppMessage())
+}
+
+// StoreOverrideUnsupportedError is returned when app is recognized (including
+// the platform OS name) but does not accept a trust-store path override.
+// app is included as given.
+func StoreOverrideUnsupportedError(app string) error {
+	return fmt.Errorf("--store with --app %s is only supported for %s", app, storeOverrideSupportPhrase())
+}
+
+func storeOverrideNoAppMessage() string {
+	parts := make([]string, len(storeOverrideApps))
+	for i, a := range storeOverrideApps {
+		parts[i] = "--app " + a.name
+	}
+	return "--store overrides the trust store path and is only supported with " + joinWords(parts, "or")
+}
+
+func storeOverrideSupportPhrase() string {
+	parts := make([]string, len(storeOverrideApps))
+	for i, a := range storeOverrideApps {
+		parts[i] = a.name + " (" + a.what + ")"
+	}
+	return joinWords(parts, "and")
+}
+
+// joinWords joins parts with commas and conj before the last element.
+// Two parts become "a or b" or "a and b".
+func joinWords(parts []string, conj string) string {
+	switch len(parts) {
+	case 0:
+		return ""
+	case 1:
+		return parts[0]
+	default:
+		return strings.Join(parts[:len(parts)-1], ", ") + " " + conj + " " + parts[len(parts)-1]
+	}
+}
+
+// knownAppName reports whether ForApp accepts app. True for appStores and the
+// platform OS name. It does not open or probe a store.
+func knownAppName(app string) bool {
+	if platformAppName(app) {
+		return true
+	}
+	_, ok := appStores[strings.ToLower(app)]
+	return ok
+}
+
+func unknownAppError(app string) error {
+	return fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
+}
+
+// CheckStoreOverride validates app together with a trust-store path.
+// A blank storePath is allowed and returns a nil error. app and storePath
+// are trimmed.
+//
+// usage is true when the caller should treat err as a usage error: app is
+// empty, or app is recognized but does not support the override (including
+// the platform OS name). usage is false for an unknown app; err is then the
+// same error ForApp returns.
+func CheckStoreOverride(app, storePath string) (usage bool, err error) {
+	if strings.TrimSpace(storePath) == "" {
+		return false, nil
+	}
+	app = strings.TrimSpace(app)
+	if app == "" {
+		return true, StoreOverrideNoAppError()
+	}
+	if SupportsStoreOverride(app) {
+		return false, nil
+	}
+	if !knownAppName(app) {
+		return false, unknownAppError(app)
+	}
+	return true, StoreOverrideUnsupportedError(app)
+}
+
 // ForApp returns a `Store` instance for the given app.
 // The platform OS name (runtime.GOOS) returns Platform and is not listed by GetApps.
 func ForApp(app string) (Store, error) {
@@ -152,7 +264,7 @@ func ForApp(app string) (Store, error) {
 	key := strings.ToLower(app)
 	s, ok := appStores[key]
 	if !ok {
-		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
+		return nil, unknownAppError(app)
 	}
 	return s, nil
 }
@@ -162,25 +274,24 @@ func ForApp(app string) (Store, error) {
 // cacert.pem override (one bundle per venv). Used by -store on list, backup,
 // connect, restore, add, and allowlist. Other apps, including the platform OS
 // name, reject a non-empty storePath. Empty storePath is ForApp.
+// Apps that accept storePath are storeOverrideApps (SupportsStoreOverride).
 func ForAppWithStore(app, storePath string) (Store, error) {
-	key := strings.ToLower(app)
 	if strings.TrimSpace(storePath) == "" {
 		return ForApp(app)
 	}
+	key := strings.ToLower(app)
+	for i := range storeOverrideApps {
+		if storeOverrideApps[i].name == key {
+			return storeOverrideApps[i].at(storePath), nil
+		}
+	}
 	if platformAppName(app) {
-		return nil, fmt.Errorf("--store with --app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
+		return nil, StoreOverrideUnsupportedError(app)
 	}
 	if _, ok := appStores[key]; !ok {
-		return nil, fmt.Errorf("unknown app %s (apps: %s)", app, strings.Join(GetApps(), ", "))
+		return nil, unknownAppError(app)
 	}
-	switch key {
-	case "java":
-		return JavaStoreAt(storePath), nil
-	case "certifi":
-		return CertifiStoreAt(storePath), nil
-	default:
-		return nil, fmt.Errorf("--store with --app %s is only supported for java (keystore override) and certifi (cacert.pem override)", app)
-	}
+	return nil, StoreOverrideUnsupportedError(app)
 }
 
 // ForAppWithFile is ForAppWithStore. The store path used to be passed as -file

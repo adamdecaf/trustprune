@@ -24,12 +24,17 @@ import (
 // Restore runs restore for app (empty app is the platform store).
 //
 // storePath is the java/certifi store to restore into (CLI --store).
-// backup is the backup source (CLI --backup; empty means latest).
+// A non-empty storePath with an empty app is an error and does not call
+// RestoreForPlatform. backup is the backup source (CLI --backup; empty
+// means latest).
 func Restore(app, storePath, backup string) error {
 	app = strings.ToLower(strings.TrimSpace(app))
 	storePath = strings.TrimSpace(storePath)
 	backup = strings.TrimSpace(backup)
 	if app == "" {
+		if storePath != "" {
+			return store.StoreOverrideNoAppError()
+		}
 		return RestoreForPlatform(backup)
 	}
 	if storePath != "" {
