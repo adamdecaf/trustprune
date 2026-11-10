@@ -17,7 +17,7 @@ The CLI is now `trustprune`. A `cert-manage` alias remains through 0.2.x. Releas
 
 Download a pre-built binary from the [latest release](https://github.com/adamdecaf/trustprune/releases).
 
-Tagged **0.1.0** still ships `cert-manage` binaries and predates commands such as `allowlist`, `apps`, and `-dry-run`. For those, [build from source](#build-from-source) or `go install` from `master` until a renamed release is published.
+Tagged **0.1.0** still ships `cert-manage` binaries and predates commands such as `allowlist`, `apps`, and `--dry-run`. For those, [build from source](#build-from-source) or `go install` from `master` until a renamed release is published.
 
 Cross-compile locally with Make (outputs under `bin/`):
 
@@ -34,7 +34,7 @@ make dist     # all three
 go install github.com/adamdecaf/trustprune@master
 ```
 
-Use `@master` for the current command set (`allowlist`, `apps`, `-dry-run`, …). `go install …@latest` resolves to tagged **0.1.0**, which still ships `cert-manage` only. That installs a binary named `trustprune` (Go uses the last path element). `make build` also creates a local `cert-manage` symlink alias.
+Use `@master` for the current command set (`allowlist`, `apps`, `--dry-run`, …). `go install …@latest` resolves to tagged **0.1.0**, which still ships `cert-manage` only. That installs a binary named `trustprune` (Go uses the last path element). `make build` also creates a local `cert-manage` symlink alias.
 
 ## Build from source
 

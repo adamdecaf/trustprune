@@ -665,7 +665,7 @@ func darwinBackupCertFingerprint(name string) (string, bool) {
 // Restore operates mostly on the system keychain and removes certificates which we've
 // explicitly marked "Never Trust". This re-enables them for use by apps.
 //
-// Afterwards, the login keychain is restored from where (CLI -backup / -file), or from the
+// Afterwards, the login keychain is restored from where (CLI --backup), or from the
 // latest darwin backup when where is empty. where may be a backup timestamp
 // directory (…/darwin/<unix>/) or the login.keychain directory that holds the
 // exported PEM files.

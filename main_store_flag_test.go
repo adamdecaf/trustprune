@@ -29,104 +29,6 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
-func TestResolveStorePath(t *testing.T) {
-	t.Parallel()
-	rel := filepath.Join("rel-store", "cacerts")
-	absRel, err := filepath.Abs(rel)
-	if err != nil {
-		t.Fatal(err)
-	}
-	viaDot := filepath.Join("rel-store", "..", "rel-store", "cacerts")
-	tests := []struct {
-		name      string
-		store     string
-		file      string
-		alias     bool
-		wantPath  string
-		wantWarn  bool
-		wantError string
-	}{
-		{name: "alias file only", file: "/ks", alias: true, wantPath: "/ks", wantWarn: true},
-		{name: "alias store only", store: "/ks", alias: true, wantPath: "/ks"},
-		{name: "same value prefers store and warns", store: "/ks", file: "/ks", alias: true, wantPath: "/ks", wantWarn: true},
-		{name: "trim makes same value", store: " /ks ", file: "/ks", alias: true, wantPath: "/ks", wantWarn: true},
-		{name: "clean equivalent", store: "/tmp/a", file: "/tmp/./a", alias: true, wantPath: "/tmp/a", wantWarn: true},
-		{name: "clean equivalent prefers store text", store: "/tmp/./a", file: "/tmp/a", alias: true, wantPath: "/tmp/./a", wantWarn: true},
-		{name: "trim and clean equivalent", store: " /tmp/./a ", file: "/tmp/a", alias: true, wantPath: "/tmp/./a", wantWarn: true},
-		{name: "abs equivalent", store: rel, file: absRel, alias: true, wantPath: rel, wantWarn: true},
-		{name: "abs equivalent prefers store text", store: absRel, file: rel, alias: true, wantPath: absRel, wantWarn: true},
-		{name: "dotdot agrees with absolute", store: viaDot, file: absRel, alias: true, wantPath: viaDot, wantWarn: true},
-		{name: "whitespace file is empty", store: "/ks", file: "  ", alias: true, wantPath: "/ks"},
-		{name: "disagree", store: "/a", file: "/b", alias: true, wantError: "disagree"},
-		{name: "clean still disagrees", store: "/tmp/a", file: "/tmp/b", alias: true, wantError: "disagree"},
-		{name: "alias both empty", alias: true},
-		{name: "not alias ignores file", store: "", file: "/pem", wantPath: ""},
-		{name: "not alias returns store only", store: "/s", file: "/pem", wantPath: "/s"},
-		{name: "not alias does not disagree", store: "/a", file: "/b", wantPath: "/a"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			path, warn, err := resolveStorePath(tt.store, tt.file, tt.alias)
-			if tt.wantError != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantError) {
-					t.Fatalf("err=%v want %q", err, tt.wantError)
-				}
-				if warn {
-					t.Fatal("warn set on error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if path != tt.wantPath || warn != tt.wantWarn {
-				t.Fatalf("path=%q warn=%v want path=%q warn=%v", path, warn, tt.wantPath, tt.wantWarn)
-			}
-		})
-	}
-}
-
-func TestFileIsStorePath(t *testing.T) {
-	t.Parallel()
-	yes := []struct{ cmd, app string }{
-		{"list", "java"},
-		{"list", "firefox"},
-		{"list", " Java "},
-		{"backup", "certifi"},
-		{"connect", "chrome"},
-		{"restore", "java"},
-		{"restore", "CERTIFI"},
-		{"restore", " Java "},
-		{"LIST", "java"},
-	}
-	no := []struct{ cmd, app string }{
-		{"list", ""},
-		{"backup", ""},
-		{"backup", "  "},
-		{"connect", ""},
-		{"restore", ""},
-		{"restore", "firefox"},
-		{"restore", "ssl"},
-		{"restore", "openssl"},
-		{"restore", "chrome"},
-		{"add", "certifi"},
-		{"add", "java"},
-		{"allowlist", "java"},
-		{"whitelist", "certifi"},
-		{"gen-allowlist", ""},
-	}
-	for _, tc := range yes {
-		if !fileIsStorePath(tc.cmd, tc.app) {
-			t.Errorf("fileIsStorePath(%q, %q) = false, want true", tc.cmd, tc.app)
-		}
-	}
-	for _, tc := range no {
-		if fileIsStorePath(tc.cmd, tc.app) {
-			t.Errorf("fileIsStorePath(%q, %q) = true, want false", tc.cmd, tc.app)
-		}
-	}
-}
-
 func TestCLIStoreFlag(t *testing.T) {
 	bin := cliBinary(t)
 	lots := filepath.Join("testdata", "lots.crt")
@@ -146,10 +48,6 @@ func TestCLIStoreFlag(t *testing.T) {
 	if err := os.WriteFile(bundle, src, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	other := filepath.Join(t.TempDir(), "other.pem")
-	if err := os.WriteFile(other, src, 0o644); err != nil {
-		t.Fatal(err)
-	}
 	home := t.TempDir()
 
 	t.Run("list store certifi", func(t *testing.T) {
@@ -165,29 +63,19 @@ func TestCLIStoreFlag(t *testing.T) {
 		}
 	})
 
-	t.Run("list file alias warns", func(t *testing.T) {
-		res := runCLI(t, bin, home, "list", "-app", "certifi", "-file", bundle, "-count")
-		if res.code != 0 {
+	t.Run("list --app --file is rejected", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--app", "certifi", "--file", bundle, "--count")
+		if res.code != 2 {
 			t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
 		}
-		if strings.TrimSpace(res.stdout) != fmt.Sprint(len(certs)) {
-			t.Fatalf("count %q want %d", res.stdout, len(certs))
+		if strings.Contains(res.stdout, "ERROR:") {
+			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stderr, storePathDeprecation) {
-			t.Fatalf("stderr missing deprecation warning:\n%s", res.stderr)
-		}
-	})
-
-	t.Run("list store and file disagree", func(t *testing.T) {
-		res := runCLI(t, bin, home, "list", "-app", "certifi", "-store", bundle, "-file", other, "-count")
-		if res.code == 0 {
-			t.Fatal("expected non-zero exit")
-		}
-		if !strings.Contains(res.stderr, "ERROR:") || !strings.Contains(res.stderr, "disagree") {
-			t.Fatalf("stderr=%q stdout=%q", res.stderr, res.stdout)
+		if !strings.Contains(res.stderr, "--file lists a PEM") {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		if strings.TrimSpace(res.stdout) == fmt.Sprint(len(certs)) {
-			t.Fatal("listed certificates after a flag conflict")
+			t.Fatal("listed certificates after --file/--app conflict")
 		}
 	})
 
@@ -211,11 +99,11 @@ func TestCLIStoreFlag(t *testing.T) {
 			t.Fatal(err)
 		}
 		res := runCLI(t, bin, home, "add", "-app", "certifi", "-store", bundle, "-dry-run")
-		if res.code != 0 {
-			t.Fatalf("missing -file should print help and exit 0, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		if res.code != 2 {
+			t.Fatalf("missing --file should be a usage error, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "Usage: trustprune add") {
-			t.Fatalf("expected add help, stdout=%q stderr=%q", res.stdout, res.stderr)
+		if !strings.Contains(res.stderr, "required flag --file not set") {
+			t.Fatalf("expected required --file error, stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		if strings.Contains(res.stdout, "would add") || strings.Contains(res.stderr, "would add") {
 			t.Fatalf("treated -store as the certificate:\nstdout=%s\nstderr=%s", res.stdout, res.stderr)
@@ -229,6 +117,109 @@ func TestCLIStoreFlag(t *testing.T) {
 			t.Fatal("add -store modified the bundle")
 		}
 	})
+}
+
+// TestCLIStoreOverrideRejectedBeforeWrite checks every command that accepts
+// --store. An unsupported app, and no --app, are usage errors before TRACE
+// opens and before any write.
+func TestCLIStoreOverrideRejectedBeforeWrite(t *testing.T) {
+	bin := cliBinary(t)
+	cert := filepath.Join("testdata", "example.crt")
+	if _, err := os.Stat(cert); err != nil {
+		t.Fatal(err)
+	}
+	const sentinel = "preserve-me\n"
+	const wantFirefox = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	const wantNoApp = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+
+	// Commands that take --store: add, allowlist, backup, connect, list, restore.
+	// --file is required on add and allowlist. connect gets a URL so a missed
+	// store check cannot be mistaken for "no url", and http fails before any dial.
+	commands := []struct {
+		name  string
+		extra []string
+	}{
+		{"add", []string{"--file", cert}},
+		{"allowlist", []string{"--file", cert}},
+		{"backup", nil},
+		{"connect", []string{"--url", "http://127.0.0.1"}},
+		{"list", nil},
+		{"restore", nil},
+	}
+	modes := []struct {
+		name   string
+		prefix []string
+		want   string
+	}{
+		{"firefox", []string{"--app", "firefox"}, wantFirefox},
+		{"no app", nil, wantNoApp},
+	}
+
+	for _, cmd := range commands {
+		for _, mode := range modes {
+			t.Run(cmd.name+" "+mode.name, func(t *testing.T) {
+				home := t.TempDir()
+				storePath := filepath.Join(home, "not-a-store")
+				tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+				args := append([]string{cmd.name}, mode.prefix...)
+				args = append(args, "--store", storePath)
+				args = append(args, cmd.extra...)
+				res := runCLIWithEnv(t, bin, envWithTRACE(home, tracePath), args...)
+				if res.code != 2 {
+					t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+				}
+				if !strings.Contains(res.stderr, mode.want) || !strings.Contains(res.stderr, "--help") {
+					t.Fatalf("stderr=%q\nwant %q", res.stderr, mode.want)
+				}
+				if strings.TrimSpace(res.stdout) != "" {
+					t.Fatalf("stdout=%q", res.stdout)
+				}
+				assertSameBytes(t, tracePath, []byte(sentinel))
+				if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+					t.Fatalf("store path created: %v", err)
+				}
+				entries, err := os.ReadDir(home)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(entries) != 0 {
+					t.Fatalf("HOME not empty: %v", entries)
+				}
+			})
+		}
+	}
+}
+
+// TestCLIUnknownAppWithStoreKeepsUnknownError records the unknown-app choice:
+// --store with an unknown app still returns ForApp's error (exit 1), and
+// Before returns it so TRACE is not opened.
+func TestCLIUnknownAppWithStoreKeepsUnknownError(t *testing.T) {
+	bin := cliBinary(t)
+	const sentinel = "preserve-me\n"
+	home := t.TempDir()
+	storePath := filepath.Join(home, "not-a-store")
+	tracePath := writeTestFile(t, "trace.out", []byte(sentinel))
+	res := runCLIWithEnv(t, bin, envWithTRACE(home, tracePath), "list", "--app", "nope", "--store", storePath)
+	if res.code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "ERROR: unknown app nope (apps:") || !strings.Contains(res.stdout, "java") {
+		t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	if strings.Contains(res.stderr, "--store with --app") || strings.Contains(res.stdout, "--store with --app") {
+		t.Fatalf("unknown app was reported as an unsupported --store app\nstdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	assertSameBytes(t, tracePath, []byte(sentinel))
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path created: %v", err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("HOME not empty: %v", entries)
+	}
 }
 
 var (

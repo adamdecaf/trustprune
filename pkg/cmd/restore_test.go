@@ -25,46 +25,6 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-func TestRestoreArgs(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name       string
-		app        string
-		file       string
-		backup     string
-		storeFile  string
-		backupPath string
-		wantErr    string
-	}{
-		{name: "java file is store", app: "java", file: "/ks", backup: "/b.bck", storeFile: "/ks", backupPath: "/b.bck"},
-		{name: "certifi file is store", app: "certifi", file: "/venv/cacert.pem", storeFile: "/venv/cacert.pem"},
-		{name: "platform file is backup", file: "/linux-backup", backupPath: "/linux-backup"},
-		{name: "platform backup flag", backup: "/linux-backup", backupPath: "/linux-backup"},
-		{name: "platform both same", file: "/p", backup: "/p", backupPath: "/p"},
-		{name: "platform both different", file: "/a", backup: "/b", wantErr: "-file and -backup both set"},
-		{name: "firefox file is backup", app: "firefox", file: "/nss-backup", backupPath: "/nss-backup"},
-		{name: "ssl both different", app: "ssl", file: "/a", backup: "/b", wantErr: "-file and -backup both set"},
-		{name: "java case insensitive", app: "Java", file: "/ks", storeFile: "/ks"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			storeFile, backupPath, err := restoreArgs(tt.app, tt.file, tt.backup)
-			if tt.wantErr != "" {
-				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
-					t.Fatalf("err=%v want %q", err, tt.wantErr)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if storeFile != tt.storeFile || backupPath != tt.backupPath {
-				t.Fatalf("storeFile=%q backupPath=%q want %q %q", storeFile, backupPath, tt.storeFile, tt.backupPath)
-			}
-		})
-	}
-}
-
 func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -116,16 +76,16 @@ func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 	if err := os.WriteFile(pathA, []byte("MUTATED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// -file is the store to restore into, not the backup source.
+	// storePath is the store to restore into, not the backup source.
 	if err := Restore("certifi", pathA, ""); err != nil {
-		t.Fatalf("same-path restore via -file: %v", err)
+		t.Fatalf("same-path restore via --store: %v", err)
 	}
 	gotA, err := os.ReadFile(pathA)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(gotA, originalA) {
-		t.Fatal("restore -file did not restore into the overridden store")
+		t.Fatal("restore --store did not restore into the overridden store")
 	}
 
 	st := store.CertifiStoreAt(pathA)
@@ -155,7 +115,7 @@ func TestRestore_FileIsStoreTargetForCertifi(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(gotB, originalA) {
-		t.Fatal("forced restore did not copy backup into -file store")
+		t.Fatal("forced restore did not copy backup into --store store")
 	}
 }
 
@@ -194,5 +154,84 @@ func TestRestorePrintsLivePath(t *testing.T) {
 	})
 	if !strings.Contains(out, "dry-run: no changes made\n") || strings.Contains(out, "Restore completed successfully") {
 		t.Fatalf("dry-run output %q", out)
+	}
+}
+
+// TestRestore_StoreRejectedForUnsupportedApp checks that --store is only a
+// restore target for java and certifi; other apps must error, not treat it as
+// a backup source.
+func TestRestore_StoreRejectedForUnsupportedApp(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	storePath := filepath.Join(t.TempDir(), "cert9.db")
+	err := Restore("firefox", storePath, "")
+	const want = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("error %v, want %q", err, want)
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path should not be created: %v", err)
+	}
+}
+
+// TestRestore_EmptyAppWithStoreRejected checks that a store path with no app
+// does not fall through to the platform store. RestoreForPlatform can replace
+// the host CA directory, so this must fail before any write.
+func TestRestore_EmptyAppWithStoreRejected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetDryRun(false)
+	store.SetForceRestore(false)
+	t.Cleanup(func() {
+		store.SetDryRun(false)
+		store.SetForceRestore(false)
+	})
+
+	// Empty backup on purpose. A non-empty backup handed to RestoreForPlatform
+	// can rewrite the host CA directory. This case must fail before that call.
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "nested", "cacerts")
+	const want = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+
+	for _, app := range []string{"", "   "} {
+		err := Restore(app, storePath, "")
+		if err == nil || err.Error() != want {
+			t.Fatalf("Restore(%q) error %v, want %q", app, err, want)
+		}
+	}
+	if _, err := os.Stat(storePath); !os.IsNotExist(err) {
+		t.Fatalf("store path should not be created: %v", err)
+	}
+	if _, err := os.Stat(filepath.Dir(storePath)); !os.IsNotExist(err) {
+		t.Fatalf("store parent should not be created: %v", err)
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("HOME not empty: %v", entries)
+	}
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("store dir not empty: %v", entries)
+	}
+
+	// A blank store path still restores the platform store (no backup here).
+	err = Restore("", "  ", "")
+	if err == nil || err.Error() == want || !strings.Contains(err.Error(), "no backup for") {
+		t.Fatalf("blank store path should reach the platform store, got %v", err)
+	}
+	entries, err = os.ReadDir(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("platform no-backup path wrote under HOME: %v", entries)
 	}
 }

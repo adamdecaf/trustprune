@@ -120,16 +120,16 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	stdout, stderr, err = runBundleCLI(t, bin.command, env, "whitelist", "-app", "openssl", "-file", allowlistPath, "-bundle", live, "-dry-run")
+	stdout, stderr, err = runBundleCLI(t, bin.command, env, "allowlist", "-app", "openssl", "-file", allowlistPath, "-bundle", live, "-dry-run")
 	if err != nil || !strings.Contains(stdout, "dry-run: no changes made") {
-		t.Fatalf("whitelist -dry-run: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
+		t.Fatalf("allowlist --dry-run: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
 	afterAllow, err := os.ReadFile(live)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(beforeAllow, afterAllow) {
-		t.Fatal("whitelist -dry-run mutated the PEM")
+		t.Fatal("allowlist --dry-run mutated the PEM")
 	}
 
 	if err := os.WriteFile(live, []byte("MUTATED\n"), 0o644); err != nil {
@@ -180,16 +180,16 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 	}
 
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "list", "-app", "java", "-bundle", live, "-count")
-	if err == nil || !strings.Contains(stdout+stderr, "-bundle requires -app openssl") {
+	if err == nil || !strings.Contains(stdout+stderr, "--bundle requires --app openssl") {
 		t.Fatalf("wrong app: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
-	assertExitOne(t, err)
+	assertExitTwo(t, err)
 
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "add", "-app", "openssl", "-bundle", live)
-	if err == nil || !strings.Contains(stdout+stderr, "-bundle is only supported for list, backup, restore, and allowlist") {
+	if err == nil || !strings.Contains(stdout+stderr, "unknown flag") || !strings.Contains(stdout+stderr, "bundle") {
 		t.Fatalf("unsupported command: %v\nstdout=%s\nstderr=%s", err, stdout, stderr)
 	}
-	assertExitOne(t, err)
+	assertExitTwo(t, err)
 
 	stdout, stderr, err = runBundleCLI(t, bin.command, env, "backup", "-app", "openssl", "-bundle", bundleDir)
 	if err == nil || !strings.Contains(stdout+stderr, "is a directory") {
@@ -257,6 +257,14 @@ func assertExitOne(t *testing.T, err error) {
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
 		t.Fatalf("exit %v, want status 1", err)
+	}
+}
+
+func assertExitTwo(t *testing.T, err error) {
+	t.Helper()
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 2 {
+		t.Fatalf("exit %v, want status 2", err)
 	}
 }
 

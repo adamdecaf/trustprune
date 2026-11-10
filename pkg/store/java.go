@@ -132,10 +132,9 @@ func environWithOverrides(base []string, overrides []string) []string {
 
 type javaStore struct {
 	// keystoreOverride, when set, is the cacerts (or other) keystore file to
-	// use instead of searching JAVA_HOME / platform install paths. CLI -store
-	// with -app java sets this for list, backup, connect, restore, add, and
-	// allowlist. The deprecated -file alias still sets it on list, backup,
-	// connect, and restore.
+	// use instead of searching JAVA_HOME / platform install paths. CLI --store
+	// with --app java sets this for list, backup, connect, restore, add, and
+	// allowlist.
 	keystoreOverride string
 }
 
@@ -435,7 +434,7 @@ func checkJavaBackupSource(backup, dst string, allowUnknown, force bool) error {
 		if force {
 			return nil
 		}
-		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore -backup to use it", backup)
+		return fmt.Errorf("store/java: backup %s has no recorded source keystore; pass it with restore --backup to use it", backup)
 	}
 	if sameJavaKeystore(recorded, dst) {
 		return nil
@@ -443,7 +442,7 @@ func checkJavaBackupSource(backup, dst string, allowUnknown, force bool) error {
 	if force {
 		return nil
 	}
-	return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, dst)
+	return fmt.Errorf("store/java: refusing restore: backup %s was taken from %s, not %s; pass --force to restore into a different path", backup, recorded, dst)
 }
 
 func (s javaStore) GetLatestBackup() (string, error) {
@@ -655,7 +654,7 @@ type keytool struct {
 	relativeKeystorePaths []string
 
 	// explicitKeystore, when set, skips JAVA_HOME / install-path search and
-	// uses this file directly (CLI -store with -app java).
+	// uses this file directly (CLI --store with --app java).
 	explicitKeystore string
 }
 

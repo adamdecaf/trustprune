@@ -115,8 +115,8 @@ func TestJavaRestore_CrossPathRefuseForceAndSamePath(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), "refusing restore") {
 				t.Fatalf("expected refusal, got %v", err)
 			}
-			if !strings.Contains(err.Error(), "-force") {
-				t.Fatalf("error should mention -force: %v", err)
+			if !strings.Contains(err.Error(), "--force") {
+				t.Fatalf("error should mention --force: %v", err)
 			}
 			got, err := os.ReadFile(b)
 			if err != nil {

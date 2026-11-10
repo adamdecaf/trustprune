@@ -69,7 +69,7 @@ func sslStoreAt(path string) sslStore {
 
 func (s sslStore) certPath() (string, error) {
 	if s.path == "" {
-		return "", errors.New("ssl store is only available on Darwin; use -app ssl on macOS where /etc/ssl/cert.pem exists")
+		return "", errors.New("ssl store is only available on Darwin; use --app ssl on macOS where /etc/ssl/cert.pem exists")
 	}
 	return s.path, nil
 }
@@ -209,7 +209,7 @@ func (s sslStore) Restore(where string) error {
 			return err
 		}
 		if src == "" {
-			return fmt.Errorf("no ssl backup found under %s/%s; run: trustprune backup -app ssl", backupParentDisplay(), sslBackupDir)
+			return fmt.Errorf("no ssl backup found under %s/%s; run: trustprune backup --app ssl", backupParentDisplay(), sslBackupDir)
 		}
 	}
 	srcFile, err := sslBackupFile(src)
@@ -218,7 +218,7 @@ func (s sslStore) Restore(where string) error {
 	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
-		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -file to a cert.pem backup", srcFile, err)
+		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass --backup to a cert.pem backup", srcFile, err)
 	}
 	if len(certs) == 0 {
 		return fmt.Errorf("restore source %s contains no certificates; refusing to overwrite %s", srcFile, path)
@@ -272,7 +272,7 @@ func sslBackupFile(src string) (string, error) {
 	if st.IsDir() {
 		candidate := filepath.Join(src, sslBackupFilename)
 		if !file.Exists(candidate) {
-			return "", fmt.Errorf("ssl backup dir %s has no %s; pass -file to a PEM backup", src, sslBackupFilename)
+			return "", fmt.Errorf("ssl backup dir %s has no %s; pass --backup to a PEM backup", src, sslBackupFilename)
 		}
 		return candidate, nil
 	}
@@ -337,7 +337,7 @@ func (s sslStore) warnIfDrifted(w io.Writer) {
 	if err != nil || got == want {
 		return
 	}
-	fmt.Fprintf(w, "ssl: %s differs from the last trustprune write (SHA256 %s -> %s); a macOS update may have restored Apple's copy. Re-apply: trustprune backup -app ssl && trustprune allowlist -app ssl -file <allowlist>, or trustprune restore -app ssl\n",
+	fmt.Fprintf(w, "ssl: %s differs from the last trustprune write (SHA256 %s -> %s); a macOS update may have restored Apple's copy. Re-apply: trustprune backup --app ssl && trustprune allowlist --app ssl --file <allowlist>, or trustprune restore --app ssl\n",
 		path, shortSHA(want), shortSHA(got))
 }
 

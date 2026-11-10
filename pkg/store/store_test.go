@@ -339,6 +339,63 @@ func TestGetLatestBackup_NSSMixedUnderTempHome(t *testing.T) {
 	}
 }
 
+func TestStoreOverrideSourceOfTruth(t *testing.T) {
+	if !SupportsStoreOverride("java") || !SupportsStoreOverride("JAVA") || !SupportsStoreOverride("certifi") {
+		t.Fatal("java and certifi must accept --store")
+	}
+	for _, app := range []string{"firefox", "chrome", "openssl", "ssl", runtime.GOOS, "nope", "", " java"} {
+		if SupportsStoreOverride(app) {
+			t.Fatalf("SupportsStoreOverride(%q) = true", app)
+		}
+	}
+
+	const wantFirefox = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	if got := StoreOverrideUnsupportedError("firefox").Error(); got != wantFirefox {
+		t.Fatalf("unsupported error %q", got)
+	}
+	_, err := ForAppWithStore("firefox", "/tmp/not-a-store")
+	if err == nil || err.Error() != wantFirefox {
+		t.Fatalf("ForAppWithStore firefox: %v", err)
+	}
+	_, err = ForAppWithStore(runtime.GOOS, "/tmp/not-a-store")
+	wantOS := StoreOverrideUnsupportedError(runtime.GOOS).Error()
+	if err == nil || err.Error() != wantOS {
+		t.Fatalf("ForAppWithStore %s: %v", runtime.GOOS, err)
+	}
+
+	const wantNoApp = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+	if got := StoreOverrideNoAppError().Error(); got != wantNoApp {
+		t.Fatalf("no-app error %q", got)
+	}
+
+	usage, err := CheckStoreOverride("", "/tmp/not-a-store")
+	if !usage || err == nil || err.Error() != wantNoApp {
+		t.Fatalf("empty app usage=%v err=%v", usage, err)
+	}
+	usage, err = CheckStoreOverride("  ", "  /tmp/not-a-store")
+	if !usage || err == nil || err.Error() != wantNoApp {
+		t.Fatalf("blank app usage=%v err=%v", usage, err)
+	}
+	usage, err = CheckStoreOverride("firefox", "/tmp/not-a-store")
+	if !usage || err == nil || err.Error() != wantFirefox {
+		t.Fatalf("firefox usage=%v err=%v", usage, err)
+	}
+	usage, err = CheckStoreOverride(" JAVA ", "/tmp/not-a-store")
+	if usage || err != nil {
+		t.Fatalf("java override usage=%v err=%v", usage, err)
+	}
+	usage, err = CheckStoreOverride("certifi", "")
+	if usage || err != nil {
+		t.Fatalf("empty store usage=%v err=%v", usage, err)
+	}
+
+	_, wantUnknown := ForApp("NoPe")
+	usage, err = CheckStoreOverride("NoPe", "/tmp/not-a-store")
+	if usage || err == nil || wantUnknown == nil || err.Error() != wantUnknown.Error() {
+		t.Fatalf("unknown usage=%v err=%v want %v", usage, err, wantUnknown)
+	}
+}
+
 func TestForAppUnknown(t *testing.T) {
 	_, err := ForApp("nope")
 	if err == nil {
@@ -395,7 +452,7 @@ func TestForAppPlatformOSName(t *testing.T) {
 	}
 
 	_, err := ForAppWithStore(runtime.GOOS, "/tmp/not-a-store")
-	if err == nil || !strings.Contains(err.Error(), "-store with -app "+runtime.GOOS) {
+	if err == nil || !strings.Contains(err.Error(), "--store with --app "+runtime.GOOS) {
 		t.Fatalf("expected -store rejection, got %v", err)
 	}
 

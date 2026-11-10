@@ -15,85 +15,31 @@
 package main
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
+
+	"github.com/adamdecaf/trustprune/pkg/store"
+	"github.com/urfave/cli/v3"
 )
 
-// storePathDeprecation is printed to stderr when -file supplies a store path.
-const storePathDeprecation = "WARNING: -file as a store path is deprecated; use -store instead\n"
+func storePath(c *cli.Command) string {
+	return strings.TrimSpace(c.String("store"))
+}
 
-// fileIsStorePath reports whether -file is a store-path alias for this command.
+// rejectIncompatibleStore rejects --store unless --app supports a trust-store
+// path override. The allowed apps come from store.SupportsStoreOverride
+// (java and certifi), not a second list here.
 //
-// list, backup, and connect use -file as a store path only when -app is set.
-// restore uses -file as a store path only for java and certifi. Every other
-// restore target still treats -file as a backup source. add and allowlist never
-// treat -file as a store path.
-func fileIsStorePath(command, app string) bool {
-	app = strings.ToLower(strings.TrimSpace(app))
-	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "list", "backup", "connect":
-		return app != ""
-	case "restore":
-		return app == "java" || app == "certifi"
-	default:
-		return false
+// No --app, and a recognized app that does not support --store (for example
+// firefox, or the platform OS name), are usage errors. An unknown app keeps
+// the error ForApp returns, but it is returned from Before so the action
+// does not open TRACE.
+func rejectIncompatibleStore(c *cli.Command) error {
+	usage, err := store.CheckStoreOverride(flagString(c, "app"), storePath(c))
+	if err == nil {
+		return nil
 	}
-}
-
-// resolveStorePath merges -store with the deprecated -file store-path alias.
-// fileIsAlias is true when -file means a store path on this command.
-// storePath wins when both are set. Values that match after trim, and after
-// Abs then Clean (Clean of the original if Abs fails), are the same path
-// (/tmp/a and /tmp/./a agree, as do a relative path and its absolute form).
-// The returned path stays the trimmed text the caller passed. A non-empty
-// file alias sets warn even when -store has the same value.
-// When fileIsAlias is false, filePath is ignored and storePath is returned as-is.
-func resolveStorePath(storePath, filePath string, fileIsAlias bool) (path string, warn bool, err error) {
-	storePath = strings.TrimSpace(storePath)
-	filePath = strings.TrimSpace(filePath)
-	if !fileIsAlias {
-		return storePath, false, nil
+	if !usage {
+		return err
 	}
-	if storePath != "" && filePath != "" && comparableStorePath(storePath) != comparableStorePath(filePath) {
-		return "", false, fmt.Errorf("-store and -file disagree (%s vs %s); -file as a store path is deprecated, use -store", storePath, filePath)
-	}
-	warn = filePath != ""
-	if storePath != "" {
-		return storePath, warn, nil
-	}
-	return filePath, warn, nil
-}
-
-// comparableStorePath is the form used to decide whether two store paths agree.
-// Abs then Clean; if Abs fails, Clean the original text.
-func comparableStorePath(p string) string {
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
-	}
-	return filepath.Clean(p)
-}
-
-// applyStoreFlag resolves -store and the deprecated -file alias for command.
-// A disagreement is printed to stderr and the process exits 1.
-func applyStoreFlag(command, app string) string {
-	path, warn, err := resolveStorePath(*flagStore, *flagFile, fileIsStorePath(command, app))
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-		os.Exit(1)
-	}
-	if warn {
-		fmt.Fprint(os.Stderr, storePathDeprecation)
-	}
-	return path
-}
-
-// platformStoreUnsupported rejects -store on commands that have no -app.
-// The platform store has no path override. -file keeps its existing meaning.
-func platformStoreUnsupported() error {
-	if strings.TrimSpace(*flagStore) != "" {
-		return fmt.Errorf("-store overrides the trust store path and is only supported with -app java or -app certifi")
-	}
-	return nil
+	return usageExit(c, err.Error())
 }

@@ -263,7 +263,7 @@ func TestSSLStore_DetectsOSUpdateDrift(t *testing.T) {
 	if !strings.Contains(msg, "differs from the last trustprune write") {
 		t.Fatalf("missing drift warning: %q", msg)
 	}
-	if !strings.Contains(msg, "restore -app ssl") {
+	if !strings.Contains(msg, "restore --app ssl") {
 		t.Fatalf("warning should tell user what to do next: %q", msg)
 	}
 }

@@ -16,30 +16,30 @@ Trust should be earned, not defaulted.
 This project was renamed from **cert-manage** to **trustprune**. The repository is now at [github.com/adamdecaf/trustprune](https://github.com/adamdecaf/trustprune) (old GitHub URLs redirect).
 
 - The primary CLI binary is `trustprune`. A `cert-manage` alias remains through **0.2.x** and prints a short rename notice on stderr when invoked under that name.
-- New backups are written under `~/.trustprune/` (or `~/Library/trustprune/` on Darwin). Existing backups under `~/.cert-manage/` or `~/Library/cert-manage/` are still discovered read-only for restore; nothing is moved, renamed, or deleted from the old tree. When both trees have entries, the newest basename wins (primary path preferred on ties). Prefer an explicit `restore -backup` (or `restore -file` on NSS/platform) path if you mix legacy NSS filename layouts.
+- New backups are written under `~/.trustprune/` (or `~/Library/trustprune/` on Darwin). Existing backups under `~/.cert-manage/` or `~/Library/cert-manage/` are still discovered read-only for restore; nothing is moved, renamed, or deleted from the old tree. When both trees have entries, the newest basename wins (primary path preferred on ties). Prefer an explicit `restore --backup` path if you mix legacy NSS filename layouts.
 
 ## 30-second quickstart
 
 ```bash
 # 1. See what you currently trust
 trustprune list
-trustprune list -count
-trustprune list -app java
-trustprune list -app java -store /path/to/cacerts          # skip JAVA_HOME search
-trustprune list -app certifi -store /path/to/venv/.../cacert.pem
+trustprune list --count
+trustprune list --app java
+trustprune list --app java --store /path/to/cacerts          # skip JAVA_HOME search
+trustprune list --app certifi --store /path/to/venv/.../cacert.pem
 
 # 2. Always take a backup before changing trust
 trustprune backup
-trustprune backup -app java
+trustprune backup --app java
 
 # 3. Allowlist: keep only the CAs you want (requires a prior backup)
-trustprune allowlist -file urls.yaml
-trustprune allowlist -app java -file urls.yaml
-trustprune allowlist -app java -store /path/to/cacerts -file allowlist.yaml
+trustprune allowlist --file urls.yaml
+trustprune allowlist --app java --file urls.yaml
+trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 
 # 4. Roll back if something breaks
 trustprune restore
-trustprune restore -app java
+trustprune restore --app java
 ```
 
 Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from browser history.
@@ -70,7 +70,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | Level | Platform | Notes |
 |-------|----------|--------|
 | **Supported** | Linux (Alpine, Debian, Ubuntu, Rocky, Fedora/RHEL, Arch) | System CA dir list, add, allowlist, backup, restore (see Safety) |
-| **Partial** | Darwin / macOS | Keychain-backed list/add/allowlist/backup/restore; system roots are SIP-protected; restore honors `-backup` / `-file` / `where` for login-keychain backups |
+| **Partial** | Darwin / macOS | Keychain-backed list/add/allowlist/backup/restore; system roots are SIP-protected; restore honors `--backup` for login-keychain backups |
 | **List-only** | Windows | `list` works (PowerShell export of machine stores); add, backup, allowlist, and restore are not implemented yet |
 | **Stub (CI)** | FreeBSD | Builds and runs unit/CLI tests under an empty HOME via `vmactions/freebsd-vm`; the platform store is a stub (list empty; live add/allowlist/backup/restore return "not implemented"). App stores (java/NSS/certifi/openssl) compile; no FreeBSD system CA backend yet |
 
@@ -78,11 +78,11 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Level | Application | Notes |
 |-------|-------------|--------|
-| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `-app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv; no CLI flag; no other passwords are guessed). |
+| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `--app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv; no CLI flag; no other passwords are guessed). |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. |
-| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`-app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `-store` overrides the bundle on list/backup/connect/restore/add/allowlist (`-file` remains a deprecated alias for that override on list/backup/connect/restore and prints a WARNING to stderr). Restore records the bundle path and refuses a cross-path restore unless `-force`. |
-| **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`-app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. `-bundle <pem>` selects an explicit PEM file for list, backup, restore, and allowlist and skips that discovery. PEM backups record the bundle path; restore into a different PEM (discovery or `-bundle`) is refused unless `-force`. Discovery allowlist accepts a backup recorded for the discovered PEM or a legacy backup with no `source` (a source-less backup may belong to another PEM and does not show the live file is recoverable). Hashed cert directories are not selected by `-bundle`. Darwin `/etc/ssl/cert.pem` stays `-app ssl`. |
+| **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`--app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `--store` overrides the bundle on list/backup/connect/restore/add/allowlist. Restore records the bundle path and refuses a cross-path restore unless `--force`. |
+| **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`--app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. `--bundle <pem>` selects an explicit PEM file for list, backup, restore, and allowlist and skips that discovery. PEM backups record the bundle path; restore into a different PEM (discovery or `--bundle`) is refused unless `--force`. Discovery allowlist accepts a backup recorded for the discovered PEM or a legacy backup with no `source` (a source-less backup may belong to another PEM and does not show the live file is recoverable). Hashed cert directories are not selected by `--bundle`. Darwin `/etc/ssl/cert.pem` stays `--app ssl`. |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
 
 
@@ -91,23 +91,23 @@ Honest status as of late October 2026. Levels match what the code does today.
 
 | Variable | Meaning |
 |----------|---------|
-| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `-app java`. Custom values are passed via keytool `-storepass:env` (child env + sudo --preserve-env) so the secret is not on the process or sudo command line; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `--app java`. Custom values are passed via keytool `-storepass:env` (child env + sudo --preserve-env) so the secret is not on the process or sudo command line; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
 
 ## Safety
 
 Certificate-store edits can break HTTPS for browsers, package managers, and language runtimes. Treat every change as privileged.
 
-1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `-app …` when targeting an app) before any allowlist. `restore` (and `restore -dry-run`) with no backup for that store also refuses before any write and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup -app openssl`. Discovery-based OpenSSL restore (no `-bundle`) follows the discovered PEM: it uses a backup recorded for that file (a legacy backup with no `source` still matches) and refuses a backup recorded for a different bundle unless `-force`. Allowlist of a discovered PEM uses those same candidates, not merely the newest openssl backup. A legacy backup with no `source` may belong to another PEM and does not show the live file is recoverable. With `-bundle <pem>`, backup records that file and restore refuses a different path unless `-force`.
+1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `--app …` when targeting an app) before any allowlist. `restore` (and `restore --dry-run`) with no backup for that store also refuses before any write and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl`. Discovery-based OpenSSL restore (no `--bundle`) follows the discovered PEM: it uses a backup recorded for that file (a legacy backup with no `source` still matches) and refuses a backup recorded for a different bundle unless `--force`. Allowlist of a discovered PEM uses those same candidates, not merely the newest openssl backup. A legacy backup with no `source` may belong to another PEM and does not show the live file is recoverable. With `--bundle <pem>`, backup records that file and restore refuses a different path unless `--force`.
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
-3. **Preview with `-dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `-dry-run` to print the plan without writing to any store.
+3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
-5. **Flags first.** Commands other than `connect` accept only flags. An unexpected positional argument is rejected with exit 2 before any write (`ERROR: unexpected argument(s): …`). Flags after a non-flag are not parsed, so put flags (including `-dry-run`) before any non-flag arguments. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
+5. **No stray positionals.** Commands other than `connect` accept only flags. An unexpected positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
 
-Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `-backup` (and `-file` on platform/NSS/ssl/openssl). For java and certifi, restore `-store` is the store to restore into, matching backup/list (`-file` is a deprecated alias for that path); a backup taken from a different path is refused unless `-force`. For openssl, `-bundle <pem>` is the live PEM for list, backup, restore, and allowlist; restore `-file` stays the backup source, and a backup recorded for a different PEM is refused unless `-force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `-backup` / `-file` / `where` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
+Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `--backup`. For java and certifi, restore `--store` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `--force`. For openssl, `--bundle <pem>` is the live PEM for list, backup, restore, and allowlist; `--backup` is the backup source, and a backup recorded for a different PEM is refused unless `--force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files. Darwin platform restore honors `--backup` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 
 ## Install
 
-Download a binary from the [latest release](https://github.com/adamdecaf/trustprune/releases) (tagged `0.1.0` still ships `cert-manage` and predates `allowlist` / `apps` / `-dry-run`; module version on `master` is `0.1.1-dev`), or build from source (Go **1.27** required) for current commands:
+Download a binary from the [latest release](https://github.com/adamdecaf/trustprune/releases) (tagged `0.1.0` still ships `cert-manage` and predates `allowlist` / `apps` / `--dry-run`; module version on `master` is `0.1.1-dev`), or build from source (Go **1.27** required) for current commands:
 
 ```bash
 git clone https://github.com/adamdecaf/trustprune.git
@@ -130,46 +130,45 @@ go install github.com/adamdecaf/trustprune@master
 ```bash
 # Platform store
 trustprune list
-trustprune list -format table       # short (default), table, json, openssl, observatory
-trustprune list -format openssl
-trustprune list -format json -out certs.json          # -out writes every list format and -count; stdout stays empty
-trustprune list -format observatory -out report.yaml
-trustprune list -ui web             # cli (default) or web (prints URL if headless)
+trustprune list --format table       # short (default), table, json, openssl, observatory
+trustprune list --format openssl
+trustprune list --format json --out certs.json          # --out writes every list format and --count; stdout stays empty
+trustprune list --format observatory --out report.yaml
+trustprune list --ui web             # cli (default) or web (prints URL if headless)
 
 # Apps
-trustprune list -app java
-trustprune list -app chrome
-trustprune list -app firefox
+trustprune list --app java
+trustprune list --app chrome
+trustprune list --app firefox
 
 # From a file or Mozilla certdata URL
-trustprune list -file example.crt
-trustprune list -url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+trustprune list --file example.crt
+trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 
 # Add
-trustprune add -file cert.pem
-trustprune add -file cert.pem -app java
-trustprune add -file cert.pem -app certifi -store /path/to/cacert.pem
+trustprune add --file cert.pem
+trustprune add --file cert.pem --app java
+trustprune add --file cert.pem --app certifi --store /path/to/cacert.pem
 
 # Allowlist, backup, restore
 trustprune backup
-trustprune allowlist -file urls.yaml
+trustprune allowlist --file urls.yaml
 trustprune restore                 # latest backup
-trustprune restore -backup <path>  # explicit backup path
-trustprune restore -file <path>    # platform/NSS/ssl/openssl: explicit backup path
-trustprune restore -app java -store /path/to/cacerts   # java/certifi: store to restore into
+trustprune restore --backup <path>  # explicit backup path
+trustprune restore --app java --store /path/to/cacerts   # java/certifi: store to restore into
 
 # Generate an allowlist
-trustprune gen-allowlist -out allowlist.yaml -from firefox
-trustprune gen-allowlist -out allowlist.yaml -from browsers
-trustprune gen-allowlist -out allowlist.yaml -file urls.txt
-# -out is required: without it, gen-allowlist prints "ERROR: -out is required" and exits with status 2
+trustprune gen-allowlist --out allowlist.yaml --from firefox
+trustprune gen-allowlist --out allowlist.yaml --from browsers
+trustprune gen-allowlist --out allowlist.yaml --file urls.txt
+# --out is required: without it, gen-allowlist prints "required flag --out not set" and exits with status 2
 
 # Verify connectivity after a change
 trustprune connect https://example.com
-trustprune connect -app java https://example.com
+trustprune connect --app java https://example.com
 
 trustprune version
-# No subcommand prints usage and exits 1; an unknown -app (e.g. -app nope) exits 1 and lists the valid apps
+# No subcommand prints usage and exits 0; an unknown --app (e.g. --app nope) exits 1 and lists the valid apps
 ```
 
 More detail: [docs/basics.md](docs/basics.md), [docs/allowlists.md](docs/allowlists.md).

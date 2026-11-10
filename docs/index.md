@@ -21,21 +21,21 @@ Trust should be earned, not defaulted.
 ```bash
 # See what you currently trust
 trustprune list
-trustprune list -count
-trustprune list -app java
+trustprune list --count
+trustprune list --app java
 
 # Always take a backup before changing trust
 # Backups stored at `~/.trustprune/` or `~/Library/trustprune/` on Darwin
 trustprune backup
-trustprune backup -app java
+trustprune backup --app java
 
 # Keep only the CAs you want (requires a prior backup)
-trustprune allowlist -file urls.yaml
-trustprune allowlist -app java -file urls.yaml
+trustprune allowlist --file urls.yaml
+trustprune allowlist --app java --file urls.yaml
 
 # Roll back if something breaks
 trustprune restore
-trustprune restore -app java
+trustprune restore --app java
 ```
 
 ## Pages

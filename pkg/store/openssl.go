@@ -82,21 +82,21 @@ func opensslStoreAt(path string) opensslStore {
 // OpenSSLBundleAt returns an openssl store for an explicit PEM CA bundle file.
 // The path is not discovered from SSL_CERT_FILE, CURL_CA_BUNDLE, git, or
 // distro defaults. Directories are rejected; hashed cert directories stay on
-// OpenSSLStore without an explicit file (CLI -bundle).
+// OpenSSLStore without an explicit file (CLI --bundle).
 func OpenSSLBundleAt(path string) (Store, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return nil, errors.New("openssl -bundle path is empty")
+		return nil, errors.New("openssl --bundle path is empty")
 	}
 	st, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("openssl bundle %s not found: %w", path, err)
 	}
 	if st.IsDir() {
-		return nil, fmt.Errorf("openssl -bundle %s is a directory; pass a PEM CA bundle file (hashed cert directories stay on -app openssl without -bundle)", path)
+		return nil, fmt.Errorf("openssl --bundle %s is a directory; pass a PEM CA bundle file (hashed cert directories stay on --app openssl without --bundle)", path)
 	}
 	if !st.Mode().IsRegular() {
-		return nil, fmt.Errorf("openssl -bundle %s is not a regular PEM file", path)
+		return nil, fmt.Errorf("openssl --bundle %s is not a regular PEM file", path)
 	}
 	return opensslStoreAt(path), nil
 }
@@ -472,7 +472,7 @@ func (s opensslStore) Restore(where string) error {
 			return err
 		}
 		if src == "" {
-			return errNoBackupCmd("openssl", opensslBackupDir, "trustprune backup -app openssl")
+			return errNoBackupCmd("openssl", opensslBackupDir, "trustprune backup --app openssl")
 		}
 	}
 
@@ -498,7 +498,7 @@ func (s opensslStore) restoreFile(src, path string) error {
 	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
-		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -file to a PEM backup", srcFile, err)
+		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass --backup to a PEM backup", srcFile, err)
 	}
 	if len(certs) == 0 {
 		return fmt.Errorf("restore source %s contains no certificates; refusing to overwrite %s", srcFile, path)
@@ -704,7 +704,7 @@ func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) erro
 		if allowUnknown || force {
 			return nil
 		}
-		return fmt.Errorf("openssl backup %s has no recorded store path; pass it with restore -backup to use it", backup)
+		return fmt.Errorf("openssl backup %s has no recorded store path; pass it with restore --backup to use it", backup)
 	}
 	if sameOpenSSLPath(recorded, dst) {
 		return nil
@@ -712,7 +712,7 @@ func checkOpenSSLBackupSource(backup, dst string, allowUnknown, force bool) erro
 	if force {
 		return nil
 	}
-	return fmt.Errorf("refusing restore: openssl backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, opensslCanonicalPath(dst))
+	return fmt.Errorf("refusing restore: openssl backup %s was taken from %s, not %s; pass --force to restore into a different path", backup, recorded, opensslCanonicalPath(dst))
 }
 
 // latestOpenSSLDirBackup returns the newest openssl backup directory that is
@@ -848,7 +848,7 @@ func opensslBackupFile(src string) (string, error) {
 	if st.IsDir() {
 		candidate := filepath.Join(src, opensslBackupFilename)
 		if !file.Exists(candidate) {
-			return "", fmt.Errorf("openssl backup dir %s has no %s; pass -file to a PEM backup", src, opensslBackupFilename)
+			return "", fmt.Errorf("openssl backup dir %s has no %s; pass --backup to a PEM backup", src, opensslBackupFilename)
 		}
 		return candidate, nil
 	}

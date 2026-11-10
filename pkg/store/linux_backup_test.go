@@ -206,7 +206,7 @@ func TestBackupRestoreRoundTrip(t *testing.T) {
 }
 
 func TestLinuxRestore_HonorsWherePath(t *testing.T) {
-	// Restore(where) must use the provided path (CLI -file), not only GetLatestBackup().
+	// Restore(where) must use the provided path (CLI --backup), not only GetLatestBackup().
 	s := linuxTestStore(t)
 
 	if err := s.Backup(); err != nil {

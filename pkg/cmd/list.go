@@ -134,7 +134,7 @@ func createMeta(st store.Store) ui.Meta {
 
 // ListCertsForAppWithFile lists certificates for app, optionally overriding the
 // trust-store path with storePath (java keystore or certifi bundle). The
-// parameter name is historical: callers pass the CLI -store path.
+// parameter name is historical: callers pass the CLI --store path.
 func ListCertsForAppWithFile(app, storePath string, cfg *ui.Config) error {
 	st, err := store.ForAppWithStore(app, storePath)
 	if err != nil {

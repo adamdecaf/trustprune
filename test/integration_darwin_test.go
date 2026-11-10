@@ -68,7 +68,7 @@ func TestIntegration__unknown(t *testing.T) {
 func TestIntegration__listFromFile(t *testing.T) {
 	t.Parallel()
 
-	cmd := CertManage("list", "-file", "../testdata/lots.crt", "-count").Trim()
+	cmd := CertManage("list", "--file", "../testdata/lots.crt", "--count").Trim()
 	cmd.CmpIntF(t, func(i int) bool { return i == 5 })
 }
 
@@ -103,7 +103,7 @@ func TestIntegration__add(t *testing.T) {
 	}
 
 	// add cert and verify
-	CertManage("add", "-file", where).SuccessT(t)
+	CertManage("add", "--file", where).SuccessT(t)
 	if !inPlatformStore(t, fp) {
 		t.Errorf("didn't find added cert, fp=%q", fp)
 	}
@@ -192,7 +192,7 @@ func TestIntegration__AllowlistAndRemove(t *testing.T) {
 	cmd.SuccessT(t)
 
 	// allowlist
-	cmd = CertManage("allowlist", "-file", "../testdata/us-whitelist.yaml")
+	cmd = CertManage("allowlist", "--file", "../testdata/us-whitelist.yaml")
 	cmd.SuccessT(t)
 
 	// verify cert count
@@ -340,7 +340,7 @@ func TestIntegration__loadTestSite(t *testing.T) {
 // 	cmd.SuccessT(t)
 
 // 	// Verify firefox has found certificates
-// 	cmd = CertManage("list", "-app", "firefox", "-count").Trim()
+// 	cmd = CertManage("list", "--app", "firefox", "--count").Trim()
 // 	cmd.SuccessT(t)
 // 	cmd.CmpIntF(t, func(i int) bool { return i > 1 })
 // }

@@ -242,7 +242,7 @@ func (s certifiStore) Restore(where string) error {
 			return err
 		}
 		if src == "" {
-			return errNoBackupCmd("certifi", certifiBackupDir, "trustprune backup -app certifi")
+			return errNoBackupCmd("certifi", certifiBackupDir, "trustprune backup --app certifi")
 		}
 	}
 	srcFile, err := certifiBackupFile(src)
@@ -254,7 +254,7 @@ func (s certifiStore) Restore(where string) error {
 	}
 	certs, err := certutil.FromFile(srcFile)
 	if err != nil {
-		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass -backup to a cacert.pem backup", srcFile, err)
+		return fmt.Errorf("restore source %s is not a valid PEM bundle: %w; pass --backup to a cacert.pem backup", srcFile, err)
 	}
 	if len(certs) == 0 {
 		return fmt.Errorf("restore source %s contains no certificates; refusing to overwrite %s", srcFile, path)
@@ -302,7 +302,7 @@ func certifiBackupFile(src string) (string, error) {
 	if st.IsDir() {
 		candidate := filepath.Join(src, certifiBackupFilename)
 		if !file.Exists(candidate) {
-			return "", fmt.Errorf("certifi backup dir %s has no %s; pass -backup to a PEM backup", src, certifiBackupFilename)
+			return "", fmt.Errorf("certifi backup dir %s has no %s; pass --backup to a PEM backup", src, certifiBackupFilename)
 		}
 		return candidate, nil
 	}
@@ -376,7 +376,7 @@ func checkCertifiBackupSource(backup, dst string, allowUnknown, force bool) erro
 		if allowUnknown || force {
 			return nil
 		}
-		return fmt.Errorf("certifi backup %s has no recorded store path; pass it with restore -backup to use it", backup)
+		return fmt.Errorf("certifi backup %s has no recorded store path; pass it with restore --backup to use it", backup)
 	}
 	if sameCertifiPath(recorded, dst) {
 		return nil
@@ -384,7 +384,7 @@ func checkCertifiBackupSource(backup, dst string, allowUnknown, force bool) erro
 	if force {
 		return nil
 	}
-	return fmt.Errorf("refusing restore: certifi backup %s was taken from %s, not %s; pass -force to restore into a different path", backup, recorded, dst)
+	return fmt.Errorf("refusing restore: certifi backup %s was taken from %s, not %s; pass --force to restore into a different path", backup, recorded, dst)
 }
 
 // latestCertifiBackupFor returns the newest certifi backup directory recorded
@@ -462,7 +462,7 @@ func (s certifiStore) findCertPath() (string, error) {
 			return pattern, nil
 		}
 	}
-	return "", errors.New("unable to find certifi cacert.pem; install the Python certifi package or pass -app certifi -store <path>")
+	return "", errors.New("unable to find certifi cacert.pem; install the Python certifi package or pass --app certifi --store <path>")
 }
 
 // lookupCertifiWhere asks the active Python interpreters for certifi.where(),

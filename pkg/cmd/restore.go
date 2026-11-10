@@ -23,62 +23,38 @@ import (
 
 // Restore runs restore for app (empty app is the platform store).
 //
-// file and backup are the store path and the backup source:
-//   - For java and certifi, file is the store to restore into (CLI -store,
-//     or the deprecated -file alias) and backup is the backup source
-//     (empty means latest).
-//   - For every other store, file and backup both name the backup source
-//     (CLI -file and -backup). -store is rejected by the CLI for those stores.
-func Restore(app, file, backup string) error {
-	storeFile, backupPath, err := restoreArgs(app, file, backup)
-	if err != nil {
-		return err
+// storePath is the java/certifi store to restore into (CLI --store).
+// A non-empty storePath with an empty app is an error and does not call
+// RestoreForPlatform. backup is the backup source (CLI --backup; empty
+// means latest).
+func Restore(app, storePath, backup string) error {
+	app = strings.ToLower(strings.TrimSpace(app))
+	storePath = strings.TrimSpace(storePath)
+	backup = strings.TrimSpace(backup)
+	if app == "" {
+		if storePath != "" {
+			return store.StoreOverrideNoAppError()
+		}
+		return RestoreForPlatform(backup)
 	}
-	if strings.TrimSpace(app) == "" {
-		return RestoreForPlatform(backupPath)
+	if storePath != "" {
+		return RestoreForAppWithFile(app, storePath, backup)
 	}
-	if storeFile != "" {
-		return RestoreForAppWithFile(app, storeFile, backupPath)
-	}
-	return RestoreForApp(app, backupPath)
+	return RestoreForApp(app, backup)
 }
 
-// RestoreForBundle restores an explicit openssl PEM CA bundle (-bundle).
-// file and backup keep their openssl meaning: both name the backup source.
+// RestoreForBundle restores an explicit openssl PEM CA bundle (--bundle).
+// backup is the backup source (CLI --backup; empty means latest).
 // app must be openssl.
-func RestoreForBundle(app, file, backup, bundle string) error {
+func RestoreForBundle(app, backup, bundle string) error {
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
-		return fmt.Errorf("-bundle requires -app openssl")
-	}
-	_, backupPath, err := restoreArgs(app, file, backup)
-	if err != nil {
-		return err
+		return fmt.Errorf("--bundle requires --app openssl")
 	}
 	s, err := store.OpenSSLBundleAt(bundle)
 	if err != nil {
 		return err
 	}
-	return restoreStore(s, backupPath)
-}
-
-// restoreArgs maps CLI -file / -backup onto a store override and a backup
-// source. See Restore for the per-app meanings.
-func restoreArgs(app, file, backup string) (storeFile, backupPath string, err error) {
-	app = strings.ToLower(strings.TrimSpace(app))
-	file = strings.TrimSpace(file)
-	backup = strings.TrimSpace(backup)
-	switch app {
-	case "java", "certifi":
-		return file, backup, nil
-	default:
-		if file != "" && backup != "" && file != backup {
-			return "", "", fmt.Errorf("restore: -file and -backup both set (%s vs %s); for this store they both name the backup source — use one", file, backup)
-		}
-		if backup != "" {
-			return "", backup, nil
-		}
-		return "", file, nil
-	}
+	return restoreStore(s, strings.TrimSpace(backup))
 }
 
 // restoreSuccessPrefix is the historical success phrase. The live store path

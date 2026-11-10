@@ -43,8 +43,8 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 		cert := writeTestFile(t, "cert.pem", example)
 		res := runCLI(t, bin, home, "add", "-app", "certifi", "-store", bundle, "-file", cert, "a.pem", "b.pem", "-dry-run")
 		assertStrayRejected(t, res, "a.pem")
-		if !strings.Contains(res.stdout, "b.pem") || !strings.Contains(res.stdout, "-dry-run") {
-			t.Fatalf("stdout should list every unparsed arg:\n%s", res.stdout)
+		if !strings.Contains(res.stderr, "b.pem") {
+			t.Fatalf("stderr should list every extra positional:\n%s", res.stderr)
 		}
 		assertSameBytes(t, bundle, before)
 	})
@@ -75,22 +75,20 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 		assertSameBytes(t, bundle, before)
 	})
 
-	t.Run("whitelist", func(t *testing.T) {
-		home, bundle, before := certifiBundle(t, both)
-		seedCertifiBackup(t, home, bundle, both)
-		al := writeKeepFirstAllowlist(t, example)
-		res := runCLI(t, bin, home, "whitelist", "-app", "certifi", "-store", bundle, "-file", al, "extra", "-dry-run")
-		assertStrayRejected(t, res, "extra")
-		assertSameBytes(t, bundle, before)
+	t.Run("whitelist is unknown", func(t *testing.T) {
+		res := runCLI(t, bin, t.TempDir(), "whitelist")
+		if res.code != 2 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stderr, `unknown command "whitelist"`) {
+			t.Fatalf("stderr=%q", res.stderr)
+		}
 	})
 
 	t.Run("list", func(t *testing.T) {
 		home := t.TempDir()
 		res := runCLI(t, bin, home, "list", "x", "-count")
 		assertStrayRejected(t, res, "x")
-		if !strings.Contains(res.stdout, "-count") {
-			t.Fatalf("-count should be reported as unparsed, stdout=%s", res.stdout)
-		}
 	})
 
 	t.Run("list uppercase", func(t *testing.T) {
@@ -99,17 +97,22 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 		assertStrayRejected(t, res, "x")
 	})
 
-	t.Run("help after positional is not parsed", func(t *testing.T) {
+	t.Run("help after positional still prints usage", func(t *testing.T) {
 		res := runCLI(t, bin, t.TempDir(), "list", "extra", "-help")
-		assertStrayRejected(t, res, "-help")
+		if res.code != 0 || strings.Contains(res.stdout+res.stderr, "unexpected argument") {
+			t.Fatalf("parsed -help should still print usage, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "trustprune list") {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
 	})
 
 	t.Run("parsed help still prints usage", func(t *testing.T) {
 		res := runCLI(t, bin, t.TempDir(), "list", "-help", "extra")
-		if res.code == 2 || strings.Contains(res.stdout, "unexpected argument") {
+		if res.code == 2 || strings.Contains(res.stdout+res.stderr, "unexpected argument") {
 			t.Fatalf("parsed -help should still print usage, code=%d stdout=%q", res.code, res.stdout)
 		}
-		if !strings.Contains(res.stdout, "Usage: trustprune list") {
+		if !strings.Contains(res.stdout, "trustprune list") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 	})
@@ -130,16 +133,21 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 	t.Run("gen-allowlist", func(t *testing.T) {
 		home := t.TempDir()
 		out := filepath.Join(home, "out.yaml")
-		res := runCLI(t, bin, home, "gen-allowlist", "-file", filepath.Join("testdata", "file-with-urls"), "-out", out, "extra", "-dry-run")
+		res := runCLI(t, bin, home, "gen-allowlist", "-file", filepath.Join("testdata", "file-with-urls"), "-out", out, "extra")
 		assertStrayRejected(t, res, "extra")
 		if _, err := os.Stat(out); !os.IsNotExist(err) {
 			t.Fatalf("gen-allowlist wrote %s: %v", out, err)
 		}
 	})
 
-	t.Run("gen-whitelist", func(t *testing.T) {
-		res := runCLI(t, bin, t.TempDir(), "gen-whitelist", "extra")
-		assertStrayRejected(t, res, "extra")
+	t.Run("gen-whitelist is unknown", func(t *testing.T) {
+		res := runCLI(t, bin, t.TempDir(), "gen-whitelist")
+		if res.code != 2 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stderr, `unknown command "gen-whitelist"`) {
+			t.Fatalf("stderr=%q", res.stderr)
+		}
 	})
 }
 
@@ -163,7 +171,7 @@ func TestTraceNotTruncatedOnStrayArgs(t *testing.T) {
 		if res.code == 2 || strings.Contains(res.stdout, "unexpected argument") {
 			t.Fatalf("parsed -help should still print usage, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "Usage: trustprune list") {
+		if !strings.Contains(res.stdout, "trustprune list") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		after := readTestFile(t, tracePath)
@@ -218,14 +226,9 @@ func TestConnectPositionalStillAccepted(t *testing.T) {
 		}
 	})
 
-	t.Run("extra positional stays unknown arguments", func(t *testing.T) {
+	t.Run("extra positional is a usage error", func(t *testing.T) {
 		res := runCLI(t, bin, home, "connect", "http://example.com", "extra")
-		if res.code == 2 || strings.Contains(res.stdout, "unexpected argument") {
-			t.Fatalf("connect should keep its own error, code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
-		}
-		if res.code == 0 || !strings.Contains(res.stdout, "unknown arguments") {
-			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
-		}
+		assertStrayRejected(t, res, "extra")
 	})
 }
 
@@ -234,14 +237,14 @@ func assertStrayRejected(t *testing.T, res cliResult, arg string) {
 	if res.code != 2 {
 		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "ERROR: unexpected argument") {
+	if !strings.Contains(res.stderr, "unexpected argument") {
 		t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 	}
-	if !strings.Contains(res.stdout, "flags must come before any non-flag arguments") || !strings.Contains(res.stdout, "shell glob") {
-		t.Fatalf("missing hint:\n%s", res.stdout)
+	if !strings.Contains(res.stderr, "--help") {
+		t.Fatalf("missing --help hint:\n%s", res.stderr)
 	}
-	if arg != "" && !strings.Contains(res.stdout, arg) {
-		t.Fatalf("stdout missing %q:\n%s", arg, res.stdout)
+	if arg != "" && !strings.Contains(res.stderr, arg) {
+		t.Fatalf("stderr missing %q:\n%s", arg, res.stderr)
 	}
 }
 

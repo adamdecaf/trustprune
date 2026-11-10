@@ -294,7 +294,7 @@ func TestOpenSSLStore_RestoreNoBackupRefusesBeforeWrite(t *testing.T) {
 				if err == nil {
 					t.Fatal("expected error with no backup")
 				}
-				want := errNoBackupCmd("openssl", opensslBackupDir, "trustprune backup -app openssl").Error()
+				want := errNoBackupCmd("openssl", opensslBackupDir, "trustprune backup --app openssl").Error()
 				if err.Error() != want {
 					t.Fatalf("got %q, want %q", err.Error(), want)
 				}

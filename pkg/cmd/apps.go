@@ -39,7 +39,7 @@ func printApps(w io.Writer, statuses []store.Status, format string) error {
 	case "json":
 		return printAppsJSON(w, statuses)
 	default:
-		return fmt.Errorf("unknown -format %q for apps; use the default terse output or -format json", format)
+		return fmt.Errorf("unknown --format %q for apps; use the default terse output or --format json", format)
 	}
 }
 
@@ -57,7 +57,7 @@ func printAppsTerse(w io.Writer, statuses []store.Status) error {
 		}
 	}
 	if _, err := fmt.Fprintf(w, "%-*s  %-*s  %s\n", maxName, headerApp, stateWidth, headerStatus, headerPath); err != nil {
-		return fmt.Errorf("writing apps output failed: %w; retry or use -format json", err)
+		return fmt.Errorf("writing apps output failed: %w; retry or use --format json", err)
 	}
 	for _, s := range statuses {
 		state := "not-found"
@@ -69,7 +69,7 @@ func printAppsTerse(w io.Writer, statuses []store.Status) error {
 			}
 		}
 		if _, err := fmt.Fprintf(w, "%-*s  %-*s  %s\n", maxName, s.Name, stateWidth, state, path); err != nil {
-			return fmt.Errorf("writing apps output failed: %w; retry or use -format json", err)
+			return fmt.Errorf("writing apps output failed: %w; retry or use --format json", err)
 		}
 	}
 	return nil

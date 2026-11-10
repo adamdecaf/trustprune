@@ -32,7 +32,7 @@ func TestCheckBundleFlag(t *testing.T) {
 	if err := CheckBundleFlag("list", "openssl", ""); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckBundleFlag("whitelist", "OpenSSL", "/tmp/ca.pem"); err != nil {
+	if err := CheckBundleFlag("allowlist", "OpenSSL", "/tmp/ca.pem"); err != nil {
 		t.Fatal(err)
 	}
 	err := CheckBundleFlag("add", "openssl", "/tmp/ca.pem")
@@ -40,11 +40,11 @@ func TestCheckBundleFlag(t *testing.T) {
 		t.Fatalf("add: %v", err)
 	}
 	err = CheckBundleFlag("list", "java", "/tmp/ca.pem")
-	if err == nil || !strings.Contains(err.Error(), "requires -app openssl") {
+	if err == nil || !strings.Contains(err.Error(), "requires --app openssl") {
 		t.Fatalf("java: %v", err)
 	}
 	err = CheckBundleFlag("restore", "", "/tmp/ca.pem")
-	if err == nil || !strings.Contains(err.Error(), "requires -app openssl") {
+	if err == nil || !strings.Contains(err.Error(), "requires --app openssl") {
 		t.Fatalf("no app: %v", err)
 	}
 }
@@ -134,7 +134,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err := os.WriteFile(bundle, []byte("MUTATED\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RestoreForBundle("openssl", "", "", bundle); err != nil {
+	if err := RestoreForBundle("openssl", "", bundle); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 	got, err := os.ReadFile(bundle)
@@ -149,7 +149,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = RestoreForBundle("openssl", "", latest, other)
+	err = RestoreForBundle("openssl", latest, other)
 	if err == nil || !strings.Contains(err.Error(), "refusing restore") {
 		t.Fatalf("cross-path: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err := BackupForBundle(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
 		t.Fatalf("directory -bundle: %v", err)
 	}
-	if err := AllowlistForBundle("firefox", alPath, bundle); err == nil || !strings.Contains(err.Error(), "requires -app openssl") {
+	if err := AllowlistForBundle("firefox", alPath, bundle); err == nil || !strings.Contains(err.Error(), "requires --app openssl") {
 		t.Fatalf("firefox -bundle: %v", err)
 	}
 }
