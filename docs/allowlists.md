@@ -92,6 +92,8 @@ $ trustprune allowlist --file allowlist.yaml
 $ trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
 ```
 
+Generation verifies chains against the system trust store, not against a PEM bundle you may later apply the allowlist to. CAs present only in that bundle are not discovered. `allowlist` still backs up the target store first.
+
 ### Browser history
 
 Either all browsers `--from browser` or specific browsers `--from chrome`.
