@@ -49,6 +49,12 @@ func TestGenAllowlist_getChoices(t *testing.T) {
 	if !reflect.DeepEqual(choices, []string{"browser", "file"}) {
 		t.Errorf("got %q", choices)
 	}
+
+	// neither --from nor --file
+	choices = getChoices("", "")
+	if choices != nil {
+		t.Errorf("got %q", choices)
+	}
 }
 
 func TestGenAllowlist_accumulateUrls(t *testing.T) {
@@ -94,4 +100,165 @@ func TestGenAllowlist_accumulateUrls(t *testing.T) {
 			t.Errorf("got %q", err)
 		}
 	}
+}
+
+func TestAssembleAllowlistURLs(t *testing.T) {
+	t.Parallel()
+
+	mustURL := func(s string) *url.URL {
+		t.Helper()
+		u, err := url.Parse(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return u
+	}
+	fileURLs := []*url.URL{
+		mustURL("https://google.com"),
+		mustURL("https://yahoo.com"),
+	}
+
+	t.Run("hosts plus default GOOS linux", func(t *testing.T) {
+		got, err := assembleAllowlistURLs(fileURLs, GenerateAllowlistOptions{
+			Hosts: "example.com,api.example.com",
+			GOOS:  "linux",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasURL(got, "https://google.com") || !hasURL(got, "https://example.com") || !hasURL(got, "https://archive.ubuntu.com") {
+			t.Errorf("missing expected urls: %q", urlStrings(got))
+		}
+		if !hasURL(got, "https://api.example.com") {
+			t.Errorf("missing host: %q", urlStrings(got))
+		}
+	})
+
+	t.Run("explicit presets ignore GOOS", func(t *testing.T) {
+		got, err := assembleAllowlistURLs(nil, GenerateAllowlistOptions{
+			Hosts:   "example.com",
+			Presets: "linux",
+			GOOS:    "darwin",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasURL(got, "https://example.com") || !hasURL(got, "https://archive.ubuntu.com") {
+			t.Errorf("got %q", urlStrings(got))
+		}
+		if hasURL(got, "https://apple.com") {
+			t.Errorf("darwin hosts leaked into linux presets: %q", urlStrings(got))
+		}
+	})
+
+	t.Run("no-presets skips default GOOS", func(t *testing.T) {
+		got, err := assembleAllowlistURLs(fileURLs, GenerateAllowlistOptions{
+			Hosts:     "example.com",
+			NoPresets: true,
+			GOOS:      "linux",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := []string{"https://google.com", "https://yahoo.com", "https://example.com"}
+		if !reflect.DeepEqual(urlStrings(got), want) {
+			t.Errorf("got %q want %q", urlStrings(got), want)
+		}
+	})
+
+	t.Run("freebsd has no default preset", func(t *testing.T) {
+		got, err := assembleAllowlistURLs(nil, GenerateAllowlistOptions{
+			Hosts: "example.com",
+			GOOS:  "freebsd",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(urlStrings(got), []string{"https://example.com"}) {
+			t.Errorf("got %q", urlStrings(got))
+		}
+	})
+
+	t.Run("overlapping host is not duplicated", func(t *testing.T) {
+		got, err := assembleAllowlistURLs(nil, GenerateAllowlistOptions{
+			Hosts:   "archive.ubuntu.com,https://archive.ubuntu.com/ubuntu",
+			Presets: "linux",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		n := 0
+		for _, u := range got {
+			if u.Host == "archive.ubuntu.com" {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("archive.ubuntu.com count=%d in %q", n, urlStrings(got))
+		}
+	})
+
+	t.Run("conflicting flags", func(t *testing.T) {
+		_, err := assembleAllowlistURLs(nil, GenerateAllowlistOptions{
+			Presets:   "linux",
+			NoPresets: true,
+		})
+		if err == nil || !strings.Contains(err.Error(), "--presets") {
+			t.Errorf("got %v", err)
+		}
+	})
+
+	t.Run("unknown preset", func(t *testing.T) {
+		_, err := assembleAllowlistURLs(nil, GenerateAllowlistOptions{
+			Presets: "nope",
+		})
+		if err == nil || !strings.Contains(err.Error(), "unknown preset") {
+			t.Errorf("got %v", err)
+		}
+	})
+}
+
+func TestResolvePresetNames(t *testing.T) {
+	t.Parallel()
+
+	got, err := resolvePresetNames("", false, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"linux"}) {
+		t.Errorf("got %q", got)
+	}
+
+	got, err = resolvePresetNames("", true, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != nil {
+		t.Errorf("no-presets got %q", got)
+	}
+
+	got, err = resolvePresetNames("apple", false, "linux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, []string{"apple"}) {
+		t.Errorf("got %q", got)
+	}
+}
+
+func urlStrings(urls []*url.URL) []string {
+	out := make([]string, len(urls))
+	for i, u := range urls {
+		out[i] = u.String()
+	}
+	return out
+}
+
+func hasURL(urls []*url.URL, want string) bool {
+	for _, u := range urls {
+		if u.String() == want {
+			return true
+		}
+	}
+	return false
 }

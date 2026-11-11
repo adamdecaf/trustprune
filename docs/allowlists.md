@@ -55,9 +55,46 @@ Allowlist completed successfully
 
 ## Generating allowlists
 
-`trustprune` supports generating allowlists from browser history. Either all browsers `--from browser` or specific browsers `--from chrome`.
+`trustprune` generates allowlists by dialing HTTPS hosts and recording the CAs that signed them. Sources can be a few hostnames (`--hosts`), named platform presets (`--presets`), browser history (`--from`), and/or a URL list file (`--file`).
 
-`--out` is required. Without it, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but neither `--from` nor `--file`, it prints usage and exits 0. The `--out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
+`--out` is required. Without it, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0 (the same for `--out --no-presets`). The `--out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
+
+### Platform presets
+
+When generation actually runs, the default platform preset for this OS is merged in unless you pass `--no-presets` or an explicit `--presets` list:
+
+- **darwin** (alias **macos**): Apple service hosts (`apple`) plus software-update hosts (`macos-update`)
+- **linux**: Debian/Ubuntu apt HTTPS indexes, plus a couple of Fedora/Rocky package-index hosts (`apt`)
+- **windows**: Microsoft update and download HTTPS hosts (`windows-update`)
+
+OS time servers (for example `time.apple.com` and `time.windows.com`) speak NTP, not HTTPS, so they are not included. Generation only dials `https`.
+
+To generate a Linux allowlist on a Mac (or any other OS), pass `--presets linux`. Unknown preset names are a usage error (exit 2).
+
+```
+$ trustprune gen-allowlist --out allowlist.yaml --presets linux
+```
+
+### Few hostnames
+
+`--hosts` takes comma-separated hostnames or https URLs. Bare names become `https://` URLs. This is the easy path for a small server or a PEM bundle/store:
+
+```
+$ trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
+$ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --presets linux
+$ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets
+```
+
+Apply the result with the existing allowlist command. For a PEM bundle, pass `--app openssl --bundle`:
+
+```
+$ trustprune allowlist --file allowlist.yaml
+$ trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
+```
+
+### Browser history
+
+Either all browsers `--from browser` or specific browsers `--from chrome`.
 
 ```
 $ trustprune gen-allowlist --from browser --out wh.yaml
@@ -69,6 +106,8 @@ $ trustprune gen-allowlist --from chrome --out wh.yaml
 CA                                             Fingerprint      Count Example DNSNames
 GeoTrust Inc.                                  ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
 ...
+
+$ trustprune gen-allowlist --out allowlist.yaml --from firefox
 ```
 
 ### Blocklisted certificates

@@ -251,10 +251,14 @@ countries:
 
 ## gen-allowlist
 
-Build an allowlist from browser history and/or a URL list file.
+Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle).
 
 ```bash
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com --presets linux
+trustprune gen-allowlist --out allowlist.yaml --presets linux
 trustprune gen-allowlist --out allowlist.yaml --from firefox
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --from chrome,firefox
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
@@ -263,10 +267,13 @@ trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 | Flag | Meaning |
 |------|---------|
 | `--out <path>` | **Required.** Where to write the allowlist. The extension picks the format: `.json` writes JSON, `.yaml` or `.yml` writes YAML |
+| `--hosts <hosts>` | Comma-separated hostnames or https URLs to include (`example.com` becomes `https://example.com`) |
+| `--presets <names>` | Comma-separated preset names to include (default: this OS platform preset). Names: `apple`, `apt`, `darwin`, `linux`, `macos`, `macos-update`, `windows`, `windows-update` |
+| `--no-presets` | Do not include the default platform preset |
 | `--from <types>` | Comma-separated sources: `browser` / `browsers`, `chrome`, `firefox`, `safari`, `file` |
 | `--file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
 
-Without `--out`, `gen-allowlist` prints `required flag --out not set` and exits with status 2.
+Without `--out`, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
 
 ## add
 
