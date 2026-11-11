@@ -4,8 +4,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # libnss3-tools provides certutil (required by the NSS store). Seed Chrome's
 # Linux NSS DB under the container HOME so tests never touch a host store.
-# Archive DNS blips fail apt-get update before Acquire::Retries applies.
-RUN n=0; until apt-get -o Acquire::Retries=5 update; do \
+# apt-get update can exit 0 after a transient DNS failure; --error-on=any makes the retry loop run.
+RUN n=0; until apt-get -o Acquire::Retries=5 --error-on=any update; do \
       n=$((n + 1)); \
       if [ "$n" -ge 5 ]; then exit 1; fi; \
       sleep "$n"; \
