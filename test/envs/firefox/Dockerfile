@@ -4,8 +4,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # libnss3-tools provides certutil (required by the NSS store). Seed a shared-DB
 # Firefox profile under the container HOME so tests never touch a host store.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libnss3-tools && \
+# apt-get update can exit 0 after a transient DNS failure; --error-on=any makes the retry loop run.
+RUN n=0; until apt-get -o Acquire::Retries=5 --error-on=any update; do \
+      n=$((n + 1)); \
+      if [ "$n" -ge 5 ]; then exit 1; fi; \
+      sleep "$n"; \
+    done && \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates libnss3-tools && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /root/.mozilla/firefox/docker.default && \
     certutil -N -d sql:/root/.mozilla/firefox/docker.default --empty-password && \
