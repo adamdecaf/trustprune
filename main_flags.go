@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 	"github.com/urfave/cli/v3"
 )
@@ -80,6 +81,31 @@ func flagFrom() *cli.StringFlag {
 		Name:  "from",
 		Usage: "sources to capture URLs from (comma-separated: browser, browsers, chrome, firefox, safari, file)",
 		Local: true,
+	}
+}
+
+func flagHosts() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:  "hosts",
+		Usage: "comma-separated hostnames or https URLs to include",
+		Local: true,
+	}
+}
+
+func flagPresets() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:  "presets",
+		Usage: "comma-separated preset names to include (default: this OS platform preset). Names: " + strings.Join(preset.Names(), ", "),
+		Local: true,
+	}
+}
+
+func flagNoPresets() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "no-presets",
+		Usage:       "do not include the default platform preset",
+		HideDefault: true,
+		Local:       true,
 	}
 }
 

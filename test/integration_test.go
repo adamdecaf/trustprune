@@ -46,7 +46,11 @@ func TestIntegraton__genAllowlist(t *testing.T) {
 	output := filepath.Join(dir, "allowlist.json")
 
 	// generate allowlist
-	err = cmd.GenerateAllowlist(output, "", filepath.Join("..", "testdata", "file-with-urls"))
+	err = cmd.GenerateAllowlist(cmd.GenerateAllowlistOptions{
+		Output:    output,
+		File:      filepath.Join("..", "testdata", "file-with-urls"),
+		NoPresets: true,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

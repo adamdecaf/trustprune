@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
 	"github.com/adamdecaf/trustprune/pkg/cmd"
 	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
@@ -276,17 +277,31 @@ func genAllowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "gen-allowlist",
 		Usage: "Create an allowlist from various sources",
-		UsageText: `trustprune gen-allowlist --out <where> [--file <file>] [--from <type>]
+		UsageText: `trustprune gen-allowlist --out <where> [--hosts <hosts>] [--presets <names>] [--no-presets] [--file <file>] [--from <type>]
 
   Generate an allowlist and write it to the filesystem. (At wherever --out points to.)
   The --out extension chooses the format: .json writes JSON; .yaml or .yml writes YAML.
 
+  Platform presets (macOS Apple/update hosts, Linux apt repos, Windows update hosts)
+  are included by default when generation runs. Use --presets to target another OS,
+  or --no-presets to skip them.
+
+  Build an allowlist for a few hostnames (typical small server / PEM bundle)
+    trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
+
+  Include a Linux allowlist on another OS
+    trustprune gen-allowlist --out allowlist.yaml --hosts example.com --presets linux
+    trustprune gen-allowlist --out allowlist.yaml --presets linux
+
+  Generate an allowlist from browser history
+    trustprune gen-allowlist --out allowlist.yaml --from firefox
+
+  Hosts only, without the default platform preset
+    trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets
+
   Also, you can pass --file to read newline-delimited https URLs, or a Tranco-style
   rank,domain CSV (https:// is prefixed onto each domain). Gzip files are accepted.
     trustprune gen-allowlist --file <path> --out allowlist.yaml
-
-  Generate an allowlist from browser history
-    trustprune gen-allowlist --from firefox --out allowlist.json
 
   Generate an allowlist from all browsers on a computer
     trustprune gen-allowlist --from browsers --out allowlist.yaml
@@ -295,21 +310,51 @@ APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{
 			flagOut("where to write the allowlist (.json, .yaml, or .yml)", true),
+			flagHosts(),
+			flagPresets(),
+			flagNoPresets(),
 			flagFile("newline-delimited https URLs or a Tranco-style rank,domain CSV", false),
 			flagFrom(),
 		},
 		ArgValidator: rejectPositionalArgs,
+		Before:       genAllowlistBefore,
 		Action:       withTrace(st, genAllowlistAction),
 	}
+}
+
+func genAllowlistBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if c.IsSet("presets") && c.Bool("no-presets") {
+		return ctx, usageExit(c, "--presets and --no-presets cannot be used together")
+	}
+	if c.IsSet("hosts") {
+		if _, err := preset.ParseHosts(c.String("hosts")); err != nil {
+			return ctx, usageExit(c, err.Error())
+		}
+	}
+	if c.IsSet("presets") {
+		if _, err := preset.ParseNames(c.String("presets")); err != nil {
+			return ctx, usageExit(c, err.Error())
+		}
+	}
+	return ctx, nil
 }
 
 func genAllowlistAction(_ context.Context, c *cli.Command) error {
 	from := flagString(c, "from")
 	file := flagString(c, "file")
-	if from == "" && file == "" {
+	hosts := flagString(c, "hosts")
+	presets := flagString(c, "presets")
+	if from == "" && file == "" && !c.IsSet("hosts") && !c.IsSet("presets") {
 		return cli.ShowSubcommandHelp(c)
 	}
-	return cmd.GenerateAllowlist(flagString(c, "out"), from, file)
+	return cmd.GenerateAllowlist(cmd.GenerateAllowlistOptions{
+		Output:    flagString(c, "out"),
+		From:      from,
+		File:      file,
+		Hosts:     hosts,
+		Presets:   presets,
+		NoPresets: c.Bool("no-presets"),
+	})
 }
 
 func listCommand(st *runState) *cli.Command {
