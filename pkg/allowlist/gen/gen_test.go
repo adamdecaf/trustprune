@@ -15,9 +15,13 @@
 package gen
 
 import (
+	"crypto/x509"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -175,6 +179,64 @@ func TestGen__gate(t *testing.T) {
 	}
 	if w1.IsZero() || w2.IsZero() || w3.IsZero() {
 		t.Errorf("can't be zero: w1=%q, w2=%q, w3=%q", w1, w2, w3)
+	}
+}
+
+// FindCAs must verify and record the hostname, not host:port. httptest's URL
+// always includes a non-443 port; dialing still uses that port.
+func TestFindCAsRecordsHostnameWithoutPort(t *testing.T) {
+	ts := httptest.NewTLSServer(nil)
+	t.Cleanup(ts.Close)
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.Port() == "" || u.Port() == "443" {
+		t.Fatalf("server URL %s must include a non-443 port", ts.URL)
+	}
+	if strings.Contains(u.Hostname(), ":") {
+		t.Fatalf("hostname %q still contains a port", u.Hostname())
+	}
+
+	tr, ok := ts.Client().Transport.(*http.Transport)
+	if !ok || tr.TLSClientConfig == nil || tr.TLSClientConfig.RootCAs == nil {
+		t.Fatal("test server client has no certificate pool")
+	}
+	cas, err := FindCAs([]*url.URL{u}, tr.TLSClientConfig.RootCAs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cas) != 1 {
+		t.Fatalf("got %d CAs, want 1", len(cas))
+	}
+	if len(cas[0].DNSNames) != 1 || cas[0].DNSNames[0] != u.Hostname() {
+		t.Fatalf("DNSNames = %#v, want [%q]", cas[0].DNSNames, u.Hostname())
+	}
+}
+
+// getRoot verifies DNSName as a certificate name. host:port is not a DNS name
+// and used to drop CAs after a successful dial to a non-443 port.
+func TestGetRootRejectsHostPortDNSName(t *testing.T) {
+	ts := httptest.NewTLSServer(nil)
+	t.Cleanup(ts.Close)
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert := ts.Certificate()
+	if cert == nil {
+		t.Fatal("tls server has no certificate")
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+
+	if got := (chain{cert}).getRoot(u.Host, roots); got != nil {
+		t.Fatalf("getRoot(%q) returned a root; host:port must not verify", u.Host)
+	}
+	if got := (chain{cert}).getRoot(u.Hostname(), roots); got == nil {
+		t.Fatalf("getRoot(%q) rejected the hostname without a port", u.Hostname())
 	}
 }
 
