@@ -211,30 +211,36 @@ func FindCAs(urls []*url.URL, sysRoots *x509.CertPool) ([]*CA, error) {
 			if u.Scheme != "https" || u.Host == "" {
 				return
 			}
+			// x509 names are hostnames, not host:port. --hosts accepts
+			// example.com:8443; getChain still dials that full address.
+			dnsName := u.Hostname()
+			if dnsName == "" {
+				return
+			}
 
 			workers.begin()
 			defer workers.done()
-			cas := authorities.findSigners(u.Host)
+			cas := authorities.findSigners(dnsName)
 			if len(cas) == 0 {
 				// We didn't find an existing CA, so we need to get one
 				chain := getChain(u, sysRoots)
 				if len(chain) == 0 {
 					// didn't find chain, but that's not a huge deal as
 					// the remote endpoint could be unreachable
-					fmt.Printf("WARNING: Unable to get certificates for %s\n", u.Host)
+					fmt.Printf("WARNING: Unable to get certificates for %s\n", dnsName)
 					return
 				}
 
 				// With a new chain, find it's root and cache that
-				root := chain.getRoot(u.Host, sysRoots)
+				root := chain.getRoot(dnsName, sysRoots)
 				if root == nil {
 					return
 				}
 
 				ca, exists := authorities.find(root)
-				ca.addDNSName(u.Host)
+				ca.addDNSName(dnsName)
 				if debug && !exists {
-					fmt.Printf("allowlist/gen: added %s root (%s)\n", u.Host, ca.Fingerprint[:16])
+					fmt.Printf("allowlist/gen: added %s root (%s)\n", dnsName, ca.Fingerprint[:16])
 				}
 			}
 

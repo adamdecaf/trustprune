@@ -21,6 +21,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/allowlist/gen"
+	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
@@ -38,67 +40,36 @@ var (
 	exampleDNSNamesLength = 3
 )
 
-func GenerateAllowlist(output string, from, file string) error {
-	if output == "" || (from == "" && file == "") {
-		return errors.New("you need to specify --out <path> and either --from or --file")
+// GenerateAllowlistOptions is the input to GenerateAllowlist.
+type GenerateAllowlistOptions struct {
+	Output    string
+	From      string
+	File      string
+	Hosts     string
+	Presets   string
+	NoPresets bool
+	// GOOS selects the default platform preset when Presets is empty and
+	// NoPresets is false. Empty means runtime.GOOS.
+	GOOS string
+}
+
+func GenerateAllowlist(opts GenerateAllowlistOptions) error {
+	if opts.Output == "" {
+		return errors.New("you need to specify --out <path>")
 	}
-	output, err := filepath.Abs(output)
+	output, err := filepath.Abs(opts.Output)
 	if err != nil {
 		return err
 	}
 
-	var accum []*url.URL
-	var mu sync.Mutex
-	uacc := make(chan []*url.URL)
-	eacc := make(chan error)
-
-	pool := x509.NewCertPool()
-
-	choices := getChoices(from, file)
-	debugLog("running %d choices", len(choices))
-	for i := range choices {
-		opt := strings.ToLower(strings.TrimSpace(choices[i]))
-		switch opt {
-		case "browser", "browsers":
-			debugLog("starting browser url retrieval")
-			go accumulateUrls(gen.FromAllBrowsers, uacc, eacc)
-			addCertsToPool(pool, gen.BrowserCAs)
-
-		case "file":
-			debugLog("grabbing urls from %s", file)
-			go accumulateUrls(func() ([]*url.URL, error) {
-				return gen.FromFile(file)
-			}, uacc, eacc)
-			list := func() ([]*x509.Certificate, error) {
-				return store.Platform().List(&store.ListOptions{
-					Trusted: true,
-				})
-			}
-			addCertsToPool(pool, list)
-
-		default:
-			debugLog("starting %s url retrieval", opt)
-			go accumulateUrls(func() ([]*url.URL, error) {
-				return gen.FromBrowser(opt)
-			}, uacc, eacc)
-			addCertsToPoolForApp(pool, opt)
-		}
+	choiceURLs, err := urlsFromChoices(opts.From, opts.File)
+	if err != nil {
+		return err
 	}
-
-	for range choices {
-		select {
-		case urls := <-uacc:
-			mu.Lock()
-			debugLog("accumulating %d urls", len(urls))
-			accum = append(accum, urls...)
-			mu.Unlock()
-		case err := <-eacc:
-			return err
-		}
+	accum, err := assembleAllowlistURLs(choiceURLs, opts)
+	if err != nil {
+		return err
 	}
-	debugLog("cleaning up from url retrieval")
-	close(uacc)
-	close(eacc)
 
 	if debug {
 		fmt.Printf("getting chains for %d urls\n", len(accum))
@@ -156,7 +127,143 @@ func getChoices(from, file string) []string {
 		}
 		from += "file"
 	}
+	if from == "" {
+		return nil
+	}
 	return strings.Split(from, ",")
+}
+
+func urlsFromChoices(from, file string) ([]*url.URL, error) {
+	choices := getChoices(from, file)
+	if len(choices) == 0 {
+		return nil, nil
+	}
+
+	var accum []*url.URL
+	var mu sync.Mutex
+	uacc := make(chan []*url.URL)
+	eacc := make(chan error)
+
+	pool := x509.NewCertPool()
+
+	debugLog("running %d choices", len(choices))
+	for i := range choices {
+		opt := strings.ToLower(strings.TrimSpace(choices[i]))
+		switch opt {
+		case "browser", "browsers":
+			debugLog("starting browser url retrieval")
+			go accumulateUrls(gen.FromAllBrowsers, uacc, eacc)
+			addCertsToPool(pool, gen.BrowserCAs)
+
+		case "file":
+			debugLog("grabbing urls from %s", file)
+			go accumulateUrls(func() ([]*url.URL, error) {
+				return gen.FromFile(file)
+			}, uacc, eacc)
+			list := func() ([]*x509.Certificate, error) {
+				return store.Platform().List(&store.ListOptions{
+					Trusted: true,
+				})
+			}
+			addCertsToPool(pool, list)
+
+		default:
+			debugLog("starting %s url retrieval", opt)
+			go accumulateUrls(func() ([]*url.URL, error) {
+				return gen.FromBrowser(opt)
+			}, uacc, eacc)
+			addCertsToPoolForApp(pool, opt)
+		}
+	}
+
+	for range choices {
+		select {
+		case urls := <-uacc:
+			mu.Lock()
+			debugLog("accumulating %d urls", len(urls))
+			accum = append(accum, urls...)
+			mu.Unlock()
+		case err := <-eacc:
+			return nil, err
+		}
+	}
+	debugLog("cleaning up from url retrieval")
+	close(uacc)
+	close(eacc)
+	return accum, nil
+}
+
+// assembleAllowlistURLs merges URLs already collected from --from/--file
+// with --hosts and preset URLs. It does not dial TLS.
+func assembleAllowlistURLs(choiceURLs []*url.URL, opts GenerateAllowlistOptions) ([]*url.URL, error) {
+	extra, err := hostAndPresetURLs(opts)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*url.URL, 0, len(choiceURLs)+len(extra))
+	out = append(out, choiceURLs...)
+	out = append(out, extra...)
+	return dedupeURLs(out), nil
+}
+
+func hostAndPresetURLs(opts GenerateAllowlistOptions) ([]*url.URL, error) {
+	var out []*url.URL
+	if strings.TrimSpace(opts.Hosts) != "" {
+		urls, err := preset.ParseHosts(opts.Hosts)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, urls...)
+	}
+	names, err := resolvePresetNames(opts.Presets, opts.NoPresets, opts.GOOS)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) > 0 {
+		urls, err := preset.URLs(names)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, urls...)
+	}
+	return out, nil
+}
+
+func resolvePresetNames(presets string, noPresets bool, goos string) ([]string, error) {
+	presets = strings.TrimSpace(presets)
+	if noPresets && presets != "" {
+		return nil, fmt.Errorf("--presets and --no-presets cannot be used together")
+	}
+	if noPresets {
+		return nil, nil
+	}
+	if presets != "" {
+		return preset.ParseNames(presets)
+	}
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if def := preset.DefaultName(goos); def != "" {
+		return []string{def}, nil
+	}
+	return nil, nil
+}
+
+func dedupeURLs(urls []*url.URL) []*url.URL {
+	seen := make(map[string]struct{})
+	out := make([]*url.URL, 0, len(urls))
+	for _, u := range urls {
+		if u == nil || u.Host == "" {
+			continue
+		}
+		key := u.Scheme + "://" + u.Host
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, u)
+	}
+	return out
 }
 
 func accumulateUrls(f func() ([]*url.URL, error), u chan []*url.URL, e chan error) {

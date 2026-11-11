@@ -42,7 +42,7 @@ trustprune restore
 trustprune restore --app java
 ```
 
-Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from browser history.
+Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from hostnames, platform presets, or browser history.
 
 > **Safety first:** Prefer experimenting against temp or container stores when learning. Back up first, every time. See [Safety](#safety) and the [docs site](https://trustprune.com/).
 
@@ -55,7 +55,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [allowlist](docs/allowlists.md#allowlisting) | Distrust certificates that are not on your allowlist |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
-| [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from browser history or URL lists |
+| [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version |
 
@@ -158,10 +158,16 @@ trustprune restore --backup <path>  # explicit backup path
 trustprune restore --app java --store /path/to/cacerts   # java/certifi: store to restore into
 
 # Generate an allowlist
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets
+trustprune gen-allowlist --out allowlist.yaml --presets linux
 trustprune gen-allowlist --out allowlist.yaml --from firefox
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 # --out is required: without it, gen-allowlist prints "required flag --out not set" and exits with status 2
+# Apply the result with the existing allowlist command (optionally a PEM bundle):
+#   trustprune allowlist --file allowlist.yaml
+#   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
 
 # Verify connectivity after a change
 trustprune connect https://example.com
