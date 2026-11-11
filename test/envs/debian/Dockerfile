@@ -2,8 +2,13 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl openjdk-17-jdk-headless python3 python3-venv python3-pip && \
+# Archive DNS blips fail apt-get update before Acquire::Retries applies.
+RUN n=0; until apt-get -o Acquire::Retries=5 update; do \
+      n=$((n + 1)); \
+      if [ "$n" -ge 5 ]; then exit 1; fi; \
+      sleep "$n"; \
+    done && \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates curl openjdk-17-jdk-headless python3 python3-venv python3-pip && \
     rm -rf /var/lib/apt/lists/* && \
     ln -sfn "$(dirname "$(dirname "$(readlink -f "$(which javac)")")")" /usr/lib/jvm/java-home && \
     python3 -m venv /opt/trustprune-certifi && \

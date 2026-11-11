@@ -4,8 +4,13 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # libnss3-tools provides certutil (required by the NSS store). Seed Chrome's
 # Linux NSS DB under the container HOME so tests never touch a host store.
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates libnss3-tools && \
+# Archive DNS blips fail apt-get update before Acquire::Retries applies.
+RUN n=0; until apt-get -o Acquire::Retries=5 update; do \
+      n=$((n + 1)); \
+      if [ "$n" -ge 5 ]; then exit 1; fi; \
+      sleep "$n"; \
+    done && \
+    apt-get -o Acquire::Retries=5 install -y --no-install-recommends ca-certificates libnss3-tools && \
     rm -rf /var/lib/apt/lists/* && \
     mkdir -p /root/.pki/nssdb && \
     certutil -N -d sql:/root/.pki/nssdb --empty-password && \
