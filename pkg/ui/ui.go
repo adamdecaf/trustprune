@@ -90,10 +90,15 @@ func ListCertificatesWithMeta(meta Meta, certs []*x509.Certificate, cfg *Config)
 		cfg = &c
 	}
 
-	// -count ignores cfg.UI. The line is "N\n", written to cfg.Outfile when set
-	// so stdout stays empty, the same as other list formats.
+	// -count ignores cfg.UI and the empty-store error. Text formats print "N\n".
+	// --format json (case-insensitive) prints a pretty-printed {"count": N}
+	// object. Either is written to cfg.Outfile when set so stdout stays empty,
+	// the same as other list formats. An unknown format keeps the plain line.
 	if cfg.Count {
 		return writeToConfiguredOutput(cfg, func(w io.Writer) error {
+			if strings.EqualFold(cfg.Format, jsonFormat) {
+				return writeCountJSON(w, len(certs))
+			}
 			_, err := fmt.Fprintf(w, "%d\n", len(certs))
 			return err
 		})
