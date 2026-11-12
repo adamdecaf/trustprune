@@ -166,6 +166,17 @@ func flagDryRun() *cli.BoolFlag {
 	}
 }
 
+// flagVersion is the root --version alias of the version command.
+// There is no -v alias: list uses -v for verbose table output.
+func flagVersion() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "version",
+		Usage:       "print the version",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 func flagForce() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "force",

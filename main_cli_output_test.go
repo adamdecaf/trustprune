@@ -68,7 +68,8 @@ func TestCLIOutputPolish(t *testing.T) {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
 		want := "--store with --app " + runtime.GOOS + " is only supported for java (keystore override) and certifi (cacert.pem override)"
-		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stdout+res.stderr, "unknown app") || !strings.Contains(res.stderr, want) {
+		assertUsageError(t, res, want)
+		if strings.Contains(res.stdout+res.stderr, "unknown app") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		if _, err := os.Stat(storePath); !os.IsNotExist(err) {

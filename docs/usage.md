@@ -14,7 +14,12 @@ Supported `--app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ss
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
-Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2 with a short message on stderr and a hint to run `--help`. Runtime errors keep exit 1 and the `ERROR:` prefix.
+Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix.
+
+```text
+ERROR: unknown flag --foo
+run 'trustprune list --help' for usage
+```
 
 Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` still accepts one optional positional URL (or `--url`, not both).
 
@@ -273,7 +278,7 @@ trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 | `--from <types>` | Comma-separated sources: `browser` / `browsers`, `chrome`, `firefox`, `safari`, `file` |
 | `--file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
 
-Without `--out`, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
+Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
 
 ## add
 
@@ -317,9 +322,10 @@ The URL must use the `https` scheme.
 
 ```bash
 trustprune version
+trustprune --version
 ```
 
-Prints the tool version and Go runtime version.
+Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` works the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag). `-v` is not a version alias; on `list`, `-v` means verbose.
 
 ## Debugging
 
