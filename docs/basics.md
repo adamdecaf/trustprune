@@ -48,36 +48,46 @@ Connection to https://google.com passed!
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `--app` flag. `--out <path>` writes that formatted output to a file for every format and for `--count`. Stdout stays empty.
 
-Show certificates installed in the platform:
+Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise.
 
 ```
 $ trustprune list
-Certificate
-  SHA256 Fingerprint - 1a5174980a294a528a110726d5855650266c48d9883bea692b67b6d726da98c5
-  SerialNumber: 26471149583208131559647911801012699958
-  Subject: The USERTRUST Network
-  Issuer: AddTrust AB, AddTrust External TTP Network
-  NotBefore - 2000-05-30 10:48:38 +0000 UTC, NotAfter - 2020-05-30 10:48:38 +0000 UTC
-  IsCA - true
-  CRLDistributionPoints
-    http://crl.usertrust.com/AddTrustExternalCARoot.crl
+SUBJECT                                  ISSUER KEY       DAYS SHA256-FINGERPRINT
+EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516
+Entrust Root Certification Authority     =      RSA-2048  330  73c176434f1bc6d5
+Entrust Root Certification Authority - … =      ECDSA-384 4369 02ed0eb28c14da45
 ...
 ```
 
-Show certificates installed for an application
+`-v` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. Verbose headers are SHA256-FINGERPRINT, SERIAL, PATH, NOT-BEFORE, and NOT-AFTER.
+
+```
+$ trustprune list -v
+SUBJECT                                  ISSUER KEY       DAYS SHA256-FINGERPRINT                                               SERIAL                                  PATH              NOT-BEFORE NOT-AFTER
+EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516e77573c0992f0979ca084e4685681ff195ccba8a229b8a76 112324828676200291871926431888494945866 testdata/lots.crt 2010-10-30 2030-12-17
+...
+```
+
+`--format long` prints each certificate as a multi-line dump. Empty optional fields stay hidden.
+
+```
+$ trustprune list --format long
+Certificate
+  SHA256 Fingerprint: 6dc47172e01cbcb0bf62580d895fe2b8ac9ad4f873801e0c10b9c837d21eb177
+  SerialNumber: 946069240
+  Subject: Entrust.net Certification Authority (2048)
+  Issuer: Entrust.net Certification Authority (2048)
+  NotBefore: 1999-12-24 17:50:51 +0000 UTC | NotAfter: 2029-07-24 14:15:12 +0000 UTC
+  KEY: RSA-2048
+  DAYS: 1300
+  IsCA: true
+...
+```
+
+Show certificates installed for an application. The same default table is used.
 
 ```
 $ trustprune list --app firefox
-Certificate
-  SHA256 Fingerprint - 1a5174980a294a528a110726d5855650266c48d9883bea692b67b6d726da98c5
-  SerialNumber: 26471149583208131559647911801012699958
-  Subject: The USERTRUST Network
-  Issuer: AddTrust AB, AddTrust External TTP Network
-  NotBefore - 2000-05-30 10:48:38 +0000 UTC, NotAfter - 2020-05-30 10:48:38 +0000 UTC
-  IsCA - true
-  CRLDistributionPoints
-    http://crl.usertrust.com/AddTrustExternalCARoot.crl
-...
 ```
 
 Point `--store` at a venv certifi bundle or a Java keystore:
@@ -88,17 +98,6 @@ $ trustprune list --app java --store /path/to/cacerts
 ```
 
 Without `--app`, `--file` lists certificates from a PEM file (`trustprune list --file lots.crt`). `--file` cannot be combined with `--app`; use `--store` to override a java or certifi path.
-
-`--format table` prints an aligned table with uppercase headers: SUBJECT, ISSUER, KEY, DAYS, and SHA256 FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Pass `-v` for the full fingerprint, serial, source or store path (`-` for URLs), and the NOT BEFORE and NOT AFTER dates (DAYS stays numeric).
-
-```
-$ trustprune list --format table
-SUBJECT                                  ISSUER KEY       DAYS SHA256 FINGERPRINT
-EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516
-Entrust Root Certification Authority     =      RSA-2048  330  73c176434f1bc6d5
-Entrust Root Certification Authority - … =      ECDSA-384 4369 02ed0eb28c14da45
-...
-```
 
 If openssl is installed you can output certificates in that format (via `--format openssl`).
 
@@ -152,17 +151,17 @@ Certificate:
 
 ### URL
 
-`trustprune` can list certificates from a given URL. Supported formats are PEM and [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates)
+`trustprune` can list certificates from a given URL. Supported formats are PEM and [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates). Output uses the same formats as any other list (table by default).
 
 ```
-$ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+$ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt --format long
 Certificate
-  SHA256 Fingerprint - ebd41040e4bb3ec742c9e381d31ef2a41a48b6685c96e7cef3c1df6cd4331c99
+  SHA256 Fingerprint: ebd41040e4bb3ec742c9e381d31ef2a41a48b6685c96e7cef3c1df6cd4331c99
   SerialNumber: 4835703278459707669005204
   Subject: GlobalSign Root CA
   Issuer: GlobalSign Root CA
-  NotBefore - 1998-09-01 12:00:00 +0000 UTC, NotAfter - 2028-01-28 12:00:00 +0000 UTC
-  IsCA - true
+  NotBefore: 1998-09-01 12:00:00 +0000 UTC | NotAfter: 2028-01-28 12:00:00 +0000 UTC
+  IsCA: true
 ...
 ```
 
@@ -183,7 +182,7 @@ trusted_certificates:
 ...
 ```
 
-`--out <path>` writes this report to a file. The same flag writes `short`, `table`, `json`, `openssl`, and `--count` output to a file. Stdout stays empty.
+`--out <path>` writes this report to a file. The same flag writes `table`, `long`, `json`, `openssl`, and `--count` output to a file. Stdout stays empty.
 
 ```
 $ trustprune list --format observatory --out report.yaml

@@ -15,12 +15,20 @@
 package cmd
 
 import (
+	"bytes"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
+	"flag"
 	"net/url"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/adamdecaf/trustprune/pkg/allowlist/gen"
 )
 
 func TestGenAllowlist_getChoices(t *testing.T) {
@@ -243,6 +251,157 @@ func TestResolvePresetNames(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, []string{"apple"}) {
 		t.Errorf("got %q", got)
+	}
+}
+
+const (
+	allowlistSummaryGoldenPath        = "testdata/allowlist-summary.golden"
+	allowlistSummaryVerboseGoldenPath = "testdata/allowlist-summary-verbose.golden"
+)
+
+var updateGolden = flag.Bool("update", false, "rewrite golden files")
+
+func allowlistSummaryFixture() []*gen.CA {
+	return []*gen.CA{
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Example CA"}}},
+			Fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			DNSNames:    []string{"a.example", "b.example", "c.example", "d.example"},
+		},
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Second CA"}}},
+			Fingerprint: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+			DNSNames:    []string{"only.example"},
+		},
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Third CA"}}},
+			Fingerprint: "fedcba9876543210ffff",
+			DNSNames:    []string{"one.example", "two.example"},
+		},
+	}
+}
+
+func compareGolden(t *testing.T, path, out string) {
+	t.Helper()
+	if *updateGolden {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// #nosec G304 -- path is a testdata golden selected by the test
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != strings.ReplaceAll(string(want), "\r\n", "\n") {
+		t.Fatalf("output differs from %s (run with -update):\n%s", path, out)
+	}
+}
+
+func TestWriteAllowlistSummaryGolden(t *testing.T) {
+	cas := allowlistSummaryFixture()
+	var buf bytes.Buffer
+	if err := writeAllowlistSummary(&buf, cas, false); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	compareGolden(t, allowlistSummaryGoldenPath, out)
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+		t.Fatalf("header=%q", lines[0])
+	}
+	if strings.Contains(out, "Fingerprint") || strings.Contains(out, "Example DNSNames") || strings.Contains(out, "Count") {
+		t.Fatalf("old headers still present:\n%s", out)
+	}
+	if strings.Contains(out, cas[0].Fingerprint) || strings.Contains(out, cas[2].Fingerprint) || !strings.Contains(out, cas[0].Fingerprint[:16]) {
+		t.Fatalf("default should preview the first 16 fingerprint characters:\n%s", out)
+	}
+	if strings.Contains(out, "d.example") || !strings.Contains(out, "a.example, b.example, c.example") {
+		t.Fatalf("example DNS names:\n%s", out)
+	}
+
+	buf.Reset()
+	if err := writeAllowlistSummary(&buf, cas, true); err != nil {
+		t.Fatal(err)
+	}
+	verbose := buf.String()
+	compareGolden(t, allowlistSummaryVerboseGoldenPath, verbose)
+	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+		t.Fatalf("verbose header=%q", strings.Split(verbose, "\n")[0])
+	}
+	for _, ca := range cas {
+		if !strings.Contains(verbose, ca.Fingerprint) {
+			t.Fatalf("verbose missing full fingerprint %s\n%s", ca.Fingerprint, verbose)
+		}
+	}
+}
+
+func TestWriteAllowlistSummary(t *testing.T) {
+	t.Parallel()
+
+	full := "0123456789abcdefFULL"
+	cas := []*gen.CA{
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Example CA"}}},
+			Fingerprint: full,
+			DNSNames:    []string{"a.example", "b.example", "c.example", "d.example"},
+		},
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Short CA"}}},
+			Fingerprint: "zz",
+			DNSNames:    []string{"only.example"},
+		},
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Exact CA"}}},
+			Fingerprint: "1234567890abcdef",
+			DNSNames:    nil,
+		},
+		{
+			Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Empty CA"}}},
+			Fingerprint: "",
+			DNSNames:    []string{"empty.example"},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := writeAllowlistSummary(&buf, cas, false); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) != 5 {
+		t.Fatalf("lines=%d\n%s", len(lines), out)
+	}
+	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+		t.Fatalf("header=%q", lines[0])
+	}
+	if strings.Contains(out, "Fingerprint") || strings.Contains(out, "Example DNSNames") {
+		t.Fatalf("old headers still present:\n%s", out)
+	}
+	if !strings.Contains(out, full[:16]) || strings.Contains(out, full) {
+		t.Fatalf("default fingerprint truncation:\n%s", out)
+	}
+	if !strings.Contains(out, "zz") || !strings.Contains(out, "1234567890abcdef") {
+		t.Fatalf("short fingerprints should print whole:\n%s", out)
+	}
+	if !strings.Contains(out, "a.example, b.example, c.example") || strings.Contains(out, "d.example") {
+		t.Fatalf("example DNS names:\n%s", out)
+	}
+
+	buf.Reset()
+	if err := writeAllowlistSummary(&buf, cas, true); err != nil {
+		t.Fatal(err)
+	}
+	verbose := buf.String()
+	if !strings.Contains(verbose, full) {
+		t.Fatalf("verbose missing full fingerprint:\n%s", verbose)
+	}
+	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+		t.Fatalf("verbose header=%q", verbose)
 	}
 }
 

@@ -137,7 +137,7 @@ func showCertsOnWeb(certs []*x509.Certificate, cfg *Config) error {
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		p, ok := getPrinter(cfg.Format)
 		if !ok {
-			_, _ = io.WriteString(w, fmt.Sprintf("Unknown format %s", cfg.Format))
+			_, _ = io.WriteString(w, UnknownFormatError(cfg.Format).Error())
 			return
 		}
 		defer p.close()

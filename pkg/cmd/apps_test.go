@@ -84,6 +84,24 @@ func TestPrintAppsJSON(t *testing.T) {
 	}
 }
 
+func TestPrintAppsShortIsTerse(t *testing.T) {
+	t.Parallel()
+
+	statuses := []store.Status{{Name: "chrome", Found: true, Path: "/tmp/chrome-nss"}}
+	for _, format := range []string{"", "short", "SHORT"} {
+		var buf bytes.Buffer
+		if err := printApps(&buf, statuses, format); err != nil {
+			t.Fatalf("format %q: %v", format, err)
+		}
+		if !strings.Contains(buf.String(), "APP") || !strings.Contains(buf.String(), "chrome") {
+			t.Fatalf("format %q output:\n%s", format, buf.String())
+		}
+	}
+	if err := printApps(&bytes.Buffer{}, statuses, "table"); err == nil {
+		t.Fatal("table is not an apps format")
+	}
+}
+
 func TestPrintAppsUnknownFormat(t *testing.T) {
 	t.Parallel()
 

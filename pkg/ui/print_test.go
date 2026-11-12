@@ -44,10 +44,56 @@ func TestGetFormatsSorted(t *testing.T) {
 		t.Fatalf("GetFormats not sorted: %v", got)
 	}
 	joined := "," + strings.Join(got, ",") + ","
-	for _, name := range []string{"json", "observatory", "openssl", "short", "table"} {
+	for _, name := range []string{"json", "observatory", "openssl", "long", "table"} {
 		if !strings.Contains(joined, ","+name+",") {
 			t.Fatalf("GetFormats missing %s: %v", name, got)
 		}
+	}
+	if strings.Contains(joined, ",short,") {
+		t.Fatalf("GetFormats still contains short: %v", got)
+	}
+	if DefaultFormat() != "table" {
+		t.Fatalf("DefaultFormat()=%q, want table", DefaultFormat())
+	}
+}
+
+func TestShowCertsOnCliUnknownFormat(t *testing.T) {
+	certs := testListCerts(t)
+	err := showCertsOnCli(certs[:1], &Config{Format: "short"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	const want = `unknown format "short" (formats: json, long, observatory, openssl, table)`
+	if err.Error() != want {
+		t.Fatalf("err=%q", err.Error())
+	}
+	err = showCertsOnCli(certs[:1], &Config{Format: "nope"})
+	if err == nil || err.Error() != `unknown format "nope" (formats: json, long, observatory, openssl, table)` {
+		t.Fatalf("err=%v", err)
+	}
+	if !KnownFormat("TABLE") || !KnownFormat("Long") || !KnownFormat("Observatory") {
+		t.Fatal("known formats should match case-insensitively")
+	}
+	if KnownFormat("short") || KnownFormat("SHORT") || KnownFormat("") || KnownFormat("nope") {
+		t.Fatal("unknown format treated as known")
+	}
+}
+
+func TestLongPrinterIsMultilineDump(t *testing.T) {
+	certs := testListCerts(t)
+	var buf bytes.Buffer
+	if err := (longPrinter{}).write(&buf, certs[:1]); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.HasPrefix(out, "Certificate\n") || !strings.Contains(out, "  SHA256 Fingerprint: ") {
+		t.Fatalf("long output:\n%s", out)
+	}
+	if _, ok := getPrinter("short"); ok {
+		t.Fatal("short is still a printer")
+	}
+	if _, ok := getPrinter("LONG"); !ok {
+		t.Fatal("long printer is not case-insensitive")
 	}
 }
 
@@ -132,17 +178,30 @@ func TestTablePrinterIncludesKeyAndDays(t *testing.T) {
 	if !strings.Contains(out, "KEY") || !strings.Contains(out, "DAYS") {
 		t.Fatalf("missing KEY/DAYS headers:\n%s", out)
 	}
+	if !strings.Contains(out, "SHA256-FINGERPRINT") {
+		t.Fatalf("missing SHA256-FINGERPRINT header:\n%s", out)
+	}
+	if strings.Contains(out, "SHA256 FINGERPRINT") {
+		t.Fatalf("old SHA256 FINGERPRINT header still present:\n%s", out)
+	}
 	if !strings.Contains(out, "RSA-") {
 		t.Fatalf("missing KEY value:\n%s", out)
 	}
 }
 
-const tableGoldenPath = "testdata/table.golden"
+const (
+	tableGoldenPath        = "testdata/table.golden"
+	tableVerboseGoldenPath = "testdata/table-verbose.golden"
+	longGoldenPath         = "testdata/long.golden"
+)
+
+// goldenNow is the frozen clock for list goldens (lots.crt).
+var goldenNow = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 var updateGolden = flag.Bool("update", false, "rewrite golden files")
 
-func TestTablePrinterGoldenWidth(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+func lotsCerts(t *testing.T) []*x509.Certificate {
+	t.Helper()
 	bs, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
 	if err != nil {
 		t.Fatal(err)
@@ -151,36 +210,151 @@ func TestTablePrinterGoldenWidth(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var buf bytes.Buffer
-	p := tablePrinter{now: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
-	if err := p.write(&buf, certs); err != nil {
-		t.Fatal(err)
+	if len(certs) == 0 {
+		t.Fatal("no certs in lots.crt")
 	}
-	out := buf.String()
+	return certs
+}
 
+func compareGolden(t *testing.T, path, out string) {
+	t.Helper()
 	if *updateGolden {
-		if err := os.MkdirAll("testdata", 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(tableGoldenPath, []byte(out), 0o644); err != nil {
+		if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(tableGoldenPath)
+	// #nosec G304 -- path is a testdata golden selected by the test
+	want, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out != strings.ReplaceAll(string(want), "\r\n", "\n") {
-		t.Fatalf("table output differs from %s (run with -update):\n%s", tableGoldenPath, out)
+		t.Fatalf("output differs from %s (run with -update):\n%s", path, out)
 	}
+}
+
+func TestTablePrinterGoldenWidth(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var buf bytes.Buffer
+	p := tablePrinter{now: goldenNow}
+	if err := p.write(&buf, lotsCerts(t)); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	compareGolden(t, tableGoldenPath, out)
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if !strings.HasPrefix(lines[0], "SUBJECT ") || !strings.Contains(lines[0], "ISSUER") {
-		t.Fatalf("headers not uppercase: %q", lines[0])
+	if !strings.HasPrefix(lines[0], "SUBJECT ") || !strings.Contains(lines[0], "ISSUER") || !strings.Contains(lines[0], "SHA256-FINGERPRINT") {
+		t.Fatalf("headers: %q", lines[0])
+	}
+	if strings.Contains(lines[0], "SHA256 FINGERPRINT") {
+		t.Fatalf("old fingerprint header: %q", lines[0])
 	}
 	for i, line := range lines {
 		if n := utf8.RuneCountInString(strings.TrimRight(line, " ")); n > tableMaxLineWidth {
 			t.Errorf("line %d is %d wide (max %d): %q", i, n, tableMaxLineWidth, line)
+		}
+	}
+}
+
+func TestTablePrinterVerboseGolden(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	certs := lotsCerts(t)
+	var buf bytes.Buffer
+	p := tablePrinter{verbose: true, path: "testdata/lots.crt", now: goldenNow}
+	if err := p.write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	compareGolden(t, tableVerboseGoldenPath, out)
+
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	header := lines[0]
+	for _, name := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"} {
+		if !strings.Contains(header, name) {
+			t.Errorf("header missing %s: %q", name, header)
+		}
+	}
+	if strings.Contains(header, "SHA256 FINGERPRINT") || strings.Contains(header, "NOT BEFORE") || strings.Contains(header, "NOT AFTER") {
+		t.Fatalf("old verbose header spacing: %q", header)
+	}
+	if strings.Contains(out, "!") || strings.Contains(out, "expired") {
+		t.Fatalf("verbose DAYS should be numeric:\n%s", out)
+	}
+	if !strings.Contains(out, "testdata/lots.crt") {
+		t.Fatalf("missing fixed path:\n%s", out)
+	}
+	wider := false
+	for _, line := range lines {
+		if utf8.RuneCountInString(strings.TrimRight(line, " ")) > tableMaxLineWidth {
+			wider = true
+			break
+		}
+	}
+	if !wider {
+		t.Fatal("verbose lines should exceed the non-verbose width cap")
+	}
+	for _, cert := range certs {
+		fp := certutil.GetHexSHA256Fingerprint(*cert)
+		if len(fp) < 32 || !strings.Contains(out, fp) {
+			t.Fatalf("missing full fingerprint %s", fp)
+		}
+	}
+}
+
+func TestLongPrinterGolden(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	certs := lotsCerts(t)
+	var buf bytes.Buffer
+	if err := (longPrinter{now: goldenNow}).write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	compareGolden(t, longGoldenPath, out)
+
+	if !strings.HasPrefix(out, "Certificate\n") {
+		t.Fatalf("long dump should start with Certificate:\n%s", out)
+	}
+	if !strings.Contains(out, "  SHA256 Fingerprint: ") || !strings.Contains(out, "  Subject: ") {
+		t.Fatalf("missing fingerprint or subject lines:\n%s", out)
+	}
+	withEmail, withIP, withPerm, withDNS, withCRL := 0, 0, 0, 0, 0
+	for _, cert := range certs {
+		if len(cert.EmailAddresses) > 0 {
+			withEmail++
+		}
+		if len(cert.IPAddresses) > 0 {
+			withIP++
+		}
+		if len(cert.PermittedDNSDomains) > 0 {
+			withPerm++
+		}
+		if len(cert.DNSNames) > 0 {
+			withDNS++
+		}
+		if len(cert.CRLDistributionPoints) > 0 {
+			withCRL++
+		}
+	}
+	if withEmail >= len(certs) || withIP >= len(certs) {
+		t.Fatal("lots.crt has no certificate with an empty optional field")
+	}
+	checks := []struct {
+		label string
+		want  int
+	}{
+		{"EmailAddresses:", withEmail},
+		{"IPAddresses:", withIP},
+		{"PermittedDNSDomains:", withPerm},
+		{"DNSNames:", withDNS},
+		{"CRLDistributionPoints:", withCRL},
+	}
+	for _, check := range checks {
+		if got := strings.Count(out, "\n  "+check.label+"\n"); got != check.want {
+			t.Errorf("%s sections=%d want %d (empty fields must stay hidden)", check.label, got, check.want)
 		}
 	}
 }
@@ -307,6 +481,12 @@ func TestTablePrinterDaysMarkers(t *testing.T) {
 	vout := buf.String()
 	if strings.Contains(vout, "expired") || strings.Contains(vout, "42!") {
 		t.Fatalf("verbose table should keep numeric days:\n%s", vout)
+	}
+	if !strings.Contains(vout, "SHA256-FINGERPRINT") || !strings.Contains(vout, "NOT-BEFORE") || !strings.Contains(vout, "NOT-AFTER") || !strings.Contains(vout, "SERIAL") || !strings.Contains(vout, "PATH") {
+		t.Fatalf("verbose headers:\n%s", vout)
+	}
+	if strings.Contains(vout, "SHA256 FINGERPRINT") || strings.Contains(vout, "NOT BEFORE") || strings.Contains(vout, "NOT AFTER") {
+		t.Fatalf("old verbose headers still present:\n%s", vout)
 	}
 	if !strings.Contains(vout, "\t-2\t") && !strings.Contains(vout, " -2 ") {
 		// tabwriter may use spaces; look for the expired cert's day count

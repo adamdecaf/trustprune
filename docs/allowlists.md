@@ -59,6 +59,8 @@ Allowlist completed successfully
 
 `--out` is required. Without it, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0 (the same for `--out --no-presets`). The `--out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
 
+While it writes the file, `gen-allowlist` prints a summary table with headers `CA`, `FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`. The fingerprint column shows the first 16 characters. `-v` prints each full fingerprint. At most three example DNS names are shown; `COUNT` is the full number of names.
+
 ### Platform presets
 
 When generation actually runs, the default platform preset for this OS is merged in unless you pass `--no-presets` or an explicit `--presets` list:
@@ -100,13 +102,13 @@ Either all browsers `--from browser` or specific browsers `--from chrome`.
 
 ```
 $ trustprune gen-allowlist --from browser --out wh.yaml
-CA                                             Fingerprint      Count Example DNSNames
-GeoTrust Inc.                                  ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
+CA            FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
+GeoTrust Inc. ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
 ...
 
 $ trustprune gen-allowlist --from chrome --out wh.yaml
-CA                                             Fingerprint      Count Example DNSNames
-GeoTrust Inc.                                  ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
+CA            FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
+GeoTrust Inc. ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
 ...
 
 $ trustprune gen-allowlist --out allowlist.yaml --from firefox
@@ -131,7 +133,7 @@ https://yahoo.com
 https://bing.com
 
 $ trustprune gen-allowlist --out wh.yaml --file urls.txt
-CA                             Fingerprint      Count Example DNSNames
+CA                             FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
 DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
 Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
 GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
@@ -151,7 +153,7 @@ There are several services which offer "Top N Domains" lists, such as the [Tranc
 ```
 $ unzip -p tranco.zip | head -n 1000 > top-sites.csv
 $ trustprune gen-allowlist --out wh.yaml --file top-sites.csv
-CA                             Fingerprint      Count Example DNSNames
+CA                             FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
 DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
 Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
 GeoTrust Inc.                  ff856a2d251dcd88 1     google.com

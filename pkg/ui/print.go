@@ -31,12 +31,12 @@ import (
 )
 
 var (
-	defaultFormat = "short"
+	defaultFormat = "table"
 	printers      = map[string]printer{
-		"openssl":     opensslPrinter{},
-		"table":       tablePrinter{},
-		defaultFormat: shortPrinter{},
-		jsonFormat:    jsonPrinter{},
+		"openssl":  opensslPrinter{},
+		"table":    tablePrinter{},
+		"long":     longPrinter{},
+		jsonFormat: jsonPrinter{},
 	}
 
 	fingerprintPreviewLength = 16
@@ -70,6 +70,22 @@ type printer interface {
 func getPrinter(name string) (printer, bool) {
 	p, ok := printers[strings.ToLower(name)]
 	return p, ok
+}
+
+// KnownFormat reports whether name is a list output format.
+// Matching is case-insensitive, the same as getPrinter. observatory is
+// included even though it is not in the printers map.
+func KnownFormat(name string) bool {
+	if _, ok := getPrinter(name); ok {
+		return true
+	}
+	return strings.EqualFold(name, observatoryFormat)
+}
+
+// UnknownFormatError reports that name is not a list output format and
+// includes the valid names from GetFormats.
+func UnknownFormatError(name string) error {
+	return fmt.Errorf("unknown format %q (formats: %s)", name, strings.Join(GetFormats(), ", "))
 }
 
 // tableColumnWidth caps the SUBJECT and ISSUER columns of table output.
@@ -121,9 +137,9 @@ func (p tablePrinter) write(fd io.Writer, certs []*x509.Certificate) error {
 		now = time.Now()
 	}
 	if p.verbose {
-		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256 FINGERPRINT\tSERIAL\tPATH\tNOT BEFORE\tNOT AFTER")
+		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256-FINGERPRINT\tSERIAL\tPATH\tNOT-BEFORE\tNOT-AFTER")
 	} else {
-		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256 FINGERPRINT")
+		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256-FINGERPRINT")
 	}
 
 	rows := make([]string, len(certs))
@@ -212,12 +228,18 @@ func (p opensslPrinter) close() {
 	}
 }
 
-// shortPrinter very verbosly prints out the ecah certificate's information
-// to stdout. This isn't very useful for machine parsing or small screen displays.
-type shortPrinter struct{}
+// longPrinter prints each certificate as a multi-line block.
+// Empty slice fields stay hidden, matching the former short listing.
+type longPrinter struct {
+	now time.Time // zero means time.Now()
+}
 
-func (shortPrinter) close() {}
-func (shortPrinter) write(w io.Writer, certs []*x509.Certificate) error {
+func (longPrinter) close() {}
+func (p longPrinter) write(w io.Writer, certs []*x509.Certificate) error {
+	now := p.now
+	if now.IsZero() {
+		now = time.Now()
+	}
 	writef := func(format string, args ...any) error {
 		_, err := fmt.Fprintf(w, format, args...)
 		return err
@@ -244,7 +266,7 @@ func (shortPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 		if err := writef("  KEY: %s\n", certutil.FormatKeyLabel(certs[i])); err != nil {
 			return err
 		}
-		if err := writef("  DAYS: %d\n", certutil.DaysUntilExpiry(certs[i], time.Now())); err != nil {
+		if err := writef("  DAYS: %d\n", certutil.DaysUntilExpiry(certs[i], now)); err != nil {
 			return err
 		}
 
