@@ -166,6 +166,15 @@ func flagDryRun() *cli.BoolFlag {
 	}
 }
 
+func flagAllowlistVerbose() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "v",
+		Usage:       "show per-certificate remove/keep details in --dry-run output",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 func flagForce() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "force",

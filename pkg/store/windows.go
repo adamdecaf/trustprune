@@ -300,7 +300,7 @@ func skipWindowsExport(out string, err error) bool {
 
 func (s windowsStore) Remove(al allowlist.Allowlist) error {
 	if DryRun() {
-		reportDryRun("remove certificates from", "windows", "")
+		reportAllowlistDryRun("windows", "", nil, nil, nil, nil, nil)
 		return nil
 	}
 	return nil

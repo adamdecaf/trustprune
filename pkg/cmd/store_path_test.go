@@ -231,15 +231,34 @@ func TestAllowlistForAppWithStoreCertifiDryRun(t *testing.T) {
 		store.SetDryRunOutput(nil)
 	})
 
-	if err := AllowlistForAppWithStore("certifi", bundle, al); err != nil {
-		t.Fatal(err)
+	stdout := captureStdout(t, func() error {
+		return AllowlistForAppWithStore("certifi", bundle, al)
+	})
+	if stdout != "" {
+		t.Fatalf("allowlist dry-run printed outside the plan: %q", stdout)
 	}
 	want, err := filepath.EvalSymlinks(bundle)
 	if err != nil {
 		want = bundle
 	}
-	if !strings.Contains(plan.String(), want) {
-		t.Fatalf("dry-run plan %q does not name the -store bundle", plan.String())
+	planText := plan.String()
+	if !strings.Contains(planText, want) {
+		t.Fatalf("dry-run plan %q does not name the -store bundle", planText)
+	}
+	if !strings.Contains(planText, "Kept:\n") {
+		t.Fatalf("default plan missing Kept section: %q", planText)
+	}
+	if strings.Contains(planText, "\n  remove ") {
+		t.Fatalf("default plan included per-certificate remove lines: %q", planText)
+	}
+	const closing = "dry-run: no changes made\n"
+	if strings.Count(planText, closing) != 1 {
+		t.Fatalf("closing line count=%d plan=%q", strings.Count(planText, closing), planText)
+	}
+	idx := strings.LastIndex(planText, closing)
+	summary := planText[idx+len(closing):]
+	if !strings.HasPrefix(summary, "dry-run: ") || !strings.HasSuffix(summary, " removed\n") || strings.Count(summary, "\n") != 1 || !strings.Contains(summary, " kept, ") {
+		t.Fatalf("plan does not end with the kept/removed summary: %q", planText)
 	}
 	after, err := os.ReadFile(bundle)
 	if err != nil {

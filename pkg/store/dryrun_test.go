@@ -26,6 +26,45 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
+func TestReportAllowlistDryRun_Format(t *testing.T) {
+	var buf bytes.Buffer
+	SetDryRunOutput(&buf)
+	SetDryRunVerbose(false)
+	t.Cleanup(func() {
+		SetDryRunOutput(nil)
+		SetDryRunVerbose(false)
+	})
+
+	reportAllowlistDryRun("empty", "", nil, nil, nil, nil, []string{"remove hidden"})
+	want := "dry-run: would remove certificates from empty\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	if buf.String() != want {
+		t.Fatalf("stub plan:\n%q", buf.String())
+	}
+
+	buf.Reset()
+	reportAllowlistDryRun("linux", "/ca", nil, nil,
+		[]string{"unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+		[]string{"then run /bin/true"},
+		[]string{"remove CN=Nope (SHA256 aa) from /ca/mixed.crt", "keep unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+	)
+	want = "dry-run: would remove certificates from linux at /ca\n  then run /bin/true\nKept:\n  unparsable PEM block (4 bytes) in /ca/mixed.crt\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	if buf.String() != want {
+		t.Fatalf("default plan:\n%q", buf.String())
+	}
+
+	buf.Reset()
+	SetDryRunVerbose(true)
+	reportAllowlistDryRun("linux", "/ca", nil, nil,
+		[]string{"unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+		[]string{"then run /bin/true"},
+		[]string{"remove CN=Nope (SHA256 aa) from /ca/mixed.crt", "keep unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+	)
+	want = "dry-run: would remove certificates from linux at /ca\n  then run /bin/true\nKept:\n  unparsable PEM block (4 bytes) in /ca/mixed.crt\n  remove CN=Nope (SHA256 aa) from /ca/mixed.crt\n  keep unparsable PEM block (4 bytes) in /ca/mixed.crt\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	if buf.String() != want {
+		t.Fatalf("verbose plan:\n%q", buf.String())
+	}
+}
+
 func enableDryRunCaptureAny(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	buf := &bytes.Buffer{}

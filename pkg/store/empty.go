@@ -50,7 +50,7 @@ func (s emptyStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
 }
 func (s emptyStore) Remove(allowlist.Allowlist) error {
 	if DryRun() {
-		reportDryRun("remove certificates from", "empty", "")
+		reportAllowlistDryRun("empty", "", nil, nil, nil, nil, nil)
 		return nil
 	}
 	s.printNotce()

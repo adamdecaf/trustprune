@@ -240,6 +240,9 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 	}
 
 	if DryRun() {
+		var keptCerts []*x509.Certificate
+		var removedCerts []*x509.Certificate
+		var rawKeep []string
 		var details []string
 		err := filepath.Walk(s.ca.dir, func(path string, info os.FileInfo, err error) error {
 			if (err != nil && !errors.Is(err, filepath.SkipDir)) || info.IsDir() {
@@ -250,17 +253,19 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 				return err
 			}
 			kept, removed := parsed.KeepMatching(al.Matches)
+			keptCerts = append(keptCerts, kept.Certs...)
+			removedCerts = append(removedCerts, removed...)
 			for i := range removed {
 				details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(removed[i]), path))
 			}
+			rawKeep = append(rawKeep, unparsablePEMLines(path, kept.Entries)...)
 			details = append(details, reportKeptRawPEMIn(path, kept.Entries)...)
 			return nil
 		})
 		if err != nil {
 			return err
 		}
-		details = append(details, fmt.Sprintf("then run %s", s.ca.refresh))
-		reportDryRun("remove certificates from", "linux", s.ca.dir, details...)
+		reportAllowlistDryRun("linux", s.ca.dir, keptCerts, removedCerts, rawKeep, []string{fmt.Sprintf("then run %s", s.ca.refresh)}, details)
 		return nil
 	}
 
@@ -294,19 +299,22 @@ func (s linuxStore) removeWithBlocklist(al allowlist.Allowlist) error {
 		return err
 	}
 
+	var keptCerts []*x509.Certificate
 	var removed []*x509.Certificate
 	for i := range certs {
 		if al.Matches(certs[i]) {
+			keptCerts = append(keptCerts, certs[i])
 			continue
 		}
 		removed = append(removed, certs[i])
 	}
 
 	if DryRun() {
-		details := []string{fmt.Sprintf("blocklist directory %s", s.ca.blocklist)}
-		details = append(details, reportDryRunCerts("remove", removed)...)
-		details = append(details, fmt.Sprintf("then run %s", s.ca.refresh))
-		reportDryRun("remove certificates from", "linux", s.ca.dir, details...)
+		extras := []string{
+			fmt.Sprintf("blocklist directory %s", s.ca.blocklist),
+			fmt.Sprintf("then run %s", s.ca.refresh),
+		}
+		reportAllowlistDryRun("linux", s.ca.dir, keptCerts, removed, nil, extras, reportDryRunCerts("remove", removed))
 		return nil
 	}
 
