@@ -170,7 +170,7 @@ func flagVerbose() *cli.BoolFlag {
 	}
 }
 
-func flagAllowlistVerbose() *cli.BoolFlag {
+func flagGenAllowlistVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "v",
 		Usage:       "show full fingerprints in the summary table",

@@ -289,8 +289,8 @@ func TestListFormatDefaultAndUnknown(t *testing.T) {
 			if !strings.Contains(res.stderr, "run 'trustprune list --help' for usage") {
 				t.Fatalf("missing help hint: %q", res.stderr)
 			}
-			if strings.Contains(res.stderr, "ERROR:") {
-				t.Fatalf("usage error used ERROR: prefix: %q", res.stderr)
+			if !strings.HasPrefix(res.stderr, "ERROR: ") {
+				t.Fatalf("usage error missing ERROR: prefix: %q", res.stderr)
 			}
 		})
 	}

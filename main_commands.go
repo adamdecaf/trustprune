@@ -316,7 +316,7 @@ APPS
 			flagNoPresets(),
 			flagFile("newline-delimited https URLs or a Tranco-style rank,domain CSV", false),
 			flagFrom(),
-			flagAllowlistVerbose(),
+			flagGenAllowlistVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       genAllowlistBefore,
