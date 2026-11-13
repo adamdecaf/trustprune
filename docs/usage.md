@@ -237,7 +237,7 @@ trustprune allowlist --file allowlist.yaml --dry-run
 trustprune allowlist --file allowlist.yaml --dry-run -v
 ```
 
-`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. `-v` / `--v` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store). Those detail lines are omitted by default. `add`, `backup`, and `restore` ignore `-v`.
+`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. `-v` / `--v` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store). Those detail lines are omitted by default. `-v` is available only for `allowlist`; other dry-run commands keep their existing output.
 
 ```text
 dry-run: would remove certificates from certifi at /tmp/cacert.pem

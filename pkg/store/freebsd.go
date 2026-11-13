@@ -51,7 +51,7 @@ func (s freebsdStore) Add(certs []*x509.Certificate) error {
 
 func (s freebsdStore) Remove(allowlist.Allowlist) error {
 	if DryRun() {
-		reportAllowlistDryRun("freebsd", "", nil, nil, nil, nil, nil)
+		reportDryRun("remove certificates from", "freebsd", "")
 		return nil
 	}
 	return fmt.Errorf("freebsd platform store is not implemented")

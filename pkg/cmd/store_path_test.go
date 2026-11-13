@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -251,14 +252,19 @@ func TestAllowlistForAppWithStoreCertifiDryRun(t *testing.T) {
 	if strings.Contains(planText, "\n  remove ") {
 		t.Fatalf("default plan included per-certificate remove lines: %q", planText)
 	}
+	certs, err := certutil.FromFile(bundle)
+	if err != nil || len(certs) == 0 {
+		t.Fatalf("bundle certs: %d %v", len(certs), err)
+	}
 	const closing = "dry-run: no changes made\n"
 	if strings.Count(planText, closing) != 1 {
 		t.Fatalf("closing line count=%d plan=%q", strings.Count(planText, closing), planText)
 	}
 	idx := strings.LastIndex(planText, closing)
 	summary := planText[idx+len(closing):]
-	if !strings.HasPrefix(summary, "dry-run: ") || !strings.HasSuffix(summary, " removed\n") || strings.Count(summary, "\n") != 1 || !strings.Contains(summary, " kept, ") {
-		t.Fatalf("plan does not end with the kept/removed summary: %q", planText)
+	wantSummary := fmt.Sprintf("dry-run: %d kept, 0 removed\n", len(certs))
+	if summary != wantSummary {
+		t.Fatalf("plan summary %q, want %q\nplan=%q", summary, wantSummary, planText)
 	}
 	after, err := os.ReadFile(bundle)
 	if err != nil {
