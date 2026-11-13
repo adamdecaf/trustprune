@@ -161,7 +161,7 @@ func appsCommand(st *runState) *cli.Command {
     trustprune apps --format json
 `,
 		Flags: []cli.Flag{
-			flagFormat(),
+			flagAppsFormat(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Action:       withTrace(st, appsAction),
@@ -316,6 +316,7 @@ APPS
 			flagNoPresets(),
 			flagFile("newline-delimited https URLs or a Tranco-style rank,domain CSV", false),
 			flagFrom(),
+			flagGenAllowlistVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       genAllowlistBefore,
@@ -355,6 +356,7 @@ func genAllowlistAction(_ context.Context, c *cli.Command) error {
 		Hosts:     hosts,
 		Presets:   presets,
 		NoPresets: c.Bool("no-presets"),
+		Verbose:   c.Bool("v"),
 	})
 }
 
@@ -385,12 +387,12 @@ func listCommand(st *runState) *cli.Command {
 FORMATTING
 
   Change the output format (Default: ` + ui.DefaultFormat() + `, Options: ` + strings.Join(ui.GetFormats(), ", ") + `)
+    trustprune list --format long
     trustprune list --format openssl
     trustprune list --format json
-    trustprune list --format table
 
-  Table output adds KEY and DAYS by default; -v adds full fingerprint, serial, and path
-    trustprune list --format table -v
+  Table output (the default) adds KEY and DAYS; -v adds the full fingerprint, serial, and path
+    trustprune list -v
 
   DAYS (non-verbose table): "expired" when NotAfter is past; "N!" when 0 <= N < 90 days
   remain; plain N otherwise. -v and --format json keep numeric days (json also has expired).
@@ -417,7 +419,7 @@ APPS
 			flagBundle(),
 			flagURL("download and list certificates from a remote URL"),
 			flagCount(),
-			flagFormat(),
+			flagListFormat(),
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
 			flagUI(),
 			flagVerbose(),
@@ -429,6 +431,10 @@ APPS
 }
 
 func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	format := c.String("format")
+	if !ui.KnownFormat(format) {
+		return ctx, usageExit(c, ui.UnknownFormatError(format).Error())
+	}
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err
 	}

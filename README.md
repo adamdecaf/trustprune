@@ -129,8 +129,9 @@ go install github.com/adamdecaf/trustprune@master
 
 ```bash
 # Platform store
-trustprune list
-trustprune list --format table       # short (default), table, json, openssl, observatory
+trustprune list                          # table (default); formats: table, long, json, openssl, observatory
+trustprune list -v                       # full fingerprint, serial, path, NOT-BEFORE, NOT-AFTER
+trustprune list --format long           # multi-line dump
 trustprune list --format openssl
 trustprune list --format json --out certs.json          # --out writes every list format and --count; stdout stays empty
 trustprune list --format observatory --out report.yaml

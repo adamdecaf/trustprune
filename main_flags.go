@@ -119,11 +119,24 @@ func flagOut(usage string, required bool) *cli.StringFlag {
 	}
 }
 
-func flagFormat() *cli.StringFlag {
+func flagListFormat() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:        "format",
 		Usage:       fmt.Sprintf("output format (default: %s, options: %s)", ui.DefaultFormat(), strings.Join(ui.GetFormats(), ", ")),
 		Value:       ui.DefaultFormat(),
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
+// flagAppsFormat stays empty by default so `apps` stays terse.
+// Do not use ui.DefaultFormat here: that is the list table format.
+// ListApps still accepts "" and "short" as the terse listing; this usage
+// advertises only json.
+func flagAppsFormat() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:        "format",
+		Usage:       "output format (default: terse, options: json)",
 		HideDefault: true,
 		Local:       true,
 	}
@@ -152,6 +165,15 @@ func flagVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "v",
 		Usage:       "show full fingerprints, serials, and paths in table output",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
+func flagGenAllowlistVerbose() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "v",
+		Usage:       "show full fingerprints in the summary table",
 		HideDefault: true,
 		Local:       true,
 	}

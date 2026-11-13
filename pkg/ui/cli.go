@@ -16,7 +16,6 @@ package ui
 
 import (
 	"crypto/x509"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -29,7 +28,7 @@ import (
 func showCertsOnCli(certs []*x509.Certificate, cfg *Config) error {
 	p, ok := getPrinter(cfg.Format)
 	if !ok {
-		return fmt.Errorf("unknown format %s specified", cfg.Format)
+		return UnknownFormatError(cfg.Format)
 	}
 	return showCertsOnCliWithPrinter(certs, cfg, p)
 }

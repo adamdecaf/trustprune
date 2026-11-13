@@ -17,6 +17,7 @@ package ui
 import (
 	"crypto/x509"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -32,7 +33,7 @@ var (
 )
 
 func isObservatory(format string) bool {
-	return format == observatoryFormat
+	return strings.EqualFold(format, observatoryFormat)
 }
 
 type observatoryReport struct {

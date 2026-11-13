@@ -41,6 +41,12 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 		if !strings.Contains(body, "--no-presets") {
 			t.Fatalf("help missing --no-presets:\n%s", body)
 		}
+		if !strings.Contains(body, "show full fingerprints in the summary table") {
+			t.Fatalf("help missing gen-allowlist -v usage:\n%s", body)
+		}
+		if strings.Contains(body, "serials, and paths") {
+			t.Fatalf("gen-allowlist reused list -v usage:\n%s", body)
+		}
 	})
 
 	t.Run("unknown preset is exit 2", func(t *testing.T) {

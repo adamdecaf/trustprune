@@ -1,0 +1,4 @@
+CA         FINGERPRINT                                                      COUNT EXAMPLE-DNS-NAMES
+Example CA 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef 4     a.example, b.example, c.example
+Second CA  abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 1     only.example
+Third CA   fedcba9876543210ffff                                             2     one.example, two.example

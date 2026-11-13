@@ -18,6 +18,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -40,6 +41,9 @@ var (
 	exampleDNSNamesLength = 3
 )
 
+// allowlistFingerprintPreview is the default summary fingerprint width.
+const allowlistFingerprintPreview = 16
+
 // GenerateAllowlistOptions is the input to GenerateAllowlist.
 type GenerateAllowlistOptions struct {
 	Output    string
@@ -51,6 +55,9 @@ type GenerateAllowlistOptions struct {
 	// GOOS selects the default platform preset when Presets is empty and
 	// NoPresets is false. Empty means runtime.GOOS.
 	GOOS string
+	// Verbose prints full fingerprints in the summary table. The default
+	// summary keeps the first allowlistFingerprintPreview characters.
+	Verbose bool
 }
 
 func GenerateAllowlist(opts GenerateAllowlistOptions) error {
@@ -91,33 +98,49 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 
 	// prep summary
 	sortCAs(authorities)
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 1, ' ', 0)
-	fmt.Fprintln(w, "CA\tFingerprint\tCount\tExample DNSNames")
+	if err := writeAllowlistSummary(os.Stdout, authorities, opts.Verbose); err != nil {
+		return err
+	}
 
 	acc := certutil.Pool{}
 	for i := range authorities {
 		acc.Add(authorities[i].Certificate)
-
-		// print sumamry
-		dnsNames := authorities[i].DNSNames
-		if len(dnsNames) > exampleDNSNamesLength {
-			dnsNames = authorities[i].DNSNames[:exampleDNSNamesLength]
-		}
-
-		row := fmt.Sprintf("%s\t%s\t%d\t%s",
-			certutil.StringifyPKIXName(authorities[i].Certificate.Issuer),
-			authorities[i].Fingerprint[:16],
-			len(authorities[i].DNSNames),
-			strings.Join(dnsNames, ", "),
-		)
-		fmt.Fprintln(w, row)
-	}
-	if err := w.Flush(); err != nil {
-		return fmt.Errorf("problem flushing output: %w", err)
 	}
 
 	al := allowlist.FromCertificates(acc.GetCertificates())
 	return al.ToFile(output)
+}
+
+// writeAllowlistSummary prints the CA summary table. verbose shows each full
+// fingerprint; otherwise fingerprints are truncated to allowlistFingerprintPreview
+// characters. A fingerprint shorter than that width is printed whole.
+func writeAllowlistSummary(w io.Writer, authorities []*gen.CA, verbose bool) error {
+	tw := tabwriter.NewWriter(w, 0, 0, 1, ' ', 0)
+	fmt.Fprintln(tw, "CA\tFINGERPRINT\tCOUNT\tEXAMPLE-DNS-NAMES")
+	for i := range authorities {
+		dnsNames := authorities[i].DNSNames
+		if len(dnsNames) > exampleDNSNamesLength {
+			dnsNames = authorities[i].DNSNames[:exampleDNSNamesLength]
+		}
+		row := fmt.Sprintf("%s\t%s\t%d\t%s",
+			certutil.StringifyPKIXName(authorities[i].Certificate.Issuer),
+			previewAllowlistFingerprint(authorities[i].Fingerprint, verbose),
+			len(authorities[i].DNSNames),
+			strings.Join(dnsNames, ", "),
+		)
+		fmt.Fprintln(tw, row)
+	}
+	if err := tw.Flush(); err != nil {
+		return fmt.Errorf("problem flushing output: %w", err)
+	}
+	return nil
+}
+
+func previewAllowlistFingerprint(fp string, verbose bool) string {
+	if verbose || len(fp) <= allowlistFingerprintPreview {
+		return fp
+	}
+	return fp[:allowlistFingerprintPreview]
 }
 
 func getChoices(from, file string) []string {

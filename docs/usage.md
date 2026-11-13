@@ -79,12 +79,12 @@ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/securi
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
 | `--url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `--count` | Print only the number of certificates |
-| `--format <fmt>` | Output format: `short` (default), `table`, `json`, `openssl`, `observatory` |
+| `--format <fmt>` | Output format: `table` (default), `long`, `json`, `openssl`, `observatory`. `long` is the multi-line dump. An unknown name is a usage error (exit 2) whose message lists the valid formats |
 | `--out <path>` | Write the formatted output to `<path>` instead of stdout for every `--format` and for `--count`. Stdout stays empty |
-| `-v` | In `table` output, show the full fingerprint, serial, source or store path (`-` for URLs), and NOT BEFORE / NOT AFTER. DAYS stays numeric (including negative when expired) |
+| `-v` | On the default table, show the full fingerprint, serial, source or store path (`-` for URLs), and hyphenated `NOT-BEFORE` / `NOT-AFTER`. DAYS stays numeric (including negative when expired) |
 | `--ui <type>` | Presentation: `cli` (default) or `web` (local page) |
 
-In non-verbose `table` output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `--format json` keeps numeric `days` and adds boolean `expired`.
+In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate.
 
 ## backup
 
@@ -281,6 +281,7 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --from chrome,firefox
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com -v
 ```
 
 | Flag | Meaning |
@@ -291,6 +292,7 @@ trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 | `--no-presets` | Do not include the default platform preset |
 | `--from <types>` | Comma-separated sources: `browser` / `browsers`, `chrome`, `firefox`, `safari`, `file` |
 | `--file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
+| `-v` | Show full fingerprints in the summary table. The default prints the first 16 characters |
 
 Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
 

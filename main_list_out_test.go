@@ -30,7 +30,7 @@ func TestListOutCLI(t *testing.T) {
 	lots := filepath.Join("testdata", "example.crt")
 	home := t.TempDir()
 
-	for _, format := range []string{"json", "short", "table", "openssl"} {
+	for _, format := range []string{"json", "long", "table", "openssl"} {
 		t.Run(format, func(t *testing.T) {
 			if format == "openssl" {
 				if _, err := exec.LookPath("openssl"); err != nil {
@@ -246,5 +246,175 @@ func TestOutHelpText(t *testing.T) {
 	}
 	if !strings.Contains(list.stdout, "--format json --out") {
 		t.Fatalf("list help missing json -out example:\n%s", list.stdout)
+	}
+	if !strings.Contains(list.stdout, "Default: table") {
+		t.Fatalf("list help should say the default format is table:\n%s", list.stdout)
+	}
+	if !strings.Contains(list.stdout, "--format long") {
+		t.Fatalf("list help should mention --format long:\n%s", list.stdout)
+	}
+}
+
+func TestListFormatDefaultAndUnknown(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	lots := filepath.Join("testdata", "lots.crt")
+	// #nosec G304 -- testdata fixture
+	pem, err := os.ReadFile(lots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	certCount := strings.Count(string(pem), "-----BEGIN CERTIFICATE-----")
+	if certCount < 2 {
+		t.Fatalf("lots.crt has %d certs", certCount)
+	}
+
+	const formats = "formats: json, long, observatory, openssl, table"
+	for _, format := range []string{"short", "nope"} {
+		t.Run(format, func(t *testing.T) {
+			res := runCLI(t, bin, home, "list", "--file", lots, "--format", format)
+			if res.code != 2 {
+				t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+			}
+			if res.stdout != "" {
+				t.Fatalf("stdout=%q, want empty", res.stdout)
+			}
+			want := `unknown format "` + format + `" (` + formats + `)`
+			if !strings.Contains(res.stderr, want) {
+				t.Fatalf("stderr=%q", res.stderr)
+			}
+			if strings.Contains(formats, "short") {
+				t.Fatal("valid format list includes short")
+			}
+			if !strings.Contains(res.stderr, "run 'trustprune list --help' for usage") {
+				t.Fatalf("missing help hint: %q", res.stderr)
+			}
+			if !strings.HasPrefix(res.stderr, "ERROR: ") {
+				t.Fatalf("usage error missing ERROR: prefix: %q", res.stderr)
+			}
+		})
+	}
+
+	t.Run("before file open", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "missing.crt")
+		res := runCLI(t, bin, home, "list", "--file", missing, "--format", "nope")
+		if res.code != 2 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		body := res.stdout + res.stderr
+		if strings.Contains(body, "no such file") || strings.Contains(body, missing) {
+			t.Fatalf("format check ran after opening the file: stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stderr, `unknown format "nope"`) {
+			t.Fatalf("stderr=%q", res.stderr)
+		}
+	})
+
+	t.Run("default table", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", lots)
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		lines := strings.Split(strings.TrimRight(res.stdout, "\n"), "\n")
+		if len(lines) != certCount+1 {
+			t.Fatalf("got %d lines, want %d (header + one per cert)\n%s", len(lines), certCount+1, res.stdout)
+		}
+		if !strings.Contains(lines[0], "SUBJECT") || !strings.Contains(lines[0], "SHA256-FINGERPRINT") {
+			t.Fatalf("header=%q", lines[0])
+		}
+		if strings.Contains(res.stdout, "SHA256 Fingerprint:") || strings.Contains(lines[0], "SHA256 FINGERPRINT") {
+			t.Fatalf("default list looked like the long dump or old header:\n%s", res.stdout)
+		}
+		for _, line := range lines {
+			if line == "Certificate" {
+				t.Fatalf("default list included the multi-line dump:\n%s", res.stdout)
+			}
+		}
+	})
+
+	t.Run("format long", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", lots, "--format", "long")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if !strings.HasPrefix(res.stdout, "Certificate\n") || !strings.Contains(res.stdout, "  SHA256 Fingerprint: ") {
+			t.Fatalf("long output:\n%s", res.stdout)
+		}
+		if strings.Count(res.stdout, "\nCertificate\n")+1 != certCount && strings.Count(res.stdout, "Certificate\n") != certCount {
+			t.Fatalf("long dump cert blocks=%d want %d", strings.Count(res.stdout, "Certificate\n"), certCount)
+		}
+		if strings.Contains(res.stdout, "SHA256-FINGERPRINT") {
+			t.Fatalf("long format included the table header:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("format case", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", lots, "--format", "LONG")
+		if res.code != 0 || !strings.HasPrefix(res.stdout, "Certificate\n") {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		res = runCLI(t, bin, home, "list", "--file", lots, "--format", "TABLE")
+		if res.code != 0 || !strings.Contains(res.stdout, "SHA256-FINGERPRINT") {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		res = runCLI(t, bin, home, "list", "--file", lots, "--format", "Short")
+		if res.code != 2 || !strings.Contains(res.stderr, `unknown format "Short"`) || !strings.Contains(res.stderr, formats) {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+	})
+
+	t.Run("verbose table", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", lots, "-v")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		line, _, _ := strings.Cut(res.stdout, "\n")
+		for _, header := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"} {
+			if !strings.Contains(line, header) {
+				t.Fatalf("verbose header %q missing from %q", header, line)
+			}
+		}
+		if strings.Contains(line, "SHA256 FINGERPRINT") || strings.Contains(line, "NOT BEFORE") || strings.Contains(line, "NOT AFTER") {
+			t.Fatalf("old verbose header: %q", line)
+		}
+	})
+}
+
+func TestAppsFormatIndependentOfList(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	res := runCLI(t, bin, home, "apps")
+	if res.code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "APP") || !strings.Contains(res.stdout, "STATUS") || strings.Contains(res.stdout, "SHA256-FINGERPRINT") {
+		t.Fatalf("default apps output:\n%s", res.stdout)
+	}
+
+	res = runCLI(t, bin, home, "apps", "--format", "short")
+	if res.code != 0 || !strings.Contains(res.stdout, "APP") || !strings.Contains(res.stdout, "STATUS") {
+		t.Fatalf("apps --format short code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+
+	res = runCLI(t, bin, home, "apps", "--format", "json")
+	if res.code != 0 || !strings.Contains(res.stdout, `"name"`) {
+		t.Fatalf("apps --format json code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+
+	res = runCLI(t, bin, home, "apps", "--format", "table")
+	if res.code == 0 || strings.Contains(res.stdout, "SHA256-FINGERPRINT") {
+		t.Fatalf("apps accepted list table format: code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+
+	help := runCLI(t, bin, home, "apps", "--help")
+	if help.code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", help.code, help.stdout, help.stderr)
+	}
+	if !strings.Contains(help.stdout, "options: json") {
+		t.Fatalf("apps help should advertise json:\n%s", help.stdout)
+	}
+	if strings.Contains(help.stdout, "observatory") || strings.Contains(help.stdout, "options: json, long") {
+		t.Fatalf("apps help advertises list formats:\n%s", help.stdout)
 	}
 }

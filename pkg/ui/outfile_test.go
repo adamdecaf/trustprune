@@ -71,7 +71,7 @@ func captureStdout(t *testing.T, fn func() error) (string, error) {
 func TestListOutfileMatchesStdout(t *testing.T) {
 	certs := testListCerts(t)
 	meta := Meta{Name: "file"}
-	for _, format := range []string{"json", "short", "table", "observatory"} {
+	for _, format := range []string{"json", "long", "table", "observatory"} {
 		t.Run(format, func(t *testing.T) {
 			cfg := &Config{Format: format, UI: DefaultUI(), SourcePath: "testdata/lots.crt"}
 			stdout, err := captureStdout(t, func() error {

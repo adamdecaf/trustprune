@@ -366,7 +366,7 @@ OPTIONS:{{template "visibleFlagTemplate" .}}{{end}}
 func listConfig(c *cli.Command) *ui.Config {
 	return &ui.Config{
 		Count:   c.Bool("count"),
-		Format:  c.String("format"),
+		Format:  strings.ToLower(c.String("format")),
 		Outfile: c.String("out"),
 		UI:      c.String("ui"),
 		Verbose: c.Bool("v"),
