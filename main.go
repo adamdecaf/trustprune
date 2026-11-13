@@ -110,6 +110,7 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	}()
 
 	store.SetDryRun(false)
+	store.SetDryRunVerbose(false)
 	store.SetForceRestore(false)
 
 	prevHelp := cli.HelpPrinter
@@ -374,6 +375,10 @@ func listConfig(c *cli.Command) *ui.Config {
 
 func applyDryRun(c *cli.Command) {
 	store.SetDryRun(c.Bool("dry-run"))
+	// Allowlist is the only command that turns verbose dry-run details on.
+	// Clear it here so add, backup, and restore cannot inherit a previous
+	// in-process allowlist -v.
+	store.SetDryRunVerbose(false)
 }
 
 func flagString(c *cli.Command, name string) string {

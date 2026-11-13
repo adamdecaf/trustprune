@@ -6,7 +6,7 @@ nav_order: 4
 
 # Usage
 
-Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes (files, certificates by subject and SHA-256, refresh commands) without writing to any store.
+Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -234,6 +234,19 @@ trustprune allowlist --file allowlist.json --app java
 trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
 trustprune allowlist --file allowlist.yaml --dry-run
+trustprune allowlist --file allowlist.yaml --dry-run -v
+```
+
+`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. `-v` / `--v` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store). Those detail lines are omitted by default. Among dry-run commands, only `allowlist` accepts `-v`; `add`, `backup`, and `restore` keep their existing dry-run output.
+
+```text
+dry-run: would remove certificates from certifi at /tmp/cacert.pem
+Kept:
+  CN=Keep Me (SHA256 abcd...)
+  CN=Also Keep (SHA256 efgh...)
+  unparsable PEM block (12 bytes)
+dry-run: no changes made
+dry-run: 2 kept, 3 removed
 ```
 
 | Flag | Meaning |
@@ -242,7 +255,8 @@ trustprune allowlist --file allowlist.yaml --dry-run
 | `--store <path>` | With `--app java` or `--app certifi`: operate on that keystore or `cacert.pem`. Independent of `--file` |
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
-| `--dry-run` | Print the plan without writing |
+| `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed` |
+| `-v`, `--v` | With `--dry-run`, also print per-certificate remove and keep details |
 
 Example YAML:
 

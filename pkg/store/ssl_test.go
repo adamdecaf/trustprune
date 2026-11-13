@@ -389,9 +389,11 @@ func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
 	var buf bytes.Buffer
 	SetDryRunOutput(&buf)
 	SetDryRun(true)
+	SetDryRunVerbose(true)
 	t.Cleanup(func() {
 		SetDryRun(false)
 		SetDryRunOutput(nil)
+		SetDryRunVerbose(false)
 	})
 	if err := s.Remove(keep); err != nil {
 		t.Fatalf("Remove dry-run: %v", err)

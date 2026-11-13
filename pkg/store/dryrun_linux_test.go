@@ -135,7 +135,11 @@ func TestLinuxDryRun_RemoveLeavesStoreUnchanged(t *testing.T) {
 	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
 
 	// Empty allowlist matches nothing, so example.crt would be removed.
+	// The removed certificate is a per-certificate detail line, so it is
+	// printed only when verbose dry-run output is on.
 	buf := enableDryRunCapture(t)
+	SetDryRunVerbose(true)
+	t.Cleanup(func() { SetDryRunVerbose(false) })
 	if err := s.Remove(allowlist.Allowlist{}); err != nil {
 		t.Fatalf("Remove dry-run: %v", err)
 	}
@@ -242,8 +246,23 @@ func TestLinuxRemove_KeepsUnparsablePEM(t *testing.T) {
 		t.Fatal("dry-run Remove mutated mixed.crt")
 	}
 	out := buf.String()
-	if !strings.Contains(out, "keep unparsable PEM block") {
-		t.Fatalf("dry-run should report the kept unparsable block, got %q", out)
+	if !strings.Contains(out, "\n  unparsable PEM block (") {
+		t.Fatalf("dry-run should list the kept unparsable block, got %q", out)
+	}
+	if strings.Contains(out, "keep unparsable PEM block") {
+		t.Fatalf("default dry-run should not print the verbose keep-unparsable detail, got %q", out)
+	}
+	if !strings.Contains(out, "Kept:\n") {
+		t.Fatalf("dry-run should list kept certificates, got %q", out)
+	}
+	const closing = "dry-run: no changes made\n"
+	idx := strings.LastIndex(out, closing)
+	summary := ""
+	if idx >= 0 {
+		summary = out[idx+len(closing):]
+	}
+	if idx < 0 || !strings.HasPrefix(summary, "dry-run: ") || !strings.Contains(summary, " kept, ") || !strings.HasSuffix(summary, " removed\n") || strings.Count(summary, "\n") != 1 {
+		t.Fatalf("dry-run should end with the summary, got %q", out)
 	}
 	if !strings.Contains(out, mixed) {
 		t.Fatalf("dry-run should name %s, got %q", mixed, out)

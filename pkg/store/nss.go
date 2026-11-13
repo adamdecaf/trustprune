@@ -280,16 +280,20 @@ func (s nssStore) Remove(al allowlist.Allowlist) error {
 	}
 
 	if DryRun() {
+		var kept []*x509.Certificate
+		var removed []*x509.Certificate
 		var details []string
 		for i := range items {
 			if al.MatchesAll(items[i].certs) {
+				kept = append(kept, items[i].certs...)
 				continue
 			}
 			for j := range items[i].certs {
+				removed = append(removed, items[i].certs[j])
 				details = append(details, fmt.Sprintf("distrust %s (nick %s)", formatCertLine(items[i].certs[j]), items[i].nick))
 			}
 		}
-		reportDryRun("remove certificates from", s.nssType, s.foundCertdbLocation, details...)
+		reportAllowlistDryRun(s.nssType, s.foundCertdbLocation, kept, removed, nil, nil, details)
 		return nil
 	}
 

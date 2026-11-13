@@ -26,10 +26,11 @@ import (
 )
 
 var (
-	dryRunMu     sync.Mutex
-	dryRun       bool
-	dryRunOut    io.Writer = os.Stdout
-	forceRestore bool
+	dryRunMu      sync.Mutex
+	dryRun        bool
+	dryRunVerbose bool
+	dryRunOut     io.Writer = os.Stdout
+	forceRestore  bool
 )
 
 // SetDryRun enables or disables dry-run mode for store mutations.
@@ -46,6 +47,22 @@ func DryRun() bool {
 	dryRunMu.Lock()
 	defer dryRunMu.Unlock()
 	return dryRun
+}
+
+// SetDryRunVerbose controls per-certificate detail lines in allowlist Remove
+// dry-run plans. Add, backup, and restore ignore it. The default is false.
+func SetDryRunVerbose(v bool) {
+	dryRunMu.Lock()
+	defer dryRunMu.Unlock()
+	dryRunVerbose = v
+}
+
+// DryRunVerbose reports whether allowlist dry-run plans include
+// per-certificate remove and keep detail lines.
+func DryRunVerbose() bool {
+	dryRunMu.Lock()
+	defer dryRunMu.Unlock()
+	return dryRunVerbose
 }
 
 // SetForceRestore allows Restore to write a backup into a different store path
@@ -116,17 +133,63 @@ func reportDryRunCerts(prefix string, certs []*x509.Certificate) []string {
 	return out
 }
 
+// reportAllowlistDryRun prints an allowlist Remove dry-run plan, including
+// the closing "no changes made" line and the kept/removed summary.
+// kept and removed are certificates. rawKeep lines are already formatted
+// ("unparsable PEM block (N bytes)", plus "in <path>" when a path is known)
+// and are not counted. extras are operational lines and are always printed.
+// details are per-certificate lines and are printed only when verbose is on.
+// Kept is omitted when there is nothing to list.
+func reportAllowlistDryRun(storeName, path string, kept, removed []*x509.Certificate, rawKeep, extras, details []string) {
+	w := dryRunWriter()
+	if path != "" {
+		fmt.Fprintf(w, "dry-run: would remove certificates from %s at %s\n", storeName, path)
+	} else {
+		fmt.Fprintf(w, "dry-run: would remove certificates from %s\n", storeName)
+	}
+	for _, line := range extras {
+		fmt.Fprintf(w, "  %s\n", line)
+	}
+	if len(kept) > 0 || len(rawKeep) > 0 {
+		fmt.Fprintln(w, "Kept:")
+		for i := range kept {
+			fmt.Fprintf(w, "  %s\n", formatCertLine(kept[i]))
+		}
+		for _, line := range rawKeep {
+			fmt.Fprintf(w, "  %s\n", line)
+		}
+	}
+	if DryRunVerbose() {
+		for _, line := range details {
+			fmt.Fprintf(w, "  %s\n", line)
+		}
+	}
+	fmt.Fprintln(w, "dry-run: no changes made")
+	fmt.Fprintf(w, "dry-run: %d kept, %d removed\n", len(kept), len(removed))
+}
+
 func reportKeptRawPEM(entries []certutil.PEMEntry) []string {
 	return reportKeptRawPEMIn("", entries)
 }
 
 func reportKeptRawPEMIn(path string, entries []certutil.PEMEntry) []string {
+	lines := unparsablePEMLines(path, entries)
+	out := make([]string, len(lines))
+	for i, line := range lines {
+		out[i] = "keep " + line
+	}
+	return out
+}
+
+// unparsablePEMLines formats kept CERTIFICATE blocks that did not parse.
+// path, when set, is appended as "in <path>".
+func unparsablePEMLines(path string, entries []certutil.PEMEntry) []string {
 	var out []string
 	for _, e := range entries {
 		if e.Cert != nil || len(e.Raw) == 0 {
 			continue
 		}
-		line := fmt.Sprintf("keep unparsable PEM block (%d bytes)", len(e.Raw))
+		line := fmt.Sprintf("unparsable PEM block (%d bytes)", len(e.Raw))
 		if path != "" {
 			line = fmt.Sprintf("%s in %s", line, path)
 		}

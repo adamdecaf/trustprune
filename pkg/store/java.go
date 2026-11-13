@@ -552,6 +552,8 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 	}
 
 	if DryRun() {
+		var kept []*x509.Certificate
+		var removed []*x509.Certificate
 		var details []string
 		for i := range shortCerts {
 			if !shortCerts[i].hasFingerprints() {
@@ -559,14 +561,17 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 			}
 			for j := range certs {
 				if shortCerts[i].matches(certs[j]) {
-					if !al.Matches(certs[j]) {
+					if al.Matches(certs[j]) {
+						kept = append(kept, certs[j])
+					} else {
+						removed = append(removed, certs[j])
 						details = append(details, fmt.Sprintf("remove %s (alias %s)", formatCertLine(certs[j]), shortCerts[i].alias))
 					}
 					break
 				}
 			}
 		}
-		reportDryRun("remove certificates from", "java", kpath, details...)
+		reportAllowlistDryRun("java", kpath, kept, removed, nil, nil, details)
 		return nil
 	}
 
