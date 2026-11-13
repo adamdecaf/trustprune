@@ -57,7 +57,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
-| [version](docs/usage.md#version) | Print the version |
+| [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
 
 Allowlisting also applies Chromium's certificate blocklist, so certificates in that bundled list are never kept. That behavior cannot be disabled today.
 
@@ -99,7 +99,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 
 1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `--app …` when targeting an app) before any allowlist. `restore` (and `restore --dry-run`) with no backup for that store also refuses before any write and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl`. Discovery-based OpenSSL restore (no `--bundle`) follows the discovered PEM: it uses a backup recorded for that file (a legacy backup with no `source` still matches) and refuses a backup recorded for a different bundle unless `--force`. Allowlist of a discovered PEM uses those same candidates, not merely the newest openssl backup. A legacy backup with no `source` may belong to another PEM and does not show the live file is recoverable. With `--bundle <pem>`, backup records that file and restore refuses a different path unless `--force`.
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
-3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store.
+3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store. `allowlist --dry-run` lists kept certificates and ends with `dry-run: N kept, M removed`; `-v` adds per-certificate remove and keep lines.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
 5. **No stray positionals.** Commands other than `connect` accept only flags. An unexpected positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
 
@@ -165,7 +165,7 @@ trustprune gen-allowlist --out allowlist.yaml --presets linux
 trustprune gen-allowlist --out allowlist.yaml --from firefox
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
-# --out is required: without it, gen-allowlist prints "required flag --out not set" and exits with status 2
+# --out is required: without it, gen-allowlist prints "ERROR: required flag --out not set" and exits with status 2
 # Apply the result with the existing allowlist command (optionally a PEM bundle):
 #   trustprune allowlist --file allowlist.yaml
 #   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
@@ -175,6 +175,7 @@ trustprune connect https://example.com
 trustprune connect --app java https://example.com
 
 trustprune version
+trustprune --version
 # No subcommand prints usage and exits 0; an unknown --app (e.g. --app nope) exits 1 and lists the valid apps
 ```
 

@@ -191,7 +191,7 @@ func (s sslStore) Remove(al allowlist.Allowlist) error {
 	if DryRun() {
 		details := reportDryRunCerts("remove", removed)
 		details = append(details, reportKeptRawPEM(kept.Entries)...)
-		reportDryRun("remove certificates from", "ssl", path, details...)
+		reportAllowlistDryRun("ssl", path, kept.Certs, removed, unparsablePEMLines("", kept.Entries), nil, details)
 		return nil
 	}
 	return s.replaceBundle(kept)

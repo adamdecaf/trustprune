@@ -92,3 +92,18 @@ func (p jsonPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 	}
 	return nil
 }
+
+// jsonCount is the document written by list --count --format json.
+type jsonCount struct {
+	Count int `json:"count"`
+}
+
+// writeCountJSON uses the same encoder settings as jsonPrinter.write.
+func writeCountJSON(w io.Writer, n int) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(jsonCount{Count: n}); err != nil {
+		return err
+	}
+	return nil
+}

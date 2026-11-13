@@ -16,7 +16,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
@@ -79,7 +78,7 @@ func allowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "allowlist",
 		Usage: "Remove trust from certificates which do not match the allowlist in <path>",
-		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run]
+		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--v]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist --file allowlist.json
@@ -102,6 +101,7 @@ APPS
 			flagStore(),
 			flagBundle(),
 			flagDryRun(),
+			flagAllowlistVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       allowlistBefore,
@@ -121,6 +121,7 @@ func allowlistBefore(ctx context.Context, c *cli.Command) (context.Context, erro
 
 func allowlistAction(_ context.Context, c *cli.Command) error {
 	applyDryRun(c)
+	store.SetDryRunVerbose(c.Bool("v"))
 	file := flagString(c, "file")
 	app := flagString(c, "app")
 	bundle := flagString(c, "bundle")
@@ -400,6 +401,7 @@ FORMATTING
     trustprune list --count
     trustprune list --app java --count
     trustprune list --file <path> --count
+    trustprune list --count --format json
 
   Show the certificates on a local webpage (Default: ` + ui.DefaultUI() + `, Options: ` + strings.Join(ui.GetUIs(), ", ") + `)
     trustprune list --ui web
@@ -556,7 +558,7 @@ func versionCommand(st *runState) *cli.Command {
 		UsageText:    getVersion(),
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
-			fmt.Fprintf(c.Root().Writer, "%s\n", getVersion())
+			printVersion(c.Root().Writer)
 			return nil
 		}),
 	}

@@ -176,6 +176,93 @@ func TestCertifiStore_RestoreNoBackupRefusesBeforeWrite(t *testing.T) {
 	}
 }
 
+func TestCertifiAllowlistDryRun_DefaultAndVerbose(t *testing.T) {
+	s, path, _ := certifiFileEnv(t)
+	parsed, err := certutil.FromFileResult(path)
+	if err != nil || len(parsed.Certs) < 2 {
+		t.Fatalf("bundle certs: %d %v", len(parsed.Certs), err)
+	}
+	keep := allowlist.FromCertificates([]*x509.Certificate{parsed.Certs[0]})
+
+	var keptLines []string
+	var removeLines []string
+	for _, c := range parsed.Certs {
+		line := formatCertLine(c)
+		if keep.Matches(c) {
+			keptLines = append(keptLines, line)
+			continue
+		}
+		removeLines = append(removeLines, "remove "+line)
+	}
+	if len(keptLines) == 0 || len(removeLines) == 0 {
+		t.Fatalf("need both kept (%d) and removed (%d) certificates", len(keptLines), len(removeLines))
+	}
+
+	header := fmt.Sprintf("dry-run: would remove certificates from certifi at %s\nKept:\n", resolveCertifiCertPath(path))
+	var keptBlock strings.Builder
+	for _, line := range keptLines {
+		fmt.Fprintf(&keptBlock, "  %s\n", line)
+	}
+	closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed\n", len(keptLines), len(removeLines))
+	defaultWant := header + keptBlock.String() + closing
+	var verboseBlock strings.Builder
+	verboseBlock.WriteString(header)
+	verboseBlock.WriteString(keptBlock.String())
+	for _, line := range removeLines {
+		fmt.Fprintf(&verboseBlock, "  %s\n", line)
+	}
+	verboseBlock.WriteString(closing)
+	verboseWant := verboseBlock.String()
+
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	SetDryRun(true)
+	SetDryRunVerbose(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetDryRunOutput(nil)
+		SetDryRunVerbose(false)
+	})
+
+	var buf bytes.Buffer
+	SetDryRunOutput(&buf)
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("default Remove dry-run: %v", err)
+	}
+	defaultOut := buf.String()
+	if defaultOut != defaultWant {
+		t.Fatalf("default plan:\n%s\nwant:\n%s", defaultOut, defaultWant)
+	}
+	for _, line := range removeLines {
+		if strings.Contains(defaultOut, "\n  "+line+"\n") {
+			t.Fatalf("default plan included remove detail %q:\n%s", line, defaultOut)
+		}
+	}
+
+	buf.Reset()
+	SetDryRunVerbose(true)
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("verbose Remove dry-run: %v", err)
+	}
+	verboseOut := buf.String()
+	if verboseOut != verboseWant {
+		t.Fatalf("verbose plan:\n%s\nwant:\n%s", verboseOut, verboseWant)
+	}
+	if !strings.HasSuffix(verboseOut, closing) || !strings.HasSuffix(defaultOut, closing) {
+		t.Fatalf("plans do not share the closing summary\ndefault:\n%s\nverbose:\n%s", defaultOut, verboseOut)
+	}
+
+	after, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("dry-run Remove mutated the PEM")
+	}
+}
+
 func TestCertifiStore_RemoveAllowlistAndDryRun(t *testing.T) {
 	s, path, certs := certifiFileEnv(t)
 	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})

@@ -74,9 +74,9 @@ func allowlistStore(s store.Store, app, path string) error {
 		return err
 	}
 
-	if store.DryRun() {
-		fmt.Println("dry-run: no changes made")
-	} else {
+	// Dry-run closing lines are printed by the store plan, so the summary
+	// stays last. A success line is only for a real write.
+	if !store.DryRun() {
 		fmt.Println("Allowlist completed successfully")
 	}
 	return nil

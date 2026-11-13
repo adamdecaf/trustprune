@@ -16,6 +16,7 @@ package ui
 
 import (
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -263,6 +264,122 @@ func TestListOutfileCount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestListCountFormatJSON(t *testing.T) {
+	certs := testListCerts(t)
+
+	assertJSON := func(t *testing.T, got string, n int) {
+		t.Helper()
+		var doc map[string]any
+		if err := json.Unmarshal([]byte(got), &doc); err != nil {
+			t.Fatalf("unmarshal %q: %v", got, err)
+		}
+		if len(doc) != 1 {
+			t.Fatalf("object = %#v, want only count", doc)
+		}
+		raw, ok := doc["count"]
+		if !ok {
+			t.Fatalf("object = %#v, missing count", doc)
+		}
+		f, ok := raw.(float64)
+		if !ok || f != float64(n) {
+			t.Fatalf("count = %#v, want %d", raw, n)
+		}
+		wantBytes, err := json.MarshalIndent(map[string]int{"count": n}, "", "  ")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := string(wantBytes) + "\n"
+		if got != want {
+			t.Fatalf("output = %q, want %q", got, want)
+		}
+	}
+
+	listCount := func(t *testing.T, certs []*x509.Certificate, cfg *Config) (string, error) {
+		t.Helper()
+		return captureStdout(t, func() error {
+			return ListCertificatesWithMeta(Meta{Name: "file"}, certs, cfg)
+		})
+	}
+
+	t.Run("certs", func(t *testing.T) {
+		stdout, err := listCount(t, certs, &Config{Count: true, Format: "json"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSON(t, stdout, len(certs))
+	})
+
+	t.Run("zero", func(t *testing.T) {
+		for _, set := range [][]*x509.Certificate{nil, {}} {
+			stdout, err := listCount(t, set, &Config{Count: true, Format: "json"})
+			if err != nil {
+				t.Fatalf("certs=%#v err=%v", set, err)
+			}
+			if strings.Contains(stdout, "no certificates") {
+				t.Fatalf("stdout = %q", stdout)
+			}
+			assertJSON(t, stdout, 0)
+		}
+	})
+
+	t.Run("outfile", func(t *testing.T) {
+		for name, set := range map[string][]*x509.Certificate{
+			"certs": certs,
+			"zero":  nil,
+		} {
+			t.Run(name, func(t *testing.T) {
+				stdout, err := listCount(t, set, &Config{Count: true, Format: "json"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(t.TempDir(), "count.json")
+				gotOut, err := listCount(t, set, &Config{Count: true, Format: "json", Outfile: path})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if gotOut != "" {
+					t.Fatalf("stdout = %q, want empty", gotOut)
+				}
+				// #nosec G304 -- output path under t.TempDir
+				fileBytes, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(fileBytes) != stdout {
+					t.Fatalf("file = %q, stdout = %q", fileBytes, stdout)
+				}
+				assertJSON(t, string(fileBytes), len(set))
+			})
+		}
+	})
+
+	t.Run("plain", func(t *testing.T) {
+		formats := []string{"", "short", "table", "openssl", "observatory", "not-a-format"}
+		sets := [][]*x509.Certificate{certs, nil}
+		for _, format := range formats {
+			for _, set := range sets {
+				cfg := &Config{Count: true, Format: format}
+				stdout, err := listCount(t, set, cfg)
+				if err != nil {
+					t.Fatalf("format=%q certs=%d err=%v", format, len(set), err)
+				}
+				want := fmt.Sprintf("%d\n", len(set))
+				if stdout != want {
+					t.Fatalf("format=%q stdout = %q, want %q", format, stdout, want)
+				}
+			}
+		}
+	})
+
+	t.Run("JSON", func(t *testing.T) {
+		stdout, err := listCount(t, certs, &Config{Count: true, Format: "JSON"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertJSON(t, stdout, len(certs))
+	})
 }
 
 func TestListOutfileEmptyStillErrors(t *testing.T) {

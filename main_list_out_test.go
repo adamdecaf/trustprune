@@ -15,9 +15,12 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -127,6 +130,81 @@ func TestListOutCLI(t *testing.T) {
 			t.Fatalf("outfile created: %v", err)
 		}
 	})
+}
+
+func TestListCountFormatJSONCLI(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	lots := filepath.Join("testdata", "lots.crt")
+
+	plain := runCLI(t, bin, home, "list", "-file", lots, "-count")
+	if plain.code != 0 {
+		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", plain.code, plain.stdout, plain.stderr)
+	}
+	n, err := strconv.Atoi(strings.TrimSuffix(plain.stdout, "\n"))
+	if err != nil || plain.stdout != fmt.Sprintf("%d\n", n) || n == 0 {
+		t.Fatalf("plain count = %q", plain.stdout)
+	}
+
+	jsonRun := runCLI(t, bin, home, "list", "-file", lots, "-count", "-format", "json")
+	if jsonRun.code != 0 {
+		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", jsonRun.code, jsonRun.stdout, jsonRun.stderr)
+	}
+	assertCLICountJSON(t, jsonRun.stdout, n)
+
+	outPath := filepath.Join(t.TempDir(), "count.json")
+	fileRun := runCLI(t, bin, home, "list", "-file", lots, "-count", "-format", "json", "-out", outPath)
+	if fileRun.code != 0 {
+		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", fileRun.code, fileRun.stdout, fileRun.stderr)
+	}
+	if fileRun.stdout != "" {
+		t.Fatalf("stdout = %q, want empty", fileRun.stdout)
+	}
+	// #nosec G304 -- output path under t.TempDir
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != jsonRun.stdout {
+		t.Fatalf("file = %q, stdout = %q", got, jsonRun.stdout)
+	}
+
+	empty := filepath.Join(t.TempDir(), "empty.pem")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	zero := runCLI(t, bin, home, "list", "-file", empty, "-count", "-format", "json")
+	if zero.code != 0 {
+		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", zero.code, zero.stdout, zero.stderr)
+	}
+	if strings.Contains(zero.stdout, "no certificates") || strings.Contains(zero.stderr, "no certificates") {
+		t.Fatalf("stdout=%q stderr=%q", zero.stdout, zero.stderr)
+	}
+	assertCLICountJSON(t, zero.stdout, 0)
+}
+
+func assertCLICountJSON(t *testing.T, got string, n int) {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(got), &doc); err != nil {
+		t.Fatalf("unmarshal %q: %v", got, err)
+	}
+	raw, ok := doc["count"]
+	if !ok || len(doc) != 1 {
+		t.Fatalf("object = %#v, want count %d", doc, n)
+	}
+	f, ok := raw.(float64)
+	if !ok || f != float64(n) {
+		t.Fatalf("count = %#v, want %d", raw, n)
+	}
+	wantBytes, err := json.MarshalIndent(map[string]int{"count": n}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := string(wantBytes) + "\n"
+	if got != want {
+		t.Fatalf("output = %q, want %q", got, want)
+	}
 }
 
 func TestOutHelpText(t *testing.T) {

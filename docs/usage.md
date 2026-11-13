@@ -6,7 +6,7 @@ nav_order: 4
 
 # Usage
 
-Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes (files, certificates by subject and SHA-256, refresh commands) without writing to any store.
+Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -14,7 +14,12 @@ Supported `--app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ss
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
-Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2 with a short message on stderr and a hint to run `--help`. Runtime errors keep exit 1 and the `ERROR:` prefix.
+Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix.
+
+```text
+ERROR: unknown flag --foo
+run 'trustprune list --help' for usage
+```
 
 Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` still accepts one optional positional URL (or `--url`, not both).
 
@@ -229,6 +234,19 @@ trustprune allowlist --file allowlist.json --app java
 trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
 trustprune allowlist --file allowlist.yaml --dry-run
+trustprune allowlist --file allowlist.yaml --dry-run -v
+```
+
+`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. `-v` / `--v` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store). Those detail lines are omitted by default. Among dry-run commands, only `allowlist` accepts `-v`; `add`, `backup`, and `restore` keep their existing dry-run output.
+
+```text
+dry-run: would remove certificates from certifi at /tmp/cacert.pem
+Kept:
+  CN=Keep Me (SHA256 abcd...)
+  CN=Also Keep (SHA256 efgh...)
+  unparsable PEM block (12 bytes)
+dry-run: no changes made
+dry-run: 2 kept, 3 removed
 ```
 
 | Flag | Meaning |
@@ -237,7 +255,8 @@ trustprune allowlist --file allowlist.yaml --dry-run
 | `--store <path>` | With `--app java` or `--app certifi`: operate on that keystore or `cacert.pem`. Independent of `--file` |
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
-| `--dry-run` | Print the plan without writing |
+| `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed` |
+| `-v`, `--v` | With `--dry-run`, also print per-certificate remove and keep details |
 
 Example YAML:
 
@@ -275,7 +294,7 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com -v
 | `--file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
 | `-v` | Show full fingerprints in the summary table. The default prints the first 16 characters |
 
-Without `--out`, `gen-allowlist` prints `required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
+Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
 
 ## add
 
@@ -319,9 +338,10 @@ The URL must use the `https` scheme.
 
 ```bash
 trustprune version
+trustprune --version
 ```
 
-Prints the tool version and Go runtime version.
+Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` works the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag). `-v` is not a version alias; on `list`, `-v` means verbose.
 
 ## Debugging
 
