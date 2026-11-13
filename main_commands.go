@@ -16,7 +16,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
@@ -400,6 +399,7 @@ FORMATTING
     trustprune list --count
     trustprune list --app java --count
     trustprune list --file <path> --count
+    trustprune list --count --format json
 
   Show the certificates on a local webpage (Default: ` + ui.DefaultUI() + `, Options: ` + strings.Join(ui.GetUIs(), ", ") + `)
     trustprune list --ui web
@@ -552,7 +552,7 @@ func versionCommand(st *runState) *cli.Command {
 		UsageText:    getVersion(),
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
-			fmt.Fprintf(c.Root().Writer, "%s\n", getVersion())
+			printVersion(c.Root().Writer)
 			return nil
 		}),
 	}

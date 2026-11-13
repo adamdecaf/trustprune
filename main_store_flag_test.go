@@ -65,15 +65,7 @@ func TestCLIStoreFlag(t *testing.T) {
 
 	t.Run("list --app --file is rejected", func(t *testing.T) {
 		res := runCLI(t, bin, home, "list", "--app", "certifi", "--file", bundle, "--count")
-		if res.code != 2 {
-			t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "--file lists a PEM") {
-			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
+		assertUsageError(t, res, "--file lists a PEM")
 		if strings.TrimSpace(res.stdout) == fmt.Sprint(len(certs)) {
 			t.Fatal("listed certificates after --file/--app conflict")
 		}
@@ -263,6 +255,36 @@ type cliResult struct {
 	stdout string
 	stderr string
 	code   int
+}
+
+// assertUsageError checks a usage failure: exit 2, the message on stderr
+// with an ERROR: prefix, an unprefixed --help hint, and no usage text on stdout.
+func assertUsageError(t *testing.T, res cliResult, msg string) {
+	t.Helper()
+	if res.code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if strings.Contains(res.stdout, "ERROR:") || (msg != "" && strings.Contains(res.stdout, msg)) {
+		t.Fatalf("usage error leaked onto stdout, stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	body := strings.TrimSpace(res.stderr)
+	first, rest, ok := strings.Cut(body, "\n")
+	if !ok {
+		t.Fatalf("stderr missing help hint: %q", res.stderr)
+	}
+	if !strings.HasPrefix(first, "ERROR: ") || strings.HasPrefix(first, "ERROR: ERROR:") {
+		t.Fatalf("stderr missing single ERROR: prefix: %q", res.stderr)
+	}
+	if msg != "" && !strings.Contains(first, msg) {
+		t.Fatalf("error line %q missing %q (stderr=%q)", first, msg, res.stderr)
+	}
+	hint := rest
+	if i := strings.LastIndex(rest, "\n"); i >= 0 {
+		hint = rest[i+1:]
+	}
+	if strings.HasPrefix(hint, "ERROR:") || !strings.Contains(hint, "--help") {
+		t.Fatalf("help hint = %q stderr=%q", hint, res.stderr)
+	}
 }
 
 func runCLI(t *testing.T, bin, home string, args ...string) cliResult {

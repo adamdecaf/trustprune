@@ -45,55 +45,26 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 
 	t.Run("unknown preset is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--out", out, "--presets", "nope")
-		if res.code != 2 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "unknown preset") {
-			t.Fatalf("stderr=%q", res.stderr)
-		}
+		assertUsageError(t, res, "unknown preset")
 		assertNoAllowlist(t, out)
 	})
 
 	t.Run("hosts bad scheme is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--out", out, "--hosts", "http://example.com")
-		if res.code != 2 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "scheme") {
-			t.Fatalf("stderr=%q", res.stderr)
-		}
+		assertUsageError(t, res, "scheme")
 		assertNoAllowlist(t, out)
 	})
 
 	t.Run("hosts invalid value is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--out", out, "--hosts", "not a host")
-		if res.code != 2 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "invalid host") {
-			t.Fatalf("stderr=%q", res.stderr)
-		}
+		assertUsageError(t, res, "invalid host")
 		assertNoAllowlist(t, out)
 	})
 
 	t.Run("presets with no-presets is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--out", out, "--presets", "linux", "--no-presets")
-		if res.code != 2 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("usage error used ERROR: prefix, stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "--presets") || !strings.Contains(res.stderr, "--no-presets") {
+		assertUsageError(t, res, "--presets")
+		if !strings.Contains(res.stderr, "--no-presets") {
 			t.Fatalf("stderr=%q", res.stderr)
 		}
 		assertNoAllowlist(t, out)
@@ -101,12 +72,7 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 
 	t.Run("missing --out is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--hosts", "example.com")
-		if res.code != 2 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stderr, "required flag --out not set") {
-			t.Fatalf("stderr=%q", res.stderr)
-		}
+		assertUsageError(t, res, "required flag --out not set")
 	})
 
 	t.Run("--out alone prints help and exits 0", func(t *testing.T) {
