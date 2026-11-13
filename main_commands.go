@@ -397,6 +397,7 @@ FORMATTING
     trustprune list --count
     trustprune list --app java --count
     trustprune list --file <path> --count
+    trustprune list --count --format json
 
   Show the certificates on a local webpage (Default: ` + ui.DefaultUI() + `, Options: ` + strings.Join(ui.GetUIs(), ", ") + `)
     trustprune list --ui web
