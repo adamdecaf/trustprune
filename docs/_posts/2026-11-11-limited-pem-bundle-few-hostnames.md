@@ -44,7 +44,7 @@ fingerprints:
     - c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383
 ```
 
-Those CAs were observed on 11 November 2026. A host can rotate to a different root. Re-generate the allowlist periodically, and again if a needed site starts failing verification.
+Those CAs were observed on 11 November 2026. A host can rotate to a different root. Re-generate the allowlist periodically, and again if a needed site starts failing verification. Before applying the new allowlist, restore the original bundle: allowlisting only keeps CAs already in the file, so it cannot add a root that was removed. If the original bundle does not contain the new root, obtain a suitable trusted bundle first, then regenerate, apply, and verify the host.
 
 ## Apply it to the PEM copy
 
@@ -108,9 +108,9 @@ The copy is now 2,897 bytes. Chromium's certificate blocklist is applied as well
 `trustprune connect` has no `--bundle` flag. Point the process that will use the PEM at the file. With curl 8.14.1 linked against OpenSSL, `--cacert` alone still loaded the default CA store, so other sites kept verifying. Passing an empty `--capath` directory isolates the bundle:
 
 ```bash
-mkdir -p /tmp/empty-capath
-curl --cacert /tmp/service-ca-bundle.pem --capath /tmp/empty-capath -sS -o /dev/null --max-time 20 -w '%{http_code}\n' https://example.com/
-curl --cacert /tmp/service-ca-bundle.pem --capath /tmp/empty-capath -sS -o /dev/null --max-time 20 -w '%{http_code}\n' https://www.wikipedia.org/
+empty_capath=$(mktemp -d)
+curl --cacert /tmp/service-ca-bundle.pem --capath "$empty_capath" -sS -o /dev/null --max-time 20 -w '%{http_code}\n' https://example.com/
+curl --cacert /tmp/service-ca-bundle.pem --capath "$empty_capath" -sS -o /dev/null --max-time 20 -w '%{http_code}\n' https://www.wikipedia.org/
 ```
 
 `https://example.com/` returned `200`. `https://www.wikipedia.org/` failed with curl exit 60:
@@ -121,7 +121,7 @@ curl: (60) SSL certificate problem: unable to get local issuer certificate
 
 `openssl s_client -CAfile /tmp/service-ca-bundle.pem -verify_return_error` agreed: example.com verified; wikipedia.org chained to ISRG Root X2, which is not in the three-CA bundle.
 
-The allowlist keeps CAs, not hostnames. Any other site that chains to one of those three roots will still verify. Sites that need a different root will fail. That is expected, and it is why a host rotating CAs means you re-generate.
+The allowlist keeps CAs, not hostnames. Any other site that chains to one of those three roots will still verify. Sites that need a different root will fail. That is expected, and it is why a host rotating CAs means you restore the original bundle, re-generate, and apply again.
 
 To put the copy back:
 
@@ -163,7 +163,7 @@ That command exits 2. Adding NTP hostnames would not discover a CA.
 
 Generation verifies chains against the system trust store, not against the PEM you may later allowlist. CAs that exist only in that target bundle are not discovered.
 
-The allowlist is a set of CA fingerprints, so it is broader than "exactly these hostnames." Re-generate it periodically, and whenever a needed host changes CA.
+The allowlist is a set of CA fingerprints, so it is broader than "exactly these hostnames." Restore the original bundle, re-generate periodically and whenever a needed host changes CA, then apply and verify.
 
 Always back up first. Prefer a copy of the bundle, `--dry-run`, and `restore` if something breaks.
 
