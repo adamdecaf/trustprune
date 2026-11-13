@@ -66,7 +66,7 @@ func TestCertManage_help(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
 		t.Errorf("expected exit status 2 for unknown command, got err=%v output=%q", err, out)
 	}
-	if !strings.Contains(out, `unknown command "bad-arg"`) {
+	if !strings.Contains(out, `ERROR: unknown command "bad-arg"`) {
 		t.Errorf("expected unknown command message, got %q", out)
 	}
 
@@ -98,7 +98,7 @@ func TestCertManage_help(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "exit status 2") {
 			t.Errorf("sub-command %q, expected exit 2, err=%v output=%q", subCommands[i], err, out)
 		}
-		if !strings.Contains(out, "required flag --file not set") {
+		if !strings.Contains(out, "ERROR: required flag --file not set") {
 			t.Errorf("sub-command %q, expected required --file error, got %q", subCommands[i], out)
 		}
 	}
@@ -127,7 +127,7 @@ func TestCertManage_help(t *testing.T) {
 
 	// --store with the platform OS name is a usage error (exit 2) before listing.
 	out, err = run(t, "list", "-app", runtime.GOOS, "-store", filepath.Join(t.TempDir(), "nope"))
-	if err == nil || !strings.Contains(err.Error(), "exit status 2") || !strings.Contains(out, "--store with --app "+runtime.GOOS) || strings.Contains(out, "unknown app") || strings.Contains(out, "ERROR:") {
+	if err == nil || !strings.Contains(err.Error(), "exit status 2") || !strings.Contains(out, "ERROR: --store with --app "+runtime.GOOS) || strings.Contains(out, "unknown app") {
 		t.Errorf("list -app %s -store err=%v output=%q", runtime.GOOS, err, out)
 	}
 	out, _ = run(t, "list", "-h")
@@ -153,7 +153,7 @@ func TestCertManage_help(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
 		t.Errorf("expected exit status 2 for whitelist, got err=%v output=%q", err, out)
 	}
-	if !strings.Contains(out, `unknown command "whitelist"`) {
+	if !strings.Contains(out, `ERROR: unknown command "whitelist"`) {
 		t.Errorf("expected unknown command message for whitelist, got %q", out)
 	}
 }
@@ -228,7 +228,7 @@ func TestCertManage_genAllowlistNoFlags(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "exit status 2") {
 		t.Fatalf("expected exit status 2, got err=%v output=%q", err, out)
 	}
-	if !strings.Contains(out, "required flag --out not set") {
+	if !strings.Contains(out, "ERROR: required flag --out not set") {
 		t.Errorf("expected --out error, got %q", out)
 	}
 	if strings.Contains(out, "Usage: trustprune gen-allowlist") {

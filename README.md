@@ -57,7 +57,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
-| [version](docs/usage.md#version) | Print the version |
+| [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
 
 Allowlisting also applies Chromium's certificate blocklist, so certificates in that bundled list are never kept. That behavior cannot be disabled today.
 
@@ -164,7 +164,7 @@ trustprune gen-allowlist --out allowlist.yaml --presets linux
 trustprune gen-allowlist --out allowlist.yaml --from firefox
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
-# --out is required: without it, gen-allowlist prints "required flag --out not set" and exits with status 2
+# --out is required: without it, gen-allowlist prints "ERROR: required flag --out not set" and exits with status 2
 # Apply the result with the existing allowlist command (optionally a PEM bundle):
 #   trustprune allowlist --file allowlist.yaml
 #   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
@@ -174,6 +174,7 @@ trustprune connect https://example.com
 trustprune connect --app java https://example.com
 
 trustprune version
+trustprune --version
 # No subcommand prints usage and exits 0; an unknown --app (e.g. --app nope) exits 1 and lists the valid apps
 ```
 

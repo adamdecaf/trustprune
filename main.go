@@ -133,24 +133,30 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 		fmt.Fprintf(stdout, "ERROR: %v\n", st.traceErr)
 		return 1
 	}
+	return finishRun(stdout, stderr, err)
+}
+
+// finishRun prints err and returns the process exit code.
+// Usage errors (usageErr and ExitCoder with usageExitCode) go to stderr
+// and exit 2. Other exit codes stay on stdout. Remaining errors go to
+// stdout as "ERROR: …" and exit 1.
+func finishRun(stdout, stderr io.Writer, err error) int {
 	if err == nil {
 		return 0
 	}
 	if isUsageErr(err) {
 		msg := strings.TrimSpace(err.Error())
 		if msg != "" && !strings.Contains(msg, "--help") {
-			msg = msg + "\n" + helpHint(nil)
+			msg += "\n" + helpHint(nil)
 		}
-		if msg != "" {
-			fmt.Fprintln(stderr, msg)
-		}
+		writeUsageError(stderr, msg)
 		return usageExitCode
 	}
 	var ec cli.ExitCoder
 	if errors.As(err, &ec) {
 		if msg := strings.TrimSpace(err.Error()); msg != "" {
 			if ec.ExitCode() == usageExitCode {
-				fmt.Fprintln(stderr, msg)
+				writeUsageError(stderr, msg)
 			} else {
 				fmt.Fprintln(stdout, msg)
 			}
@@ -161,10 +167,31 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	return 1
 }
 
+// writeUsageError prints a usage error. The first line gains an "ERROR: "
+// prefix unless it already starts with "ERROR:". A following help hint
+// is left unchanged.
+func writeUsageError(w io.Writer, msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	first, rest, hasRest := strings.Cut(msg, "\n")
+	if !strings.HasPrefix(first, "ERROR:") {
+		first = "ERROR: " + first
+	}
+	if hasRest {
+		fmt.Fprintln(w, first+"\n"+rest)
+		return
+	}
+	fmt.Fprintln(w, first)
+}
+
 func newApp(st *runState) *cli.Command {
 	return &cli.Command{
-		Name:                          "trustprune",
-		Usage:                         "list, backup, allowlist, and restore CA trust stores",
+		Name:  "trustprune",
+		Usage: "list, backup, allowlist, and restore CA trust stores",
+		// HideVersion skips urfave's VersionFlag, which aliases -v.
+		// list already uses -v for verbose output. Root --version is flagVersion.
 		HideVersion:                   true,
 		Writer:                        st.stdout,
 		ErrWriter:                     st.stderr,
@@ -174,6 +201,7 @@ func newApp(st *runState) *cli.Command {
 		OnUsageError:                  onUsageError,
 		ArgValidator:                  rejectUnknownCommand,
 		Action:                        withTrace(st, rootHelpAction),
+		Flags:                         []cli.Flag{flagVersion()},
 		Commands: []*cli.Command{
 			addCommand(st),
 			allowlistCommand(st),
@@ -189,6 +217,10 @@ func newApp(st *runState) *cli.Command {
 }
 
 func rootHelpAction(_ context.Context, c *cli.Command) error {
+	if c.Bool("version") {
+		printVersion(c.Root().Writer)
+		return nil
+	}
 	return cli.ShowRootCommandHelp(c)
 }
 
@@ -393,6 +425,10 @@ func certManageAliasActive(version string) bool {
 
 func getVersion() string {
 	return fmt.Sprintf("%s (Go: %s)", Version, runtime.Version())
+}
+
+func printVersion(w io.Writer) {
+	fmt.Fprintf(w, "%s\n", getVersion())
 }
 
 func parseConnectURL(flagURL string, positional []string) (*url.URL, error) {

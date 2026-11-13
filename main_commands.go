@@ -16,7 +16,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
@@ -551,7 +550,7 @@ func versionCommand(st *runState) *cli.Command {
 		UsageText:    getVersion(),
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
-			fmt.Fprintf(c.Root().Writer, "%s\n", getVersion())
+			printVersion(c.Root().Writer)
 			return nil
 		}),
 	}
