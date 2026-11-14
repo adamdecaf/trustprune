@@ -44,19 +44,6 @@ import (
 // - https://superuser.com/questions/411909/where-is-the-certificate-folder-in-windows-7
 // - https://msdn.microsoft.com/en-us/library/windows/desktop/aa388136(v=vs.85).aspx
 
-var (
-	// C:\Users>certutil -enumstore
-	// Note: Not all stores are named here, some aren't "web" related
-	// e.g. 'Remote Desktop' or SmartCardRoot
-	windowsStoreNames = []string{
-		"My",       // Personal
-		"Root",     // "Trusted Root Certification Authorities"
-		"Trust",    // "Enterprise Trust"
-		"CA",       // "Intermediate Certification Authorities"
-		"AuthRoot", // "Third-Party Root Certification Authorities"
-	}
-)
-
 type windowsStore struct{}
 
 func platform() Store {
@@ -108,21 +95,9 @@ func (s windowsStore) GetInfo() *Info {
 }
 
 func (s windowsStore) List(_ *ListOptions) ([]*x509.Certificate, error) {
-	pool := certutil.Pool{}
-	for i := range windowsStoreNames {
-		certs, err := s.certsFromStore(windowsStoreNames[i])
-		if err != nil {
-			return nil, err
-		}
-		pool.AddCertificates(certs)
-	}
-	return pool.GetCertificates(), nil
-}
-
-func (s windowsStore) certsFromStore(store string) ([]*x509.Certificate, error) {
 	// Trust-store certs have no private key, so certutil -exportPFX cannot
 	// represent them (PKCS#12 parse fails, list returns 0). Dump DER via
-	// PowerShell in one call per store instead of one certutil per cert.
+	// one PowerShell invocation across all stores instead of one certutil per cert.
 	tmp, err := os.CreateTemp("", "cert-manage-win-store")
 	if err != nil {
 		return nil, fmt.Errorf("error creating temp file, err=%w", err)
@@ -131,31 +106,19 @@ func (s windowsStore) certsFromStore(store string) ([]*x509.Certificate, error) 
 	tmp.Close()
 	defer os.Remove(path)
 
-	psPath := strings.ReplaceAll(path, "'", "''")
-	script := fmt.Sprintf(`
-$ErrorActionPreference = 'SilentlyContinue'
-$sb = New-Object System.Text.StringBuilder
-Get-ChildItem -LiteralPath 'Cert:\LocalMachine\%s' | ForEach-Object {
-  [void]$sb.AppendLine('-----BEGIN CERTIFICATE-----')
-  [void]$sb.AppendLine([Convert]::ToBase64String($_.RawData))
-  [void]$sb.AppendLine('-----END CERTIFICATE-----')
-}
-[IO.File]::WriteAllText('%s', $sb.ToString(), [Text.UTF8Encoding]::new($false))
-`, store, psPath)
-
+	script := windowsListScript(windowsStoreNames, path)
 	out, err := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("error reading store %s: %v: %s", store, err, strings.TrimSpace(string(out)))
+		return nil, fmt.Errorf("error reading windows certificate stores: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 
 	bs, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("error reading exported store %s: %w", store, err)
+		return nil, fmt.Errorf("error reading exported windows stores: %w", err)
 	}
-	if len(bytes.TrimSpace(bs)) == 0 {
-		return nil, nil
-	}
-	return parseWindowsPEM(bs), nil
+	pool := certutil.Pool{}
+	pool.AddCertificates(parseWindowsPEM(bs))
+	return pool.GetCertificates(), nil
 }
 
 // parseWindowsPEM extracts certificates from a PEM blob and skips entries Go

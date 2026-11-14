@@ -57,6 +57,14 @@ func (p *Pool) AddCertificates(certs []*x509.Certificate) {
 				break
 			}
 		}
+		if needed {
+			for j := range addable {
+				if addable[j].fingerprint == fp {
+					needed = false
+					break
+				}
+			}
+		}
 		if needed { // never found the cert existing
 			addable = append(addable, &cert{
 				certificate: certs[i],
