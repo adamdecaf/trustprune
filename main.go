@@ -457,14 +457,7 @@ func parseConnectURL(flagURL string, positional []string) (*url.URL, error) {
 	if raw == "" {
 		return nil, errUsage("no url specified")
 	}
-	u, err := url.Parse(raw)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse %s: %w", raw, err)
-	}
-	if u.Scheme != "https" {
-		return nil, fmt.Errorf("non-secure url scheme used: %s", u.String())
-	}
-	return u, nil
+	return cmd.NormalizeConnectURL(raw)
 }
 
 type usageErr struct {

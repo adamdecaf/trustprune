@@ -15,10 +15,13 @@
 package cmd
 
 import (
+	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/httputil"
 	"github.com/adamdecaf/trustprune/pkg/store"
@@ -74,11 +77,87 @@ func connect(uri *url.URL, roots []*x509.Certificate) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("problem with HEAD to %s: %w", uri.String(), err)
+		return shortConnectError(uri.String(), err, connectLeaf(err))
 	}
 	if resp.Body != nil {
 		_ = resp.Body.Close()
 	}
 	fmt.Printf("Connection to %s passed!\n", uri.String())
+	return nil
+}
+
+// NormalizeConnectURL parses a connect target. A value with no "://" is
+// treated as https (host, host:port, or [::1]:port). Explicit http keeps the
+// historical non-secure scheme error. Any other non-https scheme is rejected.
+func NormalizeConnectURL(raw string) (*url.URL, error) {
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse %s: %w", raw, err)
+	}
+	switch u.Scheme {
+	case "https":
+		return u, nil
+	case "http":
+		return nil, fmt.Errorf("non-secure url scheme used: %s", u.String())
+	default:
+		return nil, fmt.Errorf("unsupported url scheme %q", u.Scheme)
+	}
+}
+
+// shortConnectError turns a connect failure into a single short line.
+// leaf supplies the expiry date for an expired certificate when non-nil.
+func shortConnectError(u string, err error, leaf *x509.Certificate) error {
+	if err == nil {
+		return nil
+	}
+
+	// x509 failures from the TLS handshake are wrapped in
+	// tls.CertificateVerificationError. Unwrap before errors.As so the
+	// fallback text is the inner error, and so a missing leaf can come
+	// from the unverified chain.
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) {
+		if leaf == nil && len(ver.UnverifiedCertificates) > 0 {
+			leaf = ver.UnverifiedCertificates[0]
+		}
+		if ver.Err != nil {
+			err = ver.Err
+		}
+	}
+
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
+		when := leaf
+		if when == nil {
+			when = invalid.Cert
+		}
+		if when != nil {
+			return fmt.Errorf("%s: certificate expired %s", u, when.NotAfter.UTC().Format("2006-01-02"))
+		}
+		return fmt.Errorf("%s: certificate expired", u)
+	}
+
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return fmt.Errorf("%s: unknown authority", u)
+	}
+
+	var host x509.HostnameError
+	if errors.As(err, &host) {
+		return fmt.Errorf("%s: hostname mismatch", u)
+	}
+
+	// String form is intentional: the short line replaces the wrapped chain.
+	return errors.New(u + ": " + err.Error())
+}
+
+func connectLeaf(err error) *x509.Certificate {
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) && len(ver.UnverifiedCertificates) > 0 {
+		return ver.UnverifiedCertificates[0]
+	}
 	return nil
 }
