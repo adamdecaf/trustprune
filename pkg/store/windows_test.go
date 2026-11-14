@@ -19,8 +19,11 @@ package store
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"testing"
+
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 func TestStoreWindows__certSerialsFromStore(t *testing.T) {
@@ -107,5 +110,24 @@ func TestStoreWindows__getInfo(t *testing.T) {
 	}
 	if info.Version == "" {
 		t.Error("blank Version")
+	}
+}
+
+func TestParseWindowsPEM_dedupesAcrossStores(t *testing.T) {
+	bs, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Two stores exporting the same cert produce one PEM blob with the
+	// cert twice, which is what List feeds into the pool.
+	blob := append(append([]byte{}, bs...), bs...)
+	certs := parseWindowsPEM(blob)
+	if len(certs) != 2 {
+		t.Fatalf("parseWindowsPEM: got %d certs, want 2", len(certs))
+	}
+	pool := certutil.Pool{}
+	pool.AddCertificates(certs)
+	if n := len(pool.GetCertificates()); n != 1 {
+		t.Fatalf("List path kept %d copies of a cert shared by two stores, want 1", n)
 	}
 }
