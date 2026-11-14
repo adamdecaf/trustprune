@@ -170,6 +170,17 @@ func flagVerbose() *cli.BoolFlag {
 	}
 }
 
+// flagConnectVerbose is the connect command's -v/--verbose chain table.
+func flagConnectVerbose() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "verbose",
+		Aliases:     []string{"v"},
+		Usage:       "print the verified certificate chain",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 func flagGenAllowlistVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "v",

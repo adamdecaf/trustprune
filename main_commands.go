@@ -230,13 +230,14 @@ func connectCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "connect",
 		Usage: "Attempt to load a remote URL with the platform (or app) store",
-		UsageText: `trustprune connect [--app <name>] [--store <path>] (--url <url> | <url>)
+		UsageText: `trustprune connect [--app <name>] [--store <path>] [-v] (--url <url> | <url>)
 
 Attempt an HTTP connect to a URL with the given certificate store. Pass the URL as
 --url <url> or as a positional argument. If --app is provided then the certificates for
 that application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts) and --app certifi (cacert.pem).
+  -v, --verbose prints the verified chain after the one-line summary.
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
@@ -244,6 +245,7 @@ APPS
 			flagApp(),
 			flagStore(),
 			flagURL("remote URL to connect to (instead of a positional URL)"),
+			flagConnectVerbose(),
 		},
 		ArgValidator: connectArgValidator,
 		Before:       connectBefore,
@@ -265,13 +267,14 @@ func connectAction(_ context.Context, c *cli.Command) error {
 		}
 		return err
 	}
+	opts := cmd.ConnectOptions{Verbose: c.Bool("verbose")}
 	if app == "" {
-		return cmd.ConnectWithPlatformStore(u)
+		return cmd.ConnectWithPlatformStore(u, opts)
 	}
 	if path != "" {
-		return cmd.ConnectWithAppStoreFile(u, app, path)
+		return cmd.ConnectWithAppStoreFile(u, app, path, opts)
 	}
-	return cmd.ConnectWithAppStore(u, app)
+	return cmd.ConnectWithAppStore(u, app, opts)
 }
 
 func genAllowlistCommand(st *runState) *cli.Command {
