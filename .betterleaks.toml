@@ -1,0 +1,35 @@
+title = "trustprune"
+betterleaksMinVersion = "v1.10.0"
+
+# Test fixtures that may contain private keys. Public cert PEMs/CRTs stay scanned.
+prefilter = '''
+filter.matchesAny(attributes["path"], [
+  `(?i)(?:^|/)testdata/.*\.(?:pfx|p12)$`
+])
+'''
+
+# Confirmed non-secrets: the well-known Java cacerts default, a local
+# temporary PFX wrap password, and a Windows certutil fixture UUID.
+filter = '''
+(
+  filter.matchesAny(attributes["path"], [
+    `(?:^|/)pkg/store/java\.go$`,
+    `(?:^|/)pkg/cmd/store_path_test\.go$`,
+    `(?:^|/)store/java\.go$`,
+    `(?:^|/)fetch/ca/java\.go$`,
+    `(?:^|/)whitelist/old/find_java\.go$`,
+    `(?:^|/)certs/find_java\.go$`
+  ]) && finding["secret"] == "changeit"
+)
+|| (
+  filter.matchesAny(attributes["path"], [`(?:^|/)pkg/store/windows\.go$`])
+  && finding["secret"] == "password"
+)
+|| (
+  filter.matchesAny(attributes["path"], [`(?:^|/)pkg/store/windows_test\.go$`])
+  && finding["secret"] == "a3815d1a-0473-4a96-9375-cf18cc03b2f5"
+)
+'''
+
+[extend]
+useDefault = true
