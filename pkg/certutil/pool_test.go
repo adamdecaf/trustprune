@@ -71,3 +71,19 @@ func TestCertUtil__nil(t *testing.T) {
 		t.Errorf("got %d", n)
 	}
 }
+
+func TestCertUtil__poolDedupesBatch(t *testing.T) {
+	certs, err := FromFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) == 0 {
+		t.Fatal("found no certs")
+	}
+
+	pool := Pool{}
+	pool.AddCertificates([]*x509.Certificate{certs[0], certs[0]})
+	if n := len(pool.GetCertificates()); n != 1 {
+		t.Fatalf("found %d certs, want 1", n)
+	}
+}
