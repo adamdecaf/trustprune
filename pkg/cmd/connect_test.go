@@ -21,6 +21,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -487,7 +488,341 @@ func TestFormatConnectChainTable(t *testing.T) {
 	}
 }
 
-func sha256Prefix(raw []byte) string {
+func sha256Hex(raw []byte) string {
 	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:8])
+	return hex.EncodeToString(sum[:])
+}
+
+func sha256Prefix(raw []byte) string {
+	return sha256Hex(raw)[:16]
+}
+
+func TestNormalizeConnectFormat(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in      string
+		want    string
+		wantErr string
+	}{
+		{in: "", want: "text"},
+		{in: "text", want: "text"},
+		{in: "TEXT", want: "text"},
+		{in: " json ", want: "json"},
+		{in: "JSON", want: "json"},
+		{in: "table", wantErr: `unknown format "table" (formats: json, text)`},
+		{in: "Short", wantErr: `unknown format "Short" (formats: json, text)`},
+		{in: "nope", wantErr: `unknown format "nope" (formats: json, text)`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			got, err := NormalizeConnectFormat(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("NormalizeConnectFormat(%q) error = %v, want %q", tc.in, err, tc.wantErr)
+				}
+				if got != "" {
+					t.Fatalf("NormalizeConnectFormat(%q) = %q, want empty", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeConnectFormat(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("NormalizeConnectFormat(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFormatConnectJSON(t *testing.T) {
+	t.Parallel()
+
+	leafRaw := bytes.Repeat([]byte{0x11}, 16)
+	midRaw := bytes.Repeat([]byte{0x22}, 16)
+	rootRaw := bytes.Repeat([]byte{0x33}, 16)
+	// 2027-03-04 01:00 at UTC+9 is 2027-03-03 16:00 UTC.
+	leafExpires := time.Date(2027, 3, 4, 1, 0, 0, 0, time.FixedZone("EAST", 9*60*60))
+	midExpires := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC)
+	rootExpires := time.Date(2035, 12, 31, 23, 59, 59, 0, time.UTC)
+	leaf := &x509.Certificate{
+		Raw:      leafRaw,
+		Subject:  pkix.Name{CommonName: "leaf.example"},
+		Issuer:   pkix.Name{CommonName: "Mid"},
+		NotAfter: leafExpires,
+	}
+	mid := &x509.Certificate{
+		Raw:      midRaw,
+		Subject:  pkix.Name{CommonName: "Mid"},
+		Issuer:   pkix.Name{Organization: []string{"Example Org"}},
+		NotAfter: midExpires,
+	}
+	root := &x509.Certificate{
+		Raw: rootRaw,
+		Subject: pkix.Name{
+			CommonName:   "Root CA",
+			Organization: []string{"Example Org"},
+		},
+		Issuer:   pkix.Name{CommonName: "Root CA"},
+		NotAfter: rootExpires,
+	}
+	orgRoot := &x509.Certificate{
+		Raw:      rootRaw,
+		Subject:  pkix.Name{Organization: []string{"Example Org"}},
+		Issuer:   pkix.Name{CommonName: "Root CA"},
+		NotAfter: rootExpires,
+	}
+	leafSHA := sha256Hex(leafRaw)
+	midSHA := sha256Hex(midRaw)
+	rootSHA := sha256Hex(rootRaw)
+
+	chainState := &tls.ConnectionState{
+		Version:        tls.VersionTLS13,
+		VerifiedChains: [][]*x509.Certificate{{leaf, mid, root}},
+	}
+
+	cases := []struct {
+		name    string
+		url     string
+		state   *tls.ConnectionState
+		want    connectJSON
+		wantErr string
+	}{
+		{
+			name:  "tls1.3 chain",
+			url:   "https://example.com",
+			state: chainState,
+			want: connectJSON{
+				URL:        "https://example.com",
+				TLSVersion: "tls1.3",
+				Verified:   true,
+				Root:       connectJSONRoot{Subject: "Root CA", SHA256: rootSHA},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Chain: []connectJSONChain{
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
+					{Subject: "Mid", Issuer: "O=Example Org", NotAfter: "2030-01-02", SHA256: midSHA},
+					{Subject: "Root CA", Issuer: "Root CA", NotAfter: "2035-12-31", SHA256: rootSHA},
+				},
+			},
+		},
+		{
+			name: "tls1.2 subject when CN is empty",
+			url:  "https://example.com:8443/path",
+			state: &tls.ConnectionState{
+				Version:        tls.VersionTLS12,
+				VerifiedChains: [][]*x509.Certificate{{leaf, orgRoot}},
+			},
+			want: connectJSON{
+				URL:        "https://example.com:8443/path",
+				TLSVersion: "tls1.2",
+				Verified:   true,
+				Root:       connectJSONRoot{Subject: "O=Example Org", SHA256: rootSHA},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Chain: []connectJSONChain{
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
+					{Subject: "O=Example Org", Issuer: "Root CA", NotAfter: "2035-12-31", SHA256: rootSHA},
+				},
+			},
+		},
+		{
+			name: "single certificate is root and leaf",
+			url:  "https://[::1]",
+			state: &tls.ConnectionState{
+				Version:        tls.VersionTLS13,
+				VerifiedChains: [][]*x509.Certificate{{leaf}},
+			},
+			want: connectJSON{
+				URL:        "https://[::1]",
+				TLSVersion: "tls1.3",
+				Verified:   true,
+				Root:       connectJSONRoot{Subject: "leaf.example", SHA256: leafSHA},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Chain: []connectJSONChain{
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
+				},
+			},
+		},
+		{
+			name:    "nil state",
+			url:     "https://example.com",
+			wantErr: "no verified certificate chain",
+		},
+		{
+			name: "empty chains",
+			url:  "https://example.com",
+			state: &tls.ConnectionState{
+				Version: tls.VersionTLS13,
+			},
+			wantErr: "no verified certificate chain",
+		},
+		{
+			name: "empty first chain",
+			url:  "https://example.com",
+			state: &tls.ConnectionState{
+				Version:        tls.VersionTLS12,
+				VerifiedChains: [][]*x509.Certificate{{}},
+			},
+			wantErr: "no verified certificate chain",
+		},
+		{
+			name: "unsupported version",
+			url:  "https://example.com",
+			state: &tls.ConnectionState{
+				Version:        tls.VersionTLS10,
+				VerifiedChains: [][]*x509.Certificate{{leaf, root}},
+			},
+			wantErr: "unsupported TLS version",
+		},
+		{
+			name: "nil cert",
+			url:  "https://example.com",
+			state: &tls.ConnectionState{
+				Version:        tls.VersionTLS13,
+				VerifiedChains: [][]*x509.Certificate{{leaf, nil}},
+			},
+			wantErr: "certificate 1 is nil",
+		},
+		{
+			name: "missing raw",
+			url:  "https://example.com",
+			state: &tls.ConnectionState{
+				Version: tls.VersionTLS13,
+				VerifiedChains: [][]*x509.Certificate{{
+					leaf,
+					{Subject: pkix.Name{CommonName: "no raw"}},
+				}},
+			},
+			wantErr: "missing raw",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := formatConnectJSON(tc.url, tc.state)
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("formatConnectJSON() error = %v, want substring %q", err, tc.wantErr)
+				}
+				if got != "" {
+					t.Fatalf("formatConnectJSON() = %q, want empty", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("formatConnectJSON(): %v", err)
+			}
+			assertConnectJSON(t, got, tc.want)
+			if !strings.HasSuffix(got, "\n") {
+				t.Fatalf("json missing trailing newline: %q", got)
+			}
+
+			rendered, err := formatConnectResult(tc.url, tc.state, ConnectOptions{Format: "JSON", Verbose: true})
+			if err != nil {
+				t.Fatalf("formatConnectResult(json, verbose): %v", err)
+			}
+			if rendered != got {
+				t.Fatalf("-v changed json\n got %q\nwant %q", rendered, got)
+			}
+			plain, err := formatConnectResult(tc.url, tc.state, ConnectOptions{Format: "json"})
+			if err != nil {
+				t.Fatalf("formatConnectResult(json): %v", err)
+			}
+			if plain != got {
+				t.Fatalf("formatConnectResult(json) = %q\nwant %q", plain, got)
+			}
+		})
+	}
+
+	t.Run("text verbose still prints the table", func(t *testing.T) {
+		t.Parallel()
+		summary, err := formatConnectOK("https://example.com", chainState)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text, err := formatConnectResult("https://example.com", chainState, ConnectOptions{Format: "TEXT"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if text != summary+"\n" {
+			t.Fatalf("text = %q\nwant %q", text, summary+"\n")
+		}
+		table, err := formatConnectChainTable(chainState.VerifiedChains[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		verbose, err := formatConnectResult("https://example.com", chainState, ConnectOptions{Verbose: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if verbose != summary+"\n"+table {
+			t.Fatalf("verbose text =\n%s\nwant\n%s", verbose, summary+"\n"+table)
+		}
+		if verbose == text {
+			t.Fatal("expected -v to add the chain table for text")
+		}
+	})
+}
+
+func TestConnectUnknownFormatDoesNotDial(t *testing.T) {
+	t.Parallel()
+
+	u, err := url.Parse("https://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = connect(u, nil, ConnectOptions{Format: "nope"})
+	if err == nil || err.Error() != `unknown format "nope" (formats: json, text)` {
+		t.Fatalf("connect() error = %v", err)
+	}
+}
+
+// assertConnectJSON checks got is the pretty-printed form of want, with no
+// extra fields and with sha256 values left as full hex.
+func assertConnectJSON(t *testing.T, got string, want connectJSON) {
+	t.Helper()
+
+	dec := json.NewDecoder(strings.NewReader(got))
+	dec.DisallowUnknownFields()
+	var doc connectJSON
+	if err := dec.Decode(&doc); err != nil {
+		t.Fatalf("decode %q: %v", got, err)
+	}
+	if doc.URL != want.URL || doc.TLSVersion != want.TLSVersion || !doc.Verified || !want.Verified {
+		t.Fatalf("header = %+v\nwant %+v", doc, want)
+	}
+	if doc.Root != want.Root {
+		t.Fatalf("root = %+v\nwant %+v", doc.Root, want.Root)
+	}
+	if doc.Leaf != want.Leaf {
+		t.Fatalf("leaf = %+v\nwant %+v", doc.Leaf, want.Leaf)
+	}
+	if len(doc.Chain) != len(want.Chain) {
+		t.Fatalf("chain len = %d, want %d", len(doc.Chain), len(want.Chain))
+	}
+	for i := range want.Chain {
+		if doc.Chain[i] != want.Chain[i] {
+			t.Fatalf("chain[%d] = %+v\nwant %+v", i, doc.Chain[i], want.Chain[i])
+		}
+		if len(doc.Chain[i].SHA256) != 64 {
+			t.Fatalf("chain[%d] sha256 = %q", i, doc.Chain[i].SHA256)
+		}
+	}
+	if doc.Root.SHA256 != doc.Chain[len(doc.Chain)-1].SHA256 {
+		t.Fatalf("root sha256 %s != chain anchor %s", doc.Root.SHA256, doc.Chain[len(doc.Chain)-1].SHA256)
+	}
+	if doc.Leaf.Subject != doc.Chain[0].Subject || doc.Leaf.NotAfter != doc.Chain[0].NotAfter {
+		t.Fatalf("leaf %+v does not match chain[0] %+v", doc.Leaf, doc.Chain[0])
+	}
+
+	enc, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(enc)+"\n" {
+		t.Fatalf("json =\n%s\nwant\n%s\n", got, string(enc)+"\n")
+	}
 }

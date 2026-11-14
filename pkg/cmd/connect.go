@@ -15,9 +15,11 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,11 +33,39 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
+// ConnectFormats is the connect --format list, in help text and errors.
+const ConnectFormats = "json, text"
+
+const (
+	connectFormatText = "text"
+	connectFormatJSON = "json"
+	connectDateLayout = "2006-01-02"
+)
+
 // ConnectOptions controls output from a successful connect.
 // The zero value prints only the one-line summary.
 type ConnectOptions struct {
 	// Verbose prints the verified chain after the summary line.
+	// It has no effect when Format is json.
 	Verbose bool
+	// Format is "text" (the default) or "json".
+	// Empty means text. Matching is case-insensitive.
+	Format string
+}
+
+// NormalizeConnectFormat accepts text (the default, including "") and json.
+// Matching is case-insensitive. Any other value is an error that lists the
+// valid formats. The returned name is lowercase. The error quotes format
+// unchanged so the caller can show what was passed.
+func NormalizeConnectFormat(format string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", connectFormatText:
+		return connectFormatText, nil
+	case connectFormatJSON:
+		return connectFormatJSON, nil
+	default:
+		return "", fmt.Errorf("unknown format %q (formats: %s)", format, ConnectFormats)
+	}
 }
 
 func ConnectWithPlatformStore(uri *url.URL, opts ConnectOptions) error {
@@ -68,6 +98,12 @@ func ConnectWithAppStoreFile(uri *url.URL, app, storePath string, opts ConnectOp
 }
 
 func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error {
+	// Reject a bad format before any dial. The CLI also checks this and
+	// turns it into a usage error.
+	if _, err := NormalizeConnectFormat(opts.Format); err != nil {
+		return err
+	}
+
 	req, err := http.NewRequest("HEAD", uri.String(), nil)
 	if err != nil {
 		return fmt.Errorf("unable to make request for %s: %w", uri.String(), err)
@@ -94,22 +130,124 @@ func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error
 		_ = resp.Body.Close()
 	}
 
-	summary, err := formatConnectOK(uri.String(), resp.TLS)
+	out, err := formatConnectResult(uri.String(), resp.TLS, opts)
 	if err != nil {
 		return fmt.Errorf("%s: %w", uri.String(), err)
 	}
-	var table string
-	if opts.Verbose {
-		table, err = formatConnectChainTable(resp.TLS.VerifiedChains[0])
+	fmt.Print(out)
+	return nil
+}
+
+// formatConnectResult renders a successful handshake.
+// JSON ignores Verbose. Text is the one-line summary and, when Verbose,
+// the chain table after it. The result ends with a newline.
+func formatConnectResult(rawURL string, state *tls.ConnectionState, opts ConnectOptions) (string, error) {
+	format, err := NormalizeConnectFormat(opts.Format)
+	if err != nil {
+		return "", err
+	}
+	if format == connectFormatJSON {
+		return formatConnectJSON(rawURL, state)
+	}
+	summary, err := formatConnectOK(rawURL, state)
+	if err != nil {
+		return "", err
+	}
+	if !opts.Verbose {
+		return summary + "\n", nil
+	}
+	chain, err := connectVerifiedChain(state)
+	if err != nil {
+		return "", err
+	}
+	table, err := formatConnectChainTable(chain)
+	if err != nil {
+		return "", err
+	}
+	return summary + "\n" + table, nil
+}
+
+// connectJSON is the document written by connect --format json.
+type connectJSON struct {
+	URL        string             `json:"url"`
+	TLSVersion string             `json:"tls_version"`
+	Verified   bool               `json:"verified"`
+	Root       connectJSONRoot    `json:"root"`
+	Leaf       connectJSONLeaf    `json:"leaf"`
+	Chain      []connectJSONChain `json:"chain"`
+}
+
+type connectJSONRoot struct {
+	Subject string `json:"subject"`
+	SHA256  string `json:"sha256"`
+}
+
+type connectJSONLeaf struct {
+	Subject  string `json:"subject"`
+	NotAfter string `json:"not_after"`
+}
+
+type connectJSONChain struct {
+	Subject  string `json:"subject"`
+	Issuer   string `json:"issuer"`
+	NotAfter string `json:"not_after"`
+	SHA256   string `json:"sha256"`
+}
+
+// formatConnectJSON formats a successful connect as one JSON object.
+// Verified is always true: a missing chain is an error, not verified:false.
+// sha256 is the full hex SHA-256. not_after is the UTC date (YYYY-MM-DD),
+// the same day the text summary prints. chain is leaf-first and includes
+// the trust anchor. The result ends with a newline.
+// Verbose is not an input; JSON does not change when -v is set.
+func formatConnectJSON(rawURL string, state *tls.ConnectionState) (string, error) {
+	chain, err := connectVerifiedChain(state)
+	if err != nil {
+		return "", err
+	}
+	ver, err := connectTLSVersion(state.Version)
+	if err != nil {
+		return "", err
+	}
+	entries := make([]connectJSONChain, len(chain))
+	for i, cert := range chain {
+		if cert == nil {
+			return "", fmt.Errorf("verified chain certificate %d is nil", i)
+		}
+		sum, err := connectSHA256(cert)
 		if err != nil {
-			return fmt.Errorf("%s: %w", uri.String(), err)
+			return "", fmt.Errorf("verified chain certificate %d: %w", i, err)
+		}
+		entries[i] = connectJSONChain{
+			Subject:  connectName(cert.Subject),
+			Issuer:   connectName(cert.Issuer),
+			NotAfter: cert.NotAfter.UTC().Format(connectDateLayout),
+			SHA256:   sum,
 		}
 	}
-	fmt.Println(summary)
-	if table != "" {
-		fmt.Print(table)
+	leaf := entries[0]
+	root := entries[len(entries)-1]
+	doc := connectJSON{
+		URL:        rawURL,
+		TLSVersion: ver,
+		Verified:   true,
+		Root: connectJSONRoot{
+			Subject: root.Subject,
+			SHA256:  root.SHA256,
+		},
+		Leaf: connectJSONLeaf{
+			Subject:  leaf.Subject,
+			NotAfter: leaf.NotAfter,
+		},
+		Chain: entries,
 	}
-	return nil
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // formatConnectOK formats the one-line success summary from resp.TLS.
@@ -140,7 +278,7 @@ func formatConnectOK(rawURL string, state *tls.ConnectionState) (string, error) 
 		ver,
 		connectName(root.Subject),
 		sum,
-		leaf.NotAfter.UTC().Format("2006-01-02"),
+		leaf.NotAfter.UTC().Format(connectDateLayout),
 	), nil
 }
 
@@ -166,7 +304,7 @@ func formatConnectChainTable(chain []*x509.Certificate) (string, error) {
 			strconv.Itoa(i),
 			connectName(cert.Subject),
 			connectName(cert.Issuer),
-			cert.NotAfter.UTC().Format("2006-01-02"),
+			cert.NotAfter.UTC().Format(connectDateLayout),
 			sum,
 		}
 	}
@@ -199,12 +337,20 @@ func connectName(n pkix.Name) string {
 	return n.String()
 }
 
-// connectSHA256Prefix is the first 16 hex characters of the certificate SHA-256.
-func connectSHA256Prefix(c *x509.Certificate) (string, error) {
+// connectSHA256 is the full hex SHA-256 of the certificate.
+func connectSHA256(c *x509.Certificate) (string, error) {
 	if c == nil || len(c.Raw) == 0 {
 		return "", errors.New("certificate is missing raw bytes")
 	}
-	fp := certutil.GetHexSHA256Fingerprint(*c)
+	return certutil.GetHexSHA256Fingerprint(*c), nil
+}
+
+// connectSHA256Prefix is the first 16 hex characters of the certificate SHA-256.
+func connectSHA256Prefix(c *x509.Certificate) (string, error) {
+	fp, err := connectSHA256(c)
+	if err != nil {
+		return "", err
+	}
 	return fp[:16], nil
 }
 

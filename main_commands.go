@@ -230,14 +230,29 @@ func connectCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "connect",
 		Usage: "Attempt to load a remote URL with the platform (or app) store",
-		UsageText: `trustprune connect [--app <name>] [--store <path>] [-v] (--url <url> | <url>)
+		UsageText: `trustprune connect [--app <name>] [--store <path>] [-v] [--format text|json] (--url <url> | <url>)
 
-Attempt an HTTP connect to a URL with the given certificate store. Pass the URL as
---url <url> or as a positional argument. If --app is provided then the certificates for
-that application are loaded and used for the connection.
+Attempt an HTTPS connect with the given certificate store. A bare host is accepted
+and treated as https. Pass the target as --url <url> or as one positional argument.
+Explicit http:// is rejected. If --app is provided then the certificates for that
+application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts) and --app certifi (cacert.pem).
-  -v, --verbose prints the verified chain after the one-line summary.
+  -v, --verbose prints the verified chain after the one-line summary. It has no effect with --format json.
+  --format text (default) or json. An unknown format is a usage error.
+
+  Bare host, one-line success:
+    trustprune connect google.com
+    ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
+
+  Verified chain:
+    trustprune connect -v google.com
+
+  JSON object (full hex sha256; -v is ignored):
+    trustprune connect --format json google.com
+
+  Failure:
+    ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
@@ -246,6 +261,7 @@ APPS
 			flagStore(),
 			flagURL("remote URL to connect to (instead of a positional URL)"),
 			flagConnectVerbose(),
+			flagConnectFormat(),
 		},
 		ArgValidator: connectArgValidator,
 		Before:       connectBefore,
@@ -254,6 +270,9 @@ APPS
 }
 
 func connectBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if _, err := cmd.NormalizeConnectFormat(c.String("format")); err != nil {
+		return ctx, usageExit(c, err.Error())
+	}
 	return ctx, rejectIncompatibleStore(c)
 }
 
@@ -267,7 +286,10 @@ func connectAction(_ context.Context, c *cli.Command) error {
 		}
 		return err
 	}
-	opts := cmd.ConnectOptions{Verbose: c.Bool("verbose")}
+	opts := cmd.ConnectOptions{
+		Verbose: c.Bool("verbose"),
+		Format:  c.String("format"),
+	}
 	if app == "" {
 		return cmd.ConnectWithPlatformStore(u, opts)
 	}

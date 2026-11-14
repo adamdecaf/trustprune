@@ -318,21 +318,55 @@ trustprune add --file cert.pem --app java --store /path/to/cacerts
 
 Attempt an HTTPS connection using the platform store or an app store. Useful after allowlist or restore.
 
+A bare host is accepted (`trustprune connect google.com` is `https://google.com`). An explicit `http://` URL is rejected.
+
 ```bash
+trustprune connect google.com
 trustprune connect https://example.com
+trustprune connect -v https://example.com
+trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 trustprune connect --app java --store /path/to/cacerts https://example.com
 trustprune connect --app certifi --store /path/to/venv/.../cacert.pem https://example.com
 trustprune connect --url https://example.com
 ```
 
+Text output (the default) is one line:
+
+```text
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
+```
+
+`sha256` is the first 16 hex characters of the root. `leaf-expires` is the leaf certificate's `NotAfter` in UTC (`YYYY-MM-DD`). `-v` prints the verified chain after that line (INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256). `--format json` prints one object and ignores `-v`:
+
+```json
+{
+  "url": "https://google.com",
+  "tls_version": "tls1.3",
+  "verified": true,
+  "root": {"subject": "<name>", "sha256": "<64 hex>"},
+  "leaf": {"subject": "<leaf>", "not_after": "YYYY-MM-DD"},
+  "chain": [
+    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "YYYY-MM-DD", "sha256": "<64 hex>"}
+  ]
+}
+```
+
+`chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` uses the same UTC date as the text line.
+
+Failures are one short line:
+
+```text
+ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+```
+
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | Use that application's certificates for the TLS handshake |
 | `--store <path>` | With `--app java` or `--app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
-| `--url <url>` | URL to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
-
-The URL must use the `https` scheme.
+| `--url <url>` | URL or bare host to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
+| `-v`, `--verbose` | Print the verified chain after the one-line summary. Ignored with `--format json` |
+| `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 
 ## version
 

@@ -22,27 +22,60 @@ $ trustprune add --file cert.pem --app certifi --store /path/to/cacert.pem
 
 ## Connect
 
-The `connect` command allows you to verify connectivity with a remote host using the certificates from a given store. This allows you to quickly verify if applying an allowlist (or restoring) worked.
+The `connect` command verifies connectivity with a remote host using the certificates from a given store. Use it to check that an allowlist or a restore still reaches a host you care about.
+
+A bare host is accepted and treated as `https`. `trustprune connect google.com` is the same target as `trustprune connect https://google.com`. An explicit `http://` URL is rejected.
+
+Success (the default `text` format) prints one line. `sha256` is the first 16 hex characters of the root certificate. `leaf-expires` is the leaf `NotAfter` date in UTC.
 
 ```
-$ ./trustprune connect https://google.com
-Connection to https://google.com passed!
+$ ./trustprune connect google.com
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
+
+$ ./trustprune connect -v google.com
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
+INDEX  SUBJECT  ISSUER  NOT-AFTER   SHA256
+...
+
+$ ./trustprune connect --format json google.com
+{
+  "url": "https://google.com",
+  "tls_version": "tls1.3",
+  "verified": true,
+  "root": {"subject": "<name>", "sha256": "<64 hex>"},
+  "leaf": {"subject": "<leaf>", "not_after": "YYYY-MM-DD"},
+  "chain": [
+    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "YYYY-MM-DD", "sha256": "<64 hex>"}
+  ]
+}
 
 $ ./trustprune connect --app java https://google.com
-Connection to https://google.com passed!
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 
 $ ./trustprune connect --app java --store /path/to/cacerts https://google.com
-Connection to https://google.com passed!
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 
 $ ./trustprune connect --url https://google.com
-Connection to https://google.com passed!
+ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 ```
+
+`-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is the same UTC `YYYY-MM-DD` date as the text line.
+
+A handshake failure is one short line:
+
+```
+ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+```
+
+An unknown `--format` is a usage error (exit 2) and names the valid formats (`json`, `text`).
 
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | Use that application's certificates for the TLS handshake |
 | `--store <path>` | With `--app java` or `--app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
-| `--url <url>` | URL to connect to, instead of the positional argument |
+| `--url <url>` | URL or bare host to connect to, instead of the positional argument |
+| `-v`, `--verbose` | Print the verified chain after the one-line summary. No effect with `--format json` |
+| `--format` | `text` (default) is the one-line summary. `json` is one object (`url`, `tls_version`, `verified`, `root`, `leaf`, `chain`) |
 
 ## List
 
