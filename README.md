@@ -200,6 +200,8 @@ Cross-platform binaries: `make linux`, `make osx`, `make win`, or `make dist`. C
 
 Help with docs, bugfixes, tests, and new or deeper store support is welcome. One focused PR at a time works best.
 
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the make gates, CI, and secret scan.
+
 1. Fork and clone the repo.
 2. Use Go 1.27; run `make build` and `make test` (or `MOCKED=true make test`) before opening a PR.
 3. Prefer temp / container stores in tests — never point destructive tests at a real system CA directory.
