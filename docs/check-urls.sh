@@ -20,6 +20,7 @@ paths=(
   /why /why.html
   /blog /blog.html
   /whitelists /whitelists.html
+  /research/pdf-readers /research/pdf-readers.html
   /2026/10/28/apple-pem-hand-edit-emudhra.html
   /2026/11/11/limited-pem-bundle-few-hostnames.html
 )
