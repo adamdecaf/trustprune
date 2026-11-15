@@ -17,19 +17,13 @@ package gen
 import (
 	"errors"
 	"net/url"
+	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/file"
+	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/go-sqlite/sqlite3"
-)
-
-var (
-	firefoxProfileLocations = []string{
-		filepath.Join(file.HomeDir(), ".mozilla/firefox/*.default/places.sqlite"),                      // Ubuntu
-		filepath.Join(file.HomeDir(), "/Library/Application Support/Firefox/Profiles/*/places.sqlite"), // OSX
-		// C:\Users\%USERNAME%\AppData\Roaming\Mozilla\Firefox\Profiles\%PROFILE%.default\places.sqlite // TODO
-	}
 )
 
 func firefox() ([]*url.URL, error) {
@@ -53,17 +47,21 @@ func getFirefoxUrls(db *sqlite3.DbFile) ([]*url.URL, error) {
 }
 
 func findFirefoxPlacesDB() (*sqlite3.DbFile, error) {
-	// Paths are globs, so check each match
-	for i := range firefoxProfileLocations {
-		matches, err := filepath.Glob(firefoxProfileLocations[i])
-		if err != nil {
-			return nil, err
-		}
-		for j := range matches {
-			if file.Exists(matches[j]) {
-				return sqlite3.Open(matches[j])
-			}
+	path := findFirefoxPlacesPath(store.FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA")))
+	if path == "" {
+		return nil, errors.New("unable to find firefox places.sqlite")
+	}
+	return sqlite3.Open(path)
+}
+
+// findFirefoxPlacesPath returns the places.sqlite in the first profile dir
+// that has one. dirs is the FirefoxProfileDirs order (newest cert DB first).
+func findFirefoxPlacesPath(dirs []string) string {
+	for _, dir := range dirs {
+		path := filepath.Join(dir, "places.sqlite")
+		if file.Exists(path) {
+			return path
 		}
 	}
-	return nil, errors.New("unable to find firefox places.sqlite")
+	return ""
 }
