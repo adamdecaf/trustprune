@@ -36,7 +36,7 @@ func TestConnectWithLocalTLSServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := connect(u, []*x509.Certificate{cert}); err != nil {
+	if err := connect(u, []*x509.Certificate{cert}, ConnectOptions{Verbose: true}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -47,7 +47,7 @@ func TestConnectWithAppStoreFileCertifi(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ConnectWithAppStoreFile(u, "certifi", "/no/such/cacert.pem")
+	err = ConnectWithAppStoreFile(u, "certifi", "/no/such/cacert.pem", ConnectOptions{})
 	if err == nil {
 		t.Fatal("expected error for missing certifi file")
 	}

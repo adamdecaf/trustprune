@@ -171,8 +171,12 @@ trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 #   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
 
 # Verify connectivity after a change
-trustprune connect https://example.com
+trustprune connect google.com            # bare host; treated as https://google.com
+# ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
+trustprune connect -v google.com         # chain table after the one-line summary; ignored with --format json
+trustprune connect --format json google.com
 trustprune connect --app java https://example.com
+# ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
 trustprune version
 trustprune --version

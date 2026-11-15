@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
+	"github.com/adamdecaf/trustprune/pkg/cmd"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 	"github.com/urfave/cli/v3"
 )
@@ -165,6 +166,29 @@ func flagVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "v",
 		Usage:       "show full fingerprints, serials, and paths in table output",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
+// flagConnectVerbose is the connect command's -v/--verbose chain table.
+func flagConnectVerbose() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "verbose",
+		Aliases:     []string{"v"},
+		Usage:       "print the verified certificate chain",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
+// flagConnectFormat is connect --format text (default) or json.
+// Do not use ui.DefaultFormat here: that is the list table format.
+func flagConnectFormat() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:        "format",
+		Usage:       "output format (default: text, options: " + cmd.ConnectFormats + ")",
+		Value:       "text",
 		HideDefault: true,
 		Local:       true,
 	}
