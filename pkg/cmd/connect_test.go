@@ -88,8 +88,11 @@ func TestNormalizeConnectURL(t *testing.T) {
 		{raw: "[::1]:443", want: "https://[::1]:443"},
 		{raw: "localhost", want: "https://localhost"},
 		{raw: "example.com/path", want: "https://example.com/path"},
+		{raw: "example.com/path?next=https://other.example", want: "https://example.com/path?next=https://other.example"},
+		{raw: "example.com?next=https://other.example", want: "https://example.com?next=https://other.example"},
 		{raw: "https://example.com", want: "https://example.com"},
 		{raw: "https://example.com/path?q=1", want: "https://example.com/path?q=1"},
+		{raw: "https://example.com/path?next=https://other.example", want: "https://example.com/path?next=https://other.example"},
 		{raw: "https://[::1]:443", want: "https://[::1]:443"},
 		{raw: "HTTPS://example.com", want: "https://example.com"},
 		{raw: "http://example.com", wantErr: "non-secure url scheme used: http://example.com"},
@@ -136,8 +139,13 @@ func TestShortConnectError(t *testing.T) {
 	const target = "https://expired.example"
 	leaf := &x509.Certificate{NotAfter: time.Date(2015, 4, 12, 23, 59, 59, 0, time.UTC)}
 	other := &x509.Certificate{NotAfter: time.Date(1999, 1, 2, 0, 0, 0, 0, time.UTC)}
+	future := &x509.Certificate{
+		NotBefore: time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC),
+		NotAfter:  time.Date(2100, 1, 2, 0, 0, 0, 0, time.UTC),
+	}
 	expired := x509.CertificateInvalidError{Cert: other, Reason: x509.Expired, Detail: "current time after"}
 	expiredNoCert := x509.CertificateInvalidError{Reason: x509.Expired}
+	notYetValid := x509.CertificateInvalidError{Cert: future, Reason: x509.Expired, Detail: "current time before"}
 	unknown := x509.UnknownAuthorityError{Cert: leaf}
 	hostErr := x509.HostnameError{Certificate: leaf, Host: "expired.example"}
 	incompatible := x509.CertificateInvalidError{Reason: x509.IncompatibleUsage}
@@ -150,16 +158,16 @@ func TestShortConnectError(t *testing.T) {
 		want string
 	}{
 		{
-			name: "expired uses leaf date",
+			name: "expired prefers cert on error",
 			err:  expired,
 			leaf: leaf,
-			want: target + ": certificate expired 2015-04-12",
+			want: target + ": certificate expired 1999-01-02",
 		},
 		{
 			name: "expired wrapped",
 			err:  fmt.Errorf("verify: %w", expired),
 			leaf: leaf,
-			want: target + ": certificate expired 2015-04-12",
+			want: target + ": certificate expired 1999-01-02",
 		},
 		{
 			name: "expired leaf nil uses cert on error",
@@ -177,16 +185,28 @@ func TestShortConnectError(t *testing.T) {
 				UnverifiedCertificates: []*x509.Certificate{leaf},
 				Err:                    expired,
 			},
-			want: target + ": certificate expired 2015-04-12",
+			want: target + ": certificate expired 1999-01-02",
 		},
 		{
-			name: "explicit leaf wins over verification chain",
+			name: "expired cert on error wins over leaf and chain",
 			err: &tls.CertificateVerificationError{
 				UnverifiedCertificates: []*x509.Certificate{leaf},
 				Err:                    expired,
 			},
-			leaf: other,
+			leaf: leaf,
 			want: target + ": certificate expired 1999-01-02",
+		},
+		{
+			name: "not yet valid uses NotBefore",
+			err:  notYetValid,
+			leaf: leaf,
+			want: target + ": certificate not yet valid until 2099-01-02",
+		},
+		{
+			name: "not yet valid falls back to leaf",
+			err:  expiredNoCert,
+			leaf: future,
+			want: target + ": certificate not yet valid until 2099-01-02",
 		},
 		{
 			name: "unknown authority",

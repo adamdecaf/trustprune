@@ -26,6 +26,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -391,11 +392,13 @@ func alignTable(headers []string, rows [][]string) string {
 	return b.String()
 }
 
-// NormalizeConnectURL parses a connect target. A value with no "://" is
-// treated as https (host, host:port, or [::1]:port). Explicit http keeps the
-// historical non-secure scheme error. Any other non-https scheme is rejected.
+// NormalizeConnectURL parses a connect target. A value with no leading
+// scheme is treated as https (host, host:port, or [::1]:port). A "://"
+// later in the string, for example in a query, does not count as a
+// scheme. Explicit http keeps the historical non-secure scheme error.
+// Any other non-https scheme is rejected.
 func NormalizeConnectURL(raw string) (*url.URL, error) {
-	if !strings.Contains(raw, "://") {
+	if i := strings.Index(raw, "://"); i <= 0 || strings.ContainsAny(raw[:i], "/?#") {
 		raw = "https://" + raw
 	}
 	u, err := url.Parse(raw)
@@ -413,7 +416,8 @@ func NormalizeConnectURL(raw string) (*url.URL, error) {
 }
 
 // shortConnectError turns a connect failure into a single short line.
-// leaf supplies the expiry date for an expired certificate when non-nil.
+// leaf is a fallback for the failing certificate's dates when the
+// x509 error does not carry one.
 func shortConnectError(u string, err error, leaf *x509.Certificate) error {
 	if err == nil {
 		return nil
@@ -435,9 +439,12 @@ func shortConnectError(u string, err error, leaf *x509.Certificate) error {
 
 	var invalid x509.CertificateInvalidError
 	if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
-		when := leaf
+		when := invalid.Cert
 		if when == nil {
-			when = invalid.Cert
+			when = leaf
+		}
+		if when != nil && time.Now().Before(when.NotBefore) {
+			return fmt.Errorf("%s: certificate not yet valid until %s", u, when.NotBefore.UTC().Format("2006-01-02"))
 		}
 		if when != nil {
 			return fmt.Errorf("%s: certificate expired %s", u, when.NotAfter.UTC().Format("2006-01-02"))
