@@ -18,8 +18,8 @@ Anything marked **unverified** came from community sources, or could not be conf
 |--------|-----------|------------|------------|------------------|-----------|
 | pdfsig / poppler (NSS backend) | Linux, also Windows builds | An NSS DB, chosen in this order: `-nssdir`, the newest Firefox `*default*` profile, `/etc/pki/nssdb`, `~/.pki/nssdb`. Built-in roots come from `libnssckbi` | Firefox / NSS packages, `certutil` | **list, backup, prune** with the existing NSS code (`p,p,p`) | Choosing a different DB than poppler does |
 | pdfsig / poppler (GPG backend) | Linux | gpgsm keybox plus `trustlist.txt` in `$GNUPGHOME` (default `~/.gnupg`) | User / gpgsm | report only, at first | Text format that gpg-agent owns |
-| Okular | Linux, Windows | Uses poppler. Can set its own NSS DB in `okular-generator-popplerrc` (`[Signatures]` `UseDefaultCertDB`, `DBCertificatePath`, `SignatureBackend`) | Same as poppler | **list, backup, prune** via NSS once the configured DB is resolved | A custom DB path that trustprune doesn't read |
-| Evince / Papers | Linux | Evince: no signature validation found in current source. Papers: uses poppler with its default NSS DB | Same as poppler | Papers is covered by the poppler store. Evince: nothing to prune | None for Evince |
+| Okular | Linux, Windows | Uses poppler. Can set its own NSS DB in `okular-generator-popplerrc` (`[Signatures]` `UseDefaultCertDB`, `DBCertificatePath`, `SignatureBackend`) | Same as poppler | **list, backup, prune** via NSS when the effective backend is NSS and the configured DB is resolved | A custom DB path, or a GPG backend, that trustprune doesn't treat as NSS |
+| Evince / Papers | Linux | Evince: no signature validation found in current source. Papers: uses poppler with its default NSS DB when the effective backend is NSS | Same as poppler | Papers is covered by the poppler NSS store when the effective backend is NSS. Evince: nothing to prune | None for Evince |
 | Adobe Acrobat / Reader | Windows, macOS | Per-user `addressbook.acrodata` (Trusted Identities, which AATL and EUTL download into). Windows store, if Windows Integration is on | AATL/EUTL download from Adobe; user or admin import | **backup, report settings**. List only if the format can be parsed. Prune: **guide only** | AATL/EUTL updates re-adding roots; corrupting the address book |
 | Foxit PDF Reader / Editor | Windows, macOS | A local trusted-certificate list (location **unverified**), plus FATL/EUTL downloads, plus the Windows store if Windows Integration is on | FATL/EUTL download from Foxit; user import | **guide / report only** | Undocumented storage |
 
@@ -38,7 +38,7 @@ poppler is the PDF library behind `pdfsig`, Okular and Papers. It has two signat
 
 **Format and updates.** Standard NSS `cert9.db` / `key4.db` / `pkcs11.txt` (legacy `cert8.db`). The built-in list changes when NSS or Firefox is updated. Distrust entries in the DB survive those updates.
 
-**What trustprune could do.** List, backup, prune and restore through `NssStore` in `pkg/store/nss.go`, the same code `--app firefox` and Linux `--app chrome` (`~/.pki/nssdb`) use. The new work is resolving the same DB poppler uses, and accepting `--store <dir>` for `-nssdir` users.
+**What trustprune could do.** List, backup, prune and restore through `NssStore` in `pkg/store/nss.go`, the same code `--app firefox` and Linux `--app chrome` (`~/.pki/nssdb`) use. Today's `listCertsFromDB` runs `certutil -L` without `-h`, so it lists the internal token, not the built-in roots Poppler loads from `libnssckbi`. `Remove` therefore never applies `p,p,p` to a root present only in that module. The new work is resolving the same DB poppler uses, accepting `--store <dir>` for `-nssdir` users, and enumerating those built-in roots so distrust overrides are written into the DB.
 
 **Risks.**
 - **Profile mismatch.** `--app firefox` globs `~/.mozilla/firefox/*.default` (`pkg/store/firefox.go`). poppler prefers `~/.config/mozilla/firefox/`, accepts any name containing `default` (for example `*.default-release`), and picks the newest `cert9.db`. Pruning `--app firefox` can leave the profile poppler actually reads untouched.
@@ -54,14 +54,14 @@ With `POPPLER_SIGNATURE_BACKEND=GPG`, or a build where it is the default, popple
 Okular's poppler generator reads `okular-generator-popplerrc`, group `[Signatures]`, keys `SignatureBackend`, `UseDefaultCertDB` (default `true`), `DBCertificatePath` and `CheckOCSPServers` ([conf/pdfsettings.kcfg](https://invent.kde.org/graphics/okular/-/blob/master/generators/poppler/conf/pdfsettings.kcfg)). When `UseDefaultCertDB` is false, it calls `Poppler::setNSSDir(DBCertificatePath)` before validating ([generator_pdf.cpp](https://invent.kde.org/graphics/okular/-/blob/master/generators/poppler/generator_pdf.cpp)). Otherwise it uses poppler's default order above. The KConfig file lives in the user's config dir (on Linux, normally `~/.config/okular-generator-popplerrc`; that path follows KConfig convention and is **unverified** for packaged builds such as Flatpak).
 
 - **Platforms:** Linux; Okular also ships for Windows. On Windows, poppler's Firefox search uses `%APPDATA%`.
-- **What trustprune could do:** read the rc file. If a custom NSS DB is set, run the NSS store against it; otherwise reuse the poppler resolution. If `SignatureBackend=GPG`, report it and stop.
+- **What trustprune could do:** read the rc file. Resolve the effective signature backend: the `SignatureBackend` setting if set, otherwise `POPPLER_SIGNATURE_BACKEND`, otherwise the compiled default. Select and inspect the NSS database only when that backend is NSS; if it is GPG, report it and stop. When the backend is NSS: if a custom NSS DB is set, run the NSS store against it; otherwise reuse the poppler resolution.
 - **Risks:** Flatpak or Snap sandboxes may keep the config and NSS DB under the app's own home (**unverified**).
 
 ## Evince and Papers
 
 - **Evince:** current `master` (checked at `e822030`, Oct 2026) maps signature form fields (`ev-poppler.c`, `ev-form-field.c`) but has no call to poppler's signature validation, so there's no trust store to prune ([GNOME/evince](https://gitlab.gnome.org/GNOME/evince)). Older work to show signatures stalled ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)).
-- **Papers** (GNOME's newer document viewer): validates with `poppler_form_field_signature_validate_sync` and sets only an NSS password callback, not an NSS dir (`libdocument/backend/pdf/pps-poppler.c` in [GNOME/papers](https://gitlab.gnome.org/GNOME/papers)). It therefore uses poppler's default DB order. The [GNOME Discourse thread](https://discourse.gnome.org/t/digital-signature-in-papers/33495) imports user certificates into `~/.pki/nssdb`.
-- **What trustprune could do:** nothing new beyond the poppler NSS store. Document that Papers follows it, and that Evince doesn't validate signatures.
+- **Papers** (GNOME's newer document viewer): validates with `poppler_form_field_signature_validate_sync` and sets only an NSS password callback, not an NSS dir (`libdocument/backend/pdf/pps-poppler.c` in [GNOME/papers](https://gitlab.gnome.org/GNOME/papers)). When the effective backend is NSS, it uses poppler's default DB order. When the effective backend is GPG, it follows poppler's GPG store instead. The [GNOME Discourse thread](https://discourse.gnome.org/t/digital-signature-in-papers/33495) imports user certificates into `~/.pki/nssdb`.
+- **What trustprune could do:** nothing new beyond the poppler stores, qualified by the effective backend. Document that Papers follows the poppler NSS store when the backend is NSS, is report-only when the backend is GPG, and that Evince doesn't validate signatures.
 
 ## Adobe Acrobat and Reader
 
@@ -122,20 +122,20 @@ The AATL is Adobe's own program for signing CAs and timestamp services ([AATL me
 Ordered by user value and feasibility.
 
 1. **poppler/pdfsig: NSS store that matches poppler's DB lookup**
-   Scope: add a store (for example `--app poppler`) that resolves the DB the way `NSSSignatureConfiguration::setNSSDir` does: `--store` (for `-nssdir`), the newest `cert9.db` under `~/.config/mozilla/firefox` then `~/.mozilla/firefox` in dirs named `*default*`, then `/etc/pki/nssdb`, then `~/.pki/nssdb`. Reuse `NssStore` for list, backup, allowlist and restore. Fix `--app firefox` discovery to match (`*.default-release`, XDG path).
-   Acceptance: no-network tests with temp profile trees pick the same DB as poppler; allowlist sets `p,p,p`; `pdfsig` on a test PDF signed by a pruned root reports an untrusted certificate. Docs updated.
+   Scope: add a store (for example `--app poppler`) that resolves the DB the way `NSSSignatureConfiguration::setNSSDir` does: `--store` (for `-nssdir`), the newest `cert9.db` under `~/.config/mozilla/firefox` then `~/.mozilla/firefox` in dirs named `*default*`, then `/etc/pki/nssdb`, then `~/.pki/nssdb`. Reuse `NssStore` for list, backup, allowlist and restore, and also enumerate built-in roots loaded from `libnssckbi` (today `listCertsFromDB` runs `certutil -L` without `-h` and only sees the internal token). `Remove` must apply `p,p,p` distrust overrides to roots present only in that module. Fix `--app firefox` discovery to match (`*.default-release`, XDG path).
+   Acceptance: no-network tests with temp profile trees pick the same DB as poppler; allowlist sets `p,p,p`, including on a root present only in the built-in module; `pdfsig` on a test PDF signed by a pruned root reports an untrusted certificate. Docs updated.
 
 2. **Okular: use the configured signature DB and backend**
-   Scope: read `okular-generator-popplerrc` `[Signatures]`. If `UseDefaultCertDB=false`, run the NSS store on `DBCertificatePath`; otherwise use sub-issue 1's lookup. If `SignatureBackend=GPG`, report it and exit without changes.
-   Acceptance: tests for default, custom-path and GPG rc files; `list --app okular` shows which DB it used; docs note Flatpak paths as unverified.
+   Scope: read `okular-generator-popplerrc` `[Signatures]`. Resolve the effective signature backend: the `SignatureBackend` setting if set, otherwise `POPPLER_SIGNATURE_BACKEND`, otherwise the compiled default. Select and inspect the NSS database only when that backend is NSS; if it is GPG, report it and exit without changes. When the backend is NSS: if `UseDefaultCertDB=false`, run the NSS store on `DBCertificatePath`; otherwise use sub-issue 1's lookup.
+   Acceptance: tests for default, custom-path, explicit GPG, and GPG via `POPPLER_SIGNATURE_BACKEND` or the compiled default when `SignatureBackend` is absent; `list --app okular` shows which DB or backend it used; docs note Flatpak paths as unverified.
 
 3. **Adobe Acrobat/Reader: back up the address book and report trust settings**
    Scope: find `addressbook.acrodata` per OS and back it up and restore it as an opaque file, refusing while Acrobat is running. Read and report the AATL/EUTL download settings and `iMSStoreTrusted` (registry on Windows, plist on macOS). Spike whether entries can be listed read-only. Pruning stays a printed guide.
    Acceptance: backup and restore round-trip on fixtures; a settings report on a Windows CI runner without Acrobat says "not installed"; no writes to registry, plist or the address book except restore.
 
 4. **Evince/Papers: document coverage through poppler**
-   Scope: docs only. Papers validates with poppler's default NSS DB, so sub-issue 1 covers it. Evince has no signature validation today. Add a row to the platforms page.
-   Acceptance: the platforms page says so, with source links. If Evince adds validation later, reopen.
+   Scope: docs only. Papers validates with poppler's default NSS DB when the effective backend is NSS, so sub-issue 1 covers that case. If the effective backend is GPG, it is report-only, like poppler's GPG backend. Evince has no signature validation today. Add a row to the platforms page.
+   Acceptance: the platforms page says so, with source links, and qualifies Papers coverage by the effective backend. If Evince adds validation later, reopen.
 
 5. **Foxit: detection and a pruning guide**
    Scope: detect Foxit PDF Reader/Editor on Windows and macOS, and print where trust comes from (local Trusted Certificates, FATL/EUTL downloads, Windows Integration) with steps to remove a root and turn off FATL. Find the on-disk store before attempting list or backup.
