@@ -10,7 +10,7 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
+Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, openssl, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -35,7 +35,7 @@ trustprune apps --format json
 
 | Flag | Meaning |
 |------|---------|
-| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
+| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). An installed guide-only app adds `guideOnly: true` (Foxit). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
 
 Default terse output looks like:
 
@@ -49,6 +49,18 @@ openssl   found      /etc/ssl/certs/ca-certificates.crt
 ssl       not-found  -
 linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
+
+STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file.
+
+## Foxit
+
+`--app foxit` detects Foxit PDF Editor and Foxit PDF Reader on Windows and macOS. When one is installed, `trustprune apps` reports `guide only`. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print where Foxit trust comes from and exit 1. They do not read or write a Foxit trust list, and `--dry-run` does not plan a change.
+
+Trust comes from the local Trusted Certificates list (**Protect > Sign & Certify > Trusted Certificates**), from Foxit Approved Trust List (FATL) downloads into that list, from European Union Trusted Lists (EUTL) downloads on Mac, and on Windows from the Windows certificate store when Windows Integration is on.
+
+To remove a root, delete it or clear its trust in Trusted Certificates, then turn the download off so the next update does not add it back: **File > Preferences > Trust Manager**, clear **Load trusted certificates from Foxit server** (on by default, about every 28 days). On Mac, clear **Load trusted certificates from Foxit FATL / EUTL server** for both FATL and EUTL. On Windows, **File > Preferences > Signature** > **Windows Integration** trusts Windows store roots for signatures and certified documents. Removing a root there leaves the FATL copy in place.
+
+The on-disk Trusted Certificates list is **unverified**. Paths, the admin policy, and the full steps are in [Platforms](platforms.md#foxit).
 
 ## Environment
 

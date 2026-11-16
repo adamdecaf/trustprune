@@ -6,7 +6,7 @@ nav_exclude: true
 
 # PDF readers and document-signing trust
 
-Research note for [#360](https://github.com/adamdecaf/trustprune/issues/360). Nothing here is implemented yet. Researched November 2026.
+Research note for [#360](https://github.com/adamdecaf/trustprune/issues/360). Foxit install detection and the pruning guide are implemented ([#392](https://github.com/adamdecaf/trustprune/issues/392)); see [Platforms](../platforms.md#foxit). The other items on this page are not. Researched November 2026.
 
 PDF readers validate signed PDFs against their own trust lists, separate from the TLS stores trustprune prunes today. A CA you remove from browser or OS TLS trust can still make a PDF signature show as valid. This page covers where each reader keeps that trust, and what trustprune could safely list, back up, or prune.
 
@@ -21,7 +21,7 @@ Anything marked **unverified** came from community sources, or could not be conf
 | Okular | Linux, Windows | Uses poppler. Can set its own NSS DB in `okular-generator-popplerrc` (`[Signatures]` `UseDefaultCertDB`, `DBCertificatePath`, `SignatureBackend`) | Same as poppler | **list, backup, prune** via NSS when the effective backend is NSS and the configured DB is resolved | A custom DB path, or a GPG backend, that trustprune doesn't treat as NSS |
 | Evince / Papers | Linux | Evince: no signature validation found in current source. Papers: uses poppler with its default NSS DB when the effective backend is NSS | Same as poppler | Papers is covered by the poppler NSS store when the effective backend is NSS. Evince: nothing to prune | None for Evince |
 | Adobe Acrobat / Reader | Windows, macOS | Per-user `addressbook.acrodata` (Trusted Identities, which AATL and EUTL download into). Windows store, if Windows Integration is on | AATL/EUTL download from Adobe; user or admin import | **backup, report settings**. List only if the format can be parsed. Prune: **guide only** | AATL/EUTL updates re-adding roots; corrupting the address book |
-| Foxit PDF Reader / Editor | Windows, macOS | A local trusted-certificate list (location **unverified**), plus FATL/EUTL downloads, plus the Windows store if Windows Integration is on | FATL/EUTL download from Foxit; user import | **guide / report only** | Undocumented storage |
+| Foxit PDF Reader / Editor | Windows, macOS | A local trusted-certificate list (location **unverified**), plus FATL/EUTL downloads, plus the Windows store if Windows Integration is on | FATL/EUTL download from Foxit; user import | **guide only** (implemented): detect the install and print a pruning guide. No list or backup | Undocumented storage |
 
 ## pdfsig and poppler (NSS)
 
@@ -111,7 +111,7 @@ PrefRef doesn't give an HKLM lock path for the AATL `bLoadSettingsFromURL`. Whet
   - "Windows Integration" can trust all roots in the Windows Certificate Store for signatures and certified documents ([Signature preferences](https://www.foxit.com/resource-hub/user-guide/foxit-pdf-editor-for-windows/signature/)).
 - **Admin:** the deployment guide has a GPO setting, "Load trusted certificates from Foxit server" (Disable / Ask / Silent), under `HKEY_CURRENT_USER\Software\Policies\Foxit\PDFEditor` or `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Foxit\PDFEditor` ([Foxit PDF Editor Deployment and Configuration 2026.2](https://cdn01.foxitsoftware.com/pub/foxit/manual/phantom/en_us/pdf-editor-deployment-and-configuration-2026.2.pdf)). The value names aren't given in the guide (**unverified**). Whether FATL includes AATL members is **unverified**.
 - **Is OS store removal respected?** On Windows, only when Windows Integration is on. The FATL/EUTL copy isn't affected.
-- **What trustprune could do:** guide and report only, until the storage is documented. Detect an install, then print the Trust Manager and Windows Integration steps.
+- **What trustprune does:** `--app foxit` detects an Editor or Reader install on Windows and macOS and `apps` reports it as `guide only`. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print the pruning guide and do not read or write a trust store. The on-disk list is still **unverified**, so list and backup stay out until a path is documented. Steps and detection paths: [Platforms](../platforms.md#foxit).
 - **Risks:** an undocumented store; FATL re-download.
 
 ## AATL and EUTL
@@ -138,9 +138,9 @@ Ordered by user value and feasibility.
    Scope: docs only. Papers validates with poppler's default NSS DB when the effective backend is NSS, so sub-issue 1 covers that case. If the effective backend is GPG, it is report-only, like poppler's GPG backend. Evince has no signature validation today. Add a row to the platforms page.
    Acceptance: the platforms page says so, with source links, and qualifies Papers coverage by the effective backend. If Evince adds validation later, reopen.
 
-5. **Foxit: detection and a pruning guide**
+5. **Foxit: detection and a pruning guide** (implemented, [#392](https://github.com/adamdecaf/trustprune/issues/392))
    Scope: detect Foxit PDF Reader/Editor on Windows and macOS, and print where trust comes from (local Trusted Certificates, FATL/EUTL downloads, Windows Integration) with steps to remove a root and turn off FATL. Find the on-disk store before attempting list or backup.
-   Acceptance: guide text in the docs; `trustprune` reports Foxit as "guide only" when installed; the storage location is either documented with a source or left marked unverified.
+   Acceptance: guide text in the docs; `trustprune` reports Foxit as "guide only" when installed; the storage location is either documented with a source or left marked unverified. The storage location is still **unverified**.
 
 Related, outside PDF readers: a gpgsm `trustlist.txt` store for poppler's GPG backend (`!` lines to distrust) can be filed separately if users ask for it.
 
