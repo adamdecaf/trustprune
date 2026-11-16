@@ -1315,3 +1315,80 @@ func TestNSSLatestBackup_SkipsSourceSidecar(t *testing.T) {
 		t.Fatalf("sidecar picked as chrome backup: %q", got)
 	}
 }
+
+func TestLatestNSSBackupFor_UnreadableSourceSkipped(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte(dir+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := NssStore("poppler", "0", b).Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupB, err := latestNSSBackupFor("poppler", b)
+	if err != nil || backupB == "" {
+		t.Fatalf("backup B: %q err=%v", backupB, err)
+	}
+	if err := NssStore("poppler", "0", a).Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupA, err := getLatestStoreBackup("poppler")
+	if err != nil || backupA == "" || backupA == backupB {
+		t.Fatalf("backup A: %q B: %q err=%v", backupA, backupB, err)
+	}
+	srcA := filepath.Join(backupA, nssBackupSourceName)
+	if err := os.Chmod(srcA, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(srcA, 0600) })
+	if _, err := os.ReadFile(srcA); err == nil {
+		t.Skip("process can read a mode-000 source sidecar")
+	}
+
+	got, err := latestNSSBackupFor("poppler", b)
+	if err != nil {
+		t.Fatalf("unreadable A source should not block B: %v", err)
+	}
+	if got != backupB {
+		t.Fatalf("latestNSSBackupFor(%q)=%q want B %q", b, got, backupB)
+	}
+}
+
+func TestNSSAllowlistBackupError_FirefoxOmitsStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte(dir+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := NssStore("firefox", "0", a).Backup(); err != nil {
+		t.Fatal(err)
+	}
+	err := NSSAllowlistBackupError(NssStore("firefox", "0", b), "firefox")
+	if err == nil {
+		t.Fatal("expected mismatch error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "trustprune backup --app firefox") || strings.Contains(msg, "--store") {
+		t.Fatalf("firefox recovery command should omit --store: %v", err)
+	}
+}

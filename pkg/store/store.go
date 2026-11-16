@@ -41,6 +41,7 @@ var (
 		"foxit":   FoxitStore(),
 		"java":    JavaStore(),
 		"openssl": OpenSSLStore(),
+		"poppler": PopplerStore(),
 		"ssl":     SSLStore(),
 	}
 
@@ -147,7 +148,7 @@ func platformAppName(app string) bool {
 // storeOverrideApp is an app that accepts a non-empty trust-store path
 // (CLI --store). storeOverrideApps is the only such list. ForAppWithStore and
 // the rejection messages are built from it. Order is part of the text:
-// java, then certifi.
+// java, then certifi, then poppler.
 type storeOverrideApp struct {
 	name string
 	// what is the parenthetical in the rejection message.
@@ -158,12 +159,13 @@ type storeOverrideApp struct {
 var storeOverrideApps = []storeOverrideApp{
 	{name: "java", what: "keystore override", at: JavaStoreAt},
 	{name: "certifi", what: "cacert.pem override", at: CertifiStoreAt},
+	{name: "poppler", what: "nss db override", at: PopplerStoreAt},
 }
 
 // SupportsStoreOverride reports whether app accepts a non-empty trust-store
 // path (CLI --store). The check is case-insensitive and does not trim.
-// java and certifi return true. Every other name, including the platform OS
-// name and unknown apps, returns false.
+// java, certifi, and poppler return true. Every other name, including the
+// platform OS name and unknown apps, returns false.
 func SupportsStoreOverride(app string) bool {
 	key := strings.ToLower(app)
 	for i := range storeOverrideApps {
@@ -272,9 +274,10 @@ func ForApp(app string) (Store, error) {
 
 // ForAppWithStore returns a Store for app, optionally overriding the trust-store
 // path with storePath. java uses it as a keystore override; certifi uses it as a
-// cacert.pem override (one bundle per venv). Used by -store on list, backup,
-// connect, restore, add, and allowlist. Other apps, including the platform OS
-// name, reject a non-empty storePath. Empty storePath is ForApp.
+// cacert.pem override (one bundle per venv); poppler uses it as an NSS directory
+// (pdfsig -nssdir). Used by -store on list, backup, connect, restore, add, and
+// allowlist. Other apps, including the platform OS name, reject a non-empty
+// storePath. Empty storePath is ForApp.
 // Apps that accept storePath are storeOverrideApps (SupportsStoreOverride).
 func ForAppWithStore(app, storePath string) (Store, error) {
 	if strings.TrimSpace(storePath) == "" {
@@ -564,12 +567,17 @@ func getLatestBackup(dir string) (string, error) {
 // empty legacy is ignored. If no basename parses as a timestamp, falls back to
 // lexicographic SortNames (last wins), still preferring primary for ties on the
 // same basename.
-func getLatestBackupAmong(primary string, legacy string) (string, error) {
-	type cand struct {
-		path        string
-		fromPrimary bool
-	}
-	seen := make(map[string]cand)
+type storeBackupCand struct {
+	path        string
+	fromPrimary bool
+}
+
+// listStoreBackupCandidates merges primary and legacy backup directory
+// listings. primary is preferred for a given basename. A non-missing read
+// error on primary is returned immediately; legacy is only consulted when
+// primary is absent or readable. empty legacy is ignored.
+func listStoreBackupCandidates(primary, legacy string) (map[string]storeBackupCand, []string, error) {
+	seen := make(map[string]storeBackupCand)
 	var names []string
 
 	primaryEnts, primaryErr := os.ReadDir(primary)
@@ -580,13 +588,13 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 			if isBackupSourceSidecar(name) {
 				continue
 			}
-			seen[name] = cand{path: filepath.Join(primary, name), fromPrimary: true}
+			seen[name] = storeBackupCand{path: filepath.Join(primary, name), fromPrimary: true}
 			names = append(names, name)
 		}
 	case os.IsNotExist(primaryErr):
 		// Fall through to legacy.
 	default:
-		return "", primaryErr
+		return nil, nil, primaryErr
 	}
 
 	if legacy != "" {
@@ -601,7 +609,7 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 				if _, ok := seen[name]; ok {
 					continue
 				}
-				seen[name] = cand{path: filepath.Join(legacy, name), fromPrimary: false}
+				seen[name] = storeBackupCand{path: filepath.Join(legacy, name), fromPrimary: false}
 				names = append(names, name)
 			}
 		case os.IsNotExist(legacyErr):
@@ -609,9 +617,31 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 		default:
 			// No usable primary entries and legacy is unreadable: surface that.
 			if len(names) == 0 {
-				return "", legacyErr
+				return nil, nil, legacyErr
 			}
 		}
+	}
+	return seen, names, nil
+}
+
+// listStoreBackupPaths returns the merged backup paths, primary preferred
+// for a given basename.
+func listStoreBackupPaths(primary, legacy string) ([]string, error) {
+	seen, names, err := listStoreBackupCandidates(primary, legacy)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, seen[name].path)
+	}
+	return out, nil
+}
+
+func getLatestBackupAmong(primary string, legacy string) (string, error) {
+	seen, names, err := listStoreBackupCandidates(primary, legacy)
+	if err != nil {
+		return "", err
 	}
 
 	if len(names) == 0 {

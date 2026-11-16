@@ -35,7 +35,7 @@ func flagApp() *cli.StringFlag {
 func flagStore() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:      "store",
-		Usage:     "trust-store path for --app java (cacerts) or --app certifi (cacert.pem)",
+		Usage:     "trust-store path for --app java (cacerts), --app certifi (cacert.pem), or --app poppler (NSS db)",
 		TakesFile: true,
 		Local:     true,
 	}
@@ -248,6 +248,15 @@ func flagForce() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "force",
 		Usage:       "allow restore into a different store path than the backup came from, including an NSS backup with no recorded profile",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
+func flagAllowlistForce() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "force",
+		Usage:       "allow an allowlist when the latest NSS backup was taken from a different directory",
 		HideDefault: true,
 		Local:       true,
 	}

@@ -378,6 +378,138 @@ func (s nssStore) GetLatestBackup() (string, error) {
 	return dir, nil
 }
 
+// latestNSSBackupFor returns the newest backup for nssType. When dest is set,
+// only backups whose recorded source matches dest are returned; source-less
+// (legacy) backups are skipped so allowlist does not treat them as a backup
+// of dest. An empty dest does not filter on source. Restore keeps using
+// GetLatestBackup so a retargeted profile still surfaces the --force refusal.
+func latestNSSBackupFor(nssType, dest string) (string, error) {
+	uhome := file.HomeDir()
+	if uhome == "" {
+		return "", fmt.Errorf("home directory is unavailable")
+	}
+	primary := filepath.Join(primaryBackupParent(uhome), nssType)
+	legacy := ""
+	if lp := legacyBackupParent(uhome); lp != "" {
+		legacy = filepath.Join(lp, nssType)
+	}
+	cands, err := listStoreBackupPaths(primary, legacy)
+	if err != nil {
+		return "", err
+	}
+	var matched []string
+	paths := make(map[string]string, len(cands))
+	var firstReadErr error
+	for _, path := range cands {
+		recorded, err := readNSSBackupSource(path)
+		if err != nil {
+			if firstReadErr == nil {
+				firstReadErr = fmt.Errorf("store/nss: reading source of backup %s: %w", path, err)
+			}
+			continue
+		}
+		name := filepath.Base(path)
+		// Prefer a later-listed path only if this basename is new;
+		// listStoreBackupPaths already prefers primary for a basename.
+		if _, ok := paths[name]; ok {
+			continue
+		}
+		paths[name] = path
+		if dest != "" {
+			if recorded == "" || !sameNSSProfile(recorded, dest) {
+				continue
+			}
+		}
+		matched = append(matched, name)
+	}
+	if best := pickLatestBackupName(matched); best != "" {
+		return paths[best], nil
+	}
+	if firstReadErr != nil {
+		return "", firstReadErr
+	}
+	return "", nil
+}
+
+// NSSAllowlistBackupError reports that s is an NSS store with no backup of
+// its own directory, while the newest backup for that app was recorded for
+// a different directory. The error tells the caller to run trustprune backup
+// for this store. ForceRestore suppresses it, matching restore. Non-NSS
+// stores, and stores whose newest backup is not a different directory,
+// return nil.
+func NSSAllowlistBackupError(s Store, app string) error {
+	if ForceRestore() {
+		return nil
+	}
+	nssType, storePath, ok := nssAllowlistTarget(s, app)
+	if !ok {
+		return nil
+	}
+	// A sourced backup of this directory authorizes the change even when a
+	// newer backup was taken from somewhere else. A source-less (legacy)
+	// backup does not, matching restore, unless --force is set above.
+	matched, err := latestNSSBackupFor(nssType, storePath)
+	if err != nil {
+		return err
+	}
+	if matched != "" {
+		return nil
+	}
+	latest, err := latestNSSBackupFor(nssType, "")
+	if err != nil {
+		return err
+	}
+	if latest == "" {
+		return nil
+	}
+	recorded, err := readNSSBackupSource(latest)
+	if err != nil {
+		return fmt.Errorf("store/nss: reading source of backup %s: %w", latest, err)
+	}
+	if recorded != "" && sameNSSProfile(recorded, storePath) {
+		return nil
+	}
+	label := strings.TrimSpace(app)
+	if label == "" {
+		label = nssType
+	}
+	// Print the resolved store path so the message matches the recorded
+	// source (Windows 8.3 short names expand under EvalSymlinks).
+	display := nssCanonicalPath(storePath)
+	cmd := "trustprune backup --app " + nssType
+	if display != "" && SupportsStoreOverride(nssType) {
+		cmd += " --store " + display
+	}
+	if recorded == "" {
+		return fmt.Errorf("no backup for %s at %s; latest backup %s has no recorded source profile; run: %s; pass --force to allowlist this store anyway", label, display, latest, cmd)
+	}
+	return fmt.Errorf("no backup for %s at %s; latest backup %s was taken from %s; run: %s; pass --force to allowlist this store anyway", label, display, latest, recorded, cmd)
+}
+
+// nssAllowlistTarget is the NSS app and directory allowlist must have a
+// backup of. A wrapped store (tests) still exposes the path through GetInfo
+// for firefox and poppler.
+func nssAllowlistTarget(s Store, app string) (nssType, storePath string, ok bool) {
+	app = strings.ToLower(strings.TrimSpace(app))
+	if ns, isNSS := s.(nssStore); isNSS {
+		nssType = ns.nssType
+		storePath = ns.foundCertdbLocation
+		if app != "" {
+			nssType = app
+		}
+		return nssType, storePath, nssType != "" && storePath != ""
+	}
+	if app != "firefox" && app != "poppler" {
+		return "", "", false
+	}
+	info := s.GetInfo()
+	if info == nil {
+		return "", "", false
+	}
+	storePath = strings.TrimSpace(info.Path)
+	return app, storePath, storePath != ""
+}
+
 func (s nssStore) GetInfo() *Info {
 	return &Info{
 		Name:    titleASCII(s.nssType),

@@ -10,7 +10,7 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, openssl, ssl)`.
+Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, openssl, poppler, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -43,6 +43,7 @@ Default terse output looks like:
 APP       STATUS     PATH
 chrome    found      /home/you/.pki/nssdb
 firefox   not-found  -
+poppler   found      /home/you/.pki/nssdb
 java      not-found  -
 certifi   found      /path/to/site-packages/certifi/cacert.pem
 openssl   found      /etc/ssl/certs/ca-certificates.crt
@@ -78,6 +79,8 @@ trustprune list --count
 trustprune list --app java
 trustprune list --app java --store /path/to/cacerts
 trustprune list --app certifi --store /path/to/venv/.../cacert.pem
+trustprune list --app poppler
+trustprune list --app poppler --store /path/to/nssdb
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
@@ -86,8 +89,8 @@ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/securi
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | List from an application store |
-| `--store <path>` | With `--app java` or `--app certifi`: read that keystore or `cacert.pem` instead of discovery |
-| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar). Cannot be combined with `--app`; use `--store` to override a java or certifi path |
+| `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory instead of discovery. `list` output shows the chosen path |
+| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar). Cannot be combined with `--app`; use `--store` to override a java, certifi, or poppler path |
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
 | `--url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
 | `--count` | Print only the number of certificates |
@@ -109,6 +112,8 @@ trustprune backup --app java --store /path/to/cacerts   # Java keystore override
 trustprune backup --app certifi --store /path/to/venv/.../cacert.pem
 trustprune backup --app chrome
 trustprune backup --app firefox
+trustprune backup --app poppler
+trustprune backup --app poppler --store /path/to/nssdb
 trustprune backup --app openssl
 trustprune backup --app openssl --bundle /path/to/ca-bundle.pem
 trustprune backup --app certifi
@@ -117,7 +122,7 @@ trustprune backup --app certifi
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | Back up that application's store instead of the platform |
-| `--store <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery |
+| `--store <path>` | Java: back up that keystore instead of searching `JAVA_HOME`. Certifi: back up that `cacert.pem` instead of discovery. Poppler: back up that NSS directory (`-nssdir`) instead of discovery |
 | `--bundle <path>` | With `--app openssl`: back up that PEM CA bundle instead of discovery. The backup records the path |
 | `--dry-run` | Print what would be backed up; creates nothing |
 
@@ -129,11 +134,11 @@ Revert to a backup. With no `--backup`, uses the latest backup for that store.
 
 If no backup exists, `restore` (and `restore --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for linux in ~/.trustprune/linux; run: trustprune backup`. For app stores the hint is `trustprune backup --app <name>`.
 
-For **java** and **certifi**, `--store` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `--backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `--force` is given.
+For **java**, **certifi**, and **poppler**, `--store` is the store to restore into — the same meaning as on `backup` / `list` / `connect`. `--backup` selects the backup source. Each backup records the store path it came from; restoring into a different path is refused before any write unless `--force` is given.
 
 For **openssl**, `--bundle <pem>` is the live PEM to restore into. `--backup` stays the backup source; automatic selection runs only when `--backup` is not set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `--force`. Without `--bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `--force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`.
 
-For **firefox** and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
+For **firefox**, **poppler**, and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
 
 ```bash
 trustprune restore
@@ -142,6 +147,7 @@ trustprune restore --app java
 trustprune restore --app java --store /path/to/cacerts
 trustprune restore --app java --store /path/to/cacerts --backup /path/to/cacerts-<ts>.bck
 trustprune restore --app certifi --store /path/to/venv/.../cacert.pem
+trustprune restore --app poppler --store /path/to/nssdb
 trustprune restore --app chrome
 trustprune restore --app openssl
 trustprune restore --app openssl --bundle /path/to/ca-bundle.pem
@@ -152,10 +158,10 @@ trustprune restore --app java --dry-run
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | Restore that application's store |
-| `--store <path>` | Java/certifi: store to restore into |
+| `--store <path>` | Java/certifi/poppler: store to restore into |
 | `--backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to restore into. `--backup` remains the backup source |
-| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, openssl `--bundle`, and NSS firefox/chrome). Also allows an NSS backup that has no recorded profile. |
+| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, poppler, openssl `--bundle`, and NSS firefox/chrome). Also allows an NSS backup that has no recorded profile. |
 | `--dry-run` | Print the plan without writing |
 
 
@@ -236,9 +242,26 @@ trustprune restore --app openssl --bundle /path/to/ca-bundle.pem
 A PEM file is rewritten like `--app ssl` (atomic install, refuse empty bundle). Backups of a PEM file record its path in `source`. A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and `c_rehash` runs after add (required) and after remove/restore when the binary is present. Directory rehash is unchanged; pass the PEM file to `--bundle` when you want that file rather than the discovered directory.
 
 
+## pdfsig / poppler (`--app poppler`)
+
+pdfsig and other poppler NSS users trust an NSS database. `--app poppler` uses that database. `list` shows the chosen path (verbose table `PATH`, and JSON `path`). `apps` prints the same path in the PATH column.
+
+`--store <dir>` is poppler's `-nssdir` and skips discovery. Otherwise the directory is chosen the same way as poppler's `NSSSignatureConfiguration::setNSSDir`: the newest Firefox profile whose name contains `default` and that has a regular non-empty `cert9.db` (a cert8-only profile is skipped) when `certutil -L -d sql:<dir>` succeeds, or when certutil cannot be found or run. A profile that fails that probe falls back to `~/.pki/nssdb` (a failed Firefox open does not try `/etc/pki/nssdb`). With no cert9 profile, `/etc/pki/nssdb` is used when it contains a regular non-empty `cert9.db` and the probe succeeds or certutil cannot be found or run; otherwise `~/.pki/nssdb`. `apps` marks poppler found only when that chosen directory contains `cert9.db`. `list` still shows the chosen path.
+
+Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. Built-in `libnssckbi` roots are not enumerated yet, so a root that exists only in that module is not listed and is not distrusted.
+
+```bash
+trustprune list --app poppler
+trustprune list --app poppler -v
+trustprune list --app poppler --store /path/to/nssdb
+trustprune backup --app poppler
+trustprune backup --app poppler --store /path/to/nssdb
+trustprune allowlist --app poppler --store /path/to/nssdb --file allowlist.yaml --dry-run
+```
+
 ## allowlist
 
-Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
+Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
 
 Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
 
@@ -266,10 +289,11 @@ dry-run: 2 kept, 3 removed
 | Flag | Meaning |
 |------|---------|
 | `--file <path>` | **Required.** Path to the allowlist |
-| `--store <path>` | With `--app java` or `--app certifi`: operate on that keystore or `cacert.pem`. Independent of `--file` |
+| `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: operate on that keystore, `cacert.pem`, or NSS directory. Independent of `--file` |
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
 | `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed` |
+| `--force` | Allow an NSS allowlist when the latest backup was taken from a different directory and this directory has no backup of its own |
 | `-v`, `--v` | With `--dry-run`, also print per-certificate remove and keep details |
 
 Example YAML:
@@ -319,12 +343,13 @@ trustprune add --file cert.pem
 trustprune add --file cert.pem --app java
 trustprune add --file cert.pem --app certifi --store /path/to/cacert.pem
 trustprune add --file cert.pem --app java --store /path/to/cacerts
+trustprune add --file cert.pem --app poppler --store /path/to/nssdb
 ```
 
 | Flag | Meaning |
 |------|---------|
 | `--file <path>` | **Required.** Certificate file to import. `--store` alone is not a certificate path |
-| `--store <path>` | With `--app java` or `--app certifi`: import into that keystore or `cacert.pem` |
+| `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: import into that keystore, `cacert.pem`, or NSS directory |
 | `--app <name>` | Target an application store |
 | `--dry-run` | Print the plan without writing |
 
@@ -342,6 +367,7 @@ trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 trustprune connect --app java --store /path/to/cacerts https://example.com
 trustprune connect --app certifi --store /path/to/venv/.../cacert.pem https://example.com
+trustprune connect --app poppler --store /path/to/nssdb https://example.com
 trustprune connect --url https://example.com
 ```
 
@@ -377,7 +403,7 @@ ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 | Flag | Meaning |
 |------|---------|
 | `--app <name>` | Use that application's certificates for the TLS handshake |
-| `--store <path>` | With `--app java` or `--app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
+| `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
 | `--url <url>` | URL or bare host to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
 | `-v`, `--verbose` | Print the verified chain after the one-line summary. Ignored with `--format json` |
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |

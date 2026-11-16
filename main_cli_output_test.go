@@ -70,7 +70,7 @@ func TestCLIOutputPolish(t *testing.T) {
 		if res.code != 2 {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
-		want := "--store with --app " + runtime.GOOS + " is only supported for java (keystore override) and certifi (cacert.pem override)"
+		want := "--store with --app " + runtime.GOOS + " is only supported for java (keystore override), certifi (cacert.pem override) and poppler (nss db override)"
 		assertUsageError(t, res, want)
 		if strings.Contains(res.stdout+res.stderr, "unknown app") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)

@@ -72,6 +72,8 @@ func detectApp(name string) Status {
 		return detectJava()
 	case "openssl":
 		return detectOpenSSL()
+	case "poppler":
+		return detectPoppler()
 	case "ssl":
 		return detectSSL()
 	default:
@@ -137,6 +139,25 @@ func detectFirefox() Status {
 	if len(dirs) > 0 {
 		s.Found = true
 		s.Path = dirs[0]
+	}
+	return s
+}
+
+func detectPoppler() Status {
+	// popplerNSSDir always returns a path, including ~/.pki/nssdb when nothing
+	// else is selected. That fallback is not proof a store exists. Found is a
+	// separate check: the selected directory must contain cert9.db.
+	return popplerDetectStatus(popplerNSSDir())
+}
+
+// popplerDetectStatus marks poppler found only when dir contains a regular
+// non-empty cert9.db. A missing directory, an empty fallback, or a directory
+// without that file is not found, so a clean machine reports not found.
+func popplerDetectStatus(dir string) Status {
+	s := Status{Name: "poppler"}
+	if systemHasCert9(dir) {
+		s.Found = true
+		s.Path = dir
 	}
 	return s
 }

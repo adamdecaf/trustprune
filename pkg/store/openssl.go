@@ -777,7 +777,7 @@ func latestOpenSSLDirBackup() (string, error) {
 // PEM file backups always write it; directory mirrors never do. A legacy PEM
 // backup with no sidecar is not detected here.
 func opensslBackupHasSource(dir string) (bool, error) {
-	_, err := os.Lstat(filepath.Join(dir, opensslBackupSourceName))
+	_, err := os.Lstat(filepath.Join(dir, opensslBackupSourceName)) // #nosec G703 -- dir is a trustprune backup directory
 	if err == nil {
 		return true, nil
 	}
@@ -864,7 +864,7 @@ func opensslBackupFile(src string) (string, error) {
 }
 
 func opensslPathIsDir(path string) (bool, error) {
-	st, err := os.Stat(path)
+	st, err := os.Stat(path) // #nosec G703 -- stat only; path is a user-selected store
 	if err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
