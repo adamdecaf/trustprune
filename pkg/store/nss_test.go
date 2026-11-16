@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -200,6 +201,7 @@ func TestNSSRestore_RejectsCert8BackupIntoCert9Profile(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	err := s.Restore(backup)
 	if err == nil || !bytes.Contains([]byte(err.Error()), []byte("cannot restore legacy cert8.db")) {
 		t.Fatalf("expected incompatible restore error, got %v", err)
@@ -234,6 +236,7 @@ func TestNSSRestore_Cert9PrintsRestartHint(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir).(nssStore)
+	nssStampSource(t, backup, nssdbDir)
 	old := os.Stdout
 	r, w, err := os.Pipe()
 	if err != nil {
@@ -516,6 +519,7 @@ func TestStoreNSS_RestoreHonorsWhereFolder(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, alternate, nssdbDir)
 	if err := s.Restore(alternate); err != nil {
 		t.Fatalf("Restore(where folder): %v", err)
 	}
@@ -551,6 +555,9 @@ func TestStoreNSS_RestoreHonorsWhereSingleFile(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	// A legacy single file has no source sidecar. --force is what allows it.
+	SetForceRestore(true)
+	t.Cleanup(func() { SetForceRestore(false) })
 	if err := s.Restore(alternate); err != nil {
 		t.Fatalf("Restore(where file): %v", err)
 	}
@@ -597,6 +604,7 @@ func TestStoreNSS_FailedStageLeavesLiveIntact(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	if err := s.Restore(backup); err == nil {
 		t.Fatal("expected Restore to fail when staging key4.db")
 	}
@@ -647,6 +655,7 @@ func TestStoreNSS_RestoreTmpCleanedOnStageFailure(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	if err := s.Restore(backup); err == nil {
 		t.Fatal("expected Restore to fail")
 	}
@@ -801,6 +810,7 @@ func TestStoreNSS_RestoreCleansTmpAndAside(t *testing.T) {
 	}
 
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	if err := s.Restore(backup); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -846,6 +856,7 @@ func TestStoreNSS_LogsAsidePath(t *testing.T) {
 	old := os.Stdout
 	os.Stdout = w
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	err = s.Restore(backup)
 	_ = w.Close()
 	os.Stdout = old
@@ -914,6 +925,7 @@ func TestStoreNSS_AsideCleanupFailureWarns(t *testing.T) {
 	oldOut := os.Stdout
 	os.Stdout = w
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, backup, nssdbDir)
 	err = s.Restore(backup)
 	_ = w.Close()
 	os.Stdout = oldOut
@@ -930,5 +942,303 @@ func TestStoreNSS_AsideCleanupFailureWarns(t *testing.T) {
 	}
 	if !nssPathExists(t, aside) {
 		t.Errorf("aside should remain when cleanup fails: %s", aside)
+	}
+}
+
+// nssStampSource records profile as the source of a directory backup so
+// restore tests that are not about the source guard still pass the check.
+func nssStampSource(t *testing.T, backup, profile string) {
+	t.Helper()
+	if err := writeNSSBackupSource(backup, profile); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func nssResetForce(t *testing.T) {
+	t.Helper()
+	SetDryRun(false)
+	SetForceRestore(false)
+	t.Cleanup(func() {
+		SetDryRun(false)
+		SetForceRestore(false)
+	})
+}
+
+func TestNSSRestore_MatchingSource(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.MkdirAll(profile, 0755); err != nil {
+		t.Fatal(err)
+	}
+	orig := []byte("cert9-orig\n")
+	if err := os.WriteFile(filepath.Join(profile, "cert9.db"), orig, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "key4.db"), []byte("key4-orig\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox", "0", profile)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("GetLatestBackup: %q err=%v", latest, err)
+	}
+	if filepath.Base(latest) == nssBackupSourceName || strings.HasSuffix(filepath.Base(latest), nssBackupSourceSuffix) {
+		t.Fatalf("sidecar picked as backup: %s", latest)
+	}
+	got, err := readNSSBackupSource(latest)
+	if err != nil || got != nssCanonicalPath(profile) {
+		t.Fatalf("recorded source %q err=%v, want %q", got, err, nssCanonicalPath(profile))
+	}
+	if err := writeNSSBackupSource(latest, profile); err == nil {
+		t.Fatal("expected O_EXCL failure on existing source sidecar")
+	}
+	again, err := readNSSBackupSource(latest)
+	if err != nil || again != nssCanonicalPath(profile) {
+		t.Fatalf("source overwritten: %q err=%v", again, err)
+	}
+
+	if err := os.WriteFile(filepath.Join(profile, "cert9.db"), []byte("mutated\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restore(""); err != nil {
+		t.Fatalf("matching restore: %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(profile, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, orig) {
+		t.Fatalf("cert9.db after restore: %q", body)
+	}
+	if _, err := os.Stat(filepath.Join(profile, nssBackupSourceName)); !os.IsNotExist(err) {
+		t.Fatalf("source sidecar copied into profile: %v", err)
+	}
+}
+
+func TestNSSRestore_RefusesMismatchedProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(a, "cert9.db"), []byte("from-a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b, "cert9.db"), []byte("live-b\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	sA := NssStore("firefox", "0", a)
+	sB := NssStore("firefox", "0", b)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupA, err := sA.GetLatestBackup()
+	if err != nil || backupA == "" {
+		t.Fatalf("latest A: %q err=%v", backupA, err)
+	}
+
+	for _, call := range []struct {
+		name string
+		src  string
+		dry  bool
+	}{
+		{name: "explicit", src: backupA},
+		{name: "implicit", src: ""},
+		{name: "dry-run", src: backupA, dry: true},
+	} {
+		t.Run(call.name, func(t *testing.T) {
+			SetDryRun(call.dry)
+			SetForceRestore(false)
+			err := sB.Restore(call.src)
+			if err == nil || !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "refusing restore") {
+				t.Fatalf("expected mismatch refusal mentioning --force, got %v", err)
+			}
+			got, err := os.ReadFile(filepath.Join(b, "cert9.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != "live-b\n" {
+				t.Fatalf("profile b mutated: %q", got)
+			}
+			if nssPathExists(t, b+".restore-tmp") {
+				t.Errorf("restore-tmp created on refused restore")
+			}
+		})
+	}
+}
+
+func TestNSSRestore_ForcedMismatch(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(a, "cert9.db"), []byte("from-a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b, "cert9.db"), []byte("live-b\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	sA := NssStore("firefox", "0", a)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	backupA, err := sA.GetLatestBackup()
+	if err != nil || backupA == "" {
+		t.Fatalf("latest A: %q err=%v", backupA, err)
+	}
+
+	SetForceRestore(true)
+	sB := NssStore("firefox", "0", b)
+	if err := sB.Restore(backupA); err != nil {
+		t.Fatalf("forced mismatch restore: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(b, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "from-a\n" {
+		t.Fatalf("forced restore got %q", got)
+	}
+}
+
+func TestNSSRestore_RefusesLegacyBackup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.MkdirAll(profile, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "cert9.db"), []byte("live\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	backup := t.TempDir()
+	if err := os.WriteFile(filepath.Join(backup, "cert9.db"), []byte("old\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	s := NssStore("firefox", "0", profile)
+	err := s.Restore(backup)
+	if err == nil || !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "no recorded source") {
+		t.Fatalf("expected legacy refusal mentioning --force, got %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(profile, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "live\n" {
+		t.Fatalf("legacy restore mutated profile: %q", got)
+	}
+	if nssPathExists(t, profile+".restore-tmp") {
+		t.Errorf("restore-tmp created on refused legacy restore")
+	}
+}
+
+func TestNSSRestore_ForcedLegacy(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	profile := filepath.Join(t.TempDir(), "profile")
+	if err := os.MkdirAll(profile, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(profile, "cert9.db"), []byte("live\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	backup := t.TempDir()
+	if err := os.WriteFile(filepath.Join(backup, "cert9.db"), []byte("old\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	SetForceRestore(true)
+	s := NssStore("firefox", "0", profile)
+	if err := s.Restore(backup); err != nil {
+		t.Fatalf("forced legacy restore: %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(profile, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "old\n" {
+		t.Fatalf("forced legacy restore got %q", got)
+	}
+}
+
+func TestNSSLatestBackup_SkipsSourceSidecar(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	parent := primaryBackupParent(home)
+	if parent == "" {
+		t.Skip("unsupported GOOS for backup parents")
+	}
+
+	dir := filepath.Join(parent, "firefox")
+	bak := filepath.Join(dir, "profile-bak")
+	if err := os.MkdirAll(bak, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bak, "cert9.db"), []byte("cert\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// These sort after profile-bak and would win the lexicographic fallback.
+	for _, name := range []string{"profile-bak.source", "source", "zzz.source"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("sidecar\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := NssStore("firefox", "0", t.TempDir())
+	got, err := s.GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != bak {
+		t.Fatalf("GetLatestBackup=%q want %q", got, bak)
+	}
+
+	chromeDir := filepath.Join(parent, "chrome")
+	if err := os.MkdirAll(chromeDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"source", "zzz.source"} {
+		if err := os.WriteFile(filepath.Join(chromeDir, name), []byte("sidecar\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err = NssStore("chrome", "0", t.TempDir()).GetLatestBackup()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "" {
+		t.Fatalf("sidecar picked as chrome backup: %q", got)
 	}
 }

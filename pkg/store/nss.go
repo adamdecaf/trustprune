@@ -25,7 +25,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -50,6 +49,15 @@ var (
 	nssCert9ProfileFiles = []string{"cert9.db", "key4.db", "pkcs11.txt"}
 	// Legacy NSS (cert8) profile files.
 	nssCert8ProfileFiles = []string{"cert8.db", "key3.db", "secmod.db"}
+)
+
+// nssBackupSourceName is the sidecar inside a backup directory recording the
+// profile that backup was taken from. It is not a profile file.
+// nssBackupSourceSuffix marks a sibling sidecar ("<name>.source", including
+// java's "<file>.bck.source"). Latest-backup selection skips both.
+const (
+	nssBackupSourceName   = "source"
+	nssBackupSourceSuffix = ".source"
 )
 
 type nssStore struct {
@@ -174,7 +182,10 @@ func (s nssStore) Backup() error {
 	}
 
 	if DryRun() {
-		details := []string{fmt.Sprintf("mirror profile set into %s/%s/<timestamp>", backupParentDisplay(), s.nssType)}
+		details := []string{
+			fmt.Sprintf("mirror profile set into %s/%s/<timestamp>", backupParentDisplay(), s.nssType),
+			"record the profile path in source",
+		}
 		for _, name := range names {
 			src := filepath.Join(s.foundCertdbLocation, name)
 			if file.Exists(src) {
@@ -190,9 +201,10 @@ func (s nssStore) Backup() error {
 		return err
 	}
 
-	// Backup into a timestamped directory so the profile set stays together.
-	dstDir := filepath.Join(dir, fmt.Sprintf("%d", time.Now().Unix()))
-	if err := os.MkdirAll(dstDir, backupDirPerms); err != nil {
+	// Exclusive timestamp dir so two backups in the same second never share a
+	// directory (and never share one source sidecar).
+	dstDir, err := mkdirExclusiveTimestamp(dir)
+	if err != nil {
 		return err
 	}
 
@@ -203,14 +215,122 @@ func (s nssStore) Backup() error {
 			continue
 		}
 		if err := file.CopyFile(src, filepath.Join(dstDir, name)); err != nil {
+			_ = os.RemoveAll(dstDir)
 			return err
 		}
 		copied++
 	}
 	if copied == 0 {
+		_ = os.RemoveAll(dstDir)
 		return fmt.Errorf("no NSS profile files found under %s", s.foundCertdbLocation)
 	}
+	// Record the profile only after the file set is in place. A failure here
+	// removes the new directory so a source-less partial cannot become latest.
+	if err := writeNSSBackupSource(dstDir, s.foundCertdbLocation); err != nil {
+		_ = os.RemoveAll(dstDir)
+		return err
+	}
+	if err := syncDir(dstDir); err != nil {
+		_ = os.RemoveAll(dstDir)
+		return err
+	}
+	if err := syncDir(dir); err != nil {
+		_ = os.RemoveAll(dstDir)
+		return err
+	}
 	return nil
+}
+
+// nssCanonicalPath returns the absolute, cleaned profile directory. Symlinks
+// are not resolved here: the recorded path is what the operator named, and
+// sameNSSProfile still treats a resolved symlink as the same profile.
+func nssCanonicalPath(p string) string {
+	if abs, err := filepath.Abs(p); err == nil {
+		p = abs
+	}
+	return filepath.Clean(p)
+}
+
+// sameNSSProfile reports whether a recorded source path names profile, either
+// literally or after resolving symlinks on both sides.
+func sameNSSProfile(recorded, profile string) bool {
+	k := nssCanonicalPath(profile)
+	if recorded == k {
+		return true
+	}
+	r1, err1 := filepath.EvalSymlinks(recorded)
+	r2, err2 := filepath.EvalSymlinks(k)
+	return err1 == nil && err2 == nil && r1 == r2
+}
+
+// writeNSSBackupSource creates the source sidecar exactly once (O_EXCL).
+// A second call fails and leaves the first record untouched.
+func writeNSSBackupSource(dir, profile string) error {
+	path := filepath.Join(dir, nssBackupSourceName)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(nssCanonicalPath(profile) + "\n")
+	if err == nil {
+		err = f.Sync()
+	}
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(path)
+	}
+	return err
+}
+
+// readNSSBackupSource returns the recorded profile, or "" when the backup
+// predates source recording. A missing backup is an error; a missing sidecar
+// is not.
+func readNSSBackupSource(src string) (string, error) {
+	st, err := os.Stat(src)
+	if err != nil {
+		return "", err
+	}
+	path := src + nssBackupSourceSuffix
+	if st.IsDir() {
+		path = filepath.Join(src, nssBackupSourceName)
+	}
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+// checkNSSBackupSource refuses a restore whose backup was taken from a
+// different profile than dst. Backups without a recorded source are allowed
+// only when allowUnknown is set. force skips both a missing record and a
+// path mismatch.
+//
+// NSS passes allowUnknown=false. Firefox profiles share one backup directory,
+// so a source-less backup is not known to belong to the profile being restored.
+func checkNSSBackupSource(backup, dst string, allowUnknown, force bool) error {
+	recorded, err := readNSSBackupSource(backup)
+	if err != nil {
+		return fmt.Errorf("store/nss: reading source of backup %s: %w", backup, err)
+	}
+	if recorded == "" {
+		if allowUnknown || force {
+			return nil
+		}
+		return fmt.Errorf("store/nss: backup %s has no recorded source profile; pass --force to restore it", backup)
+	}
+	if sameNSSProfile(recorded, dst) {
+		return nil
+	}
+	if force {
+		return nil
+	}
+	return fmt.Errorf("store/nss: refusing restore: backup %s was taken from %s, not %s; pass --force to restore into a different profile", backup, recorded, nssCanonicalPath(dst))
 }
 
 // nssProfileFilesToBackup picks the cert9 or cert8 file set based on which
@@ -324,6 +444,12 @@ func (s nssStore) Restore(where string) error {
 		if src == "" {
 			return errNoBackupCmd(s.nssType, s.nssType, "trustprune backup --app "+s.nssType)
 		}
+	}
+	// Never copy a backup onto a different profile than it came from unless
+	// --force is set. Older backups have no sidecar; those are refused too,
+	// before dry-run output or any write.
+	if err := checkNSSBackupSource(src, s.foundCertdbLocation, false, ForceRestore()); err != nil {
+		return err
 	}
 
 	if DryRun() {

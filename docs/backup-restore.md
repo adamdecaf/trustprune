@@ -31,12 +31,12 @@ Parent directory (created as needed):
 | Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
-| Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set (see below) |
+| Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `--app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `--app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
 
-`GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly).
+`GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly). Files named `source` or ending in `.source` are source sidecars, not backups, and are skipped.
 
 ## Restore or allowlist with no backup
 
@@ -79,6 +79,8 @@ NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile
 5. On success, removes the temp and aside directories. If either cleanup fails, restore still succeeds and prints a warning naming the kept path (remaining contents may be incomplete), matching Linux restore behavior for `.restore-old`.
 
 A failed stage leaves the live profile files untouched. Restore from a **legacy single file** uses the same stage-then-swap path onto `cert9.db` (or `cert8.db` if the backup basename contains `cert8`). Explicit `--backup` is honored.
+
+Backup also writes a `source` file in the timestamp directory recording the profile directory the files came from. That file is not part of the profile set and is not copied onto the live profile. Restore compares it to the profile being restored into and refuses a different directory before any write (dry-run included) unless `--force` is given. A backup with no `source` file — an older release, or a legacy single file — is refused the same way unless `--force`. Firefox profiles share one backup directory, so a source-less backup is not assumed to belong to the profile currently selected.
 
 ## Java
 

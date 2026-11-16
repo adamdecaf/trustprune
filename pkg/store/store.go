@@ -448,6 +448,13 @@ func getLatestStoreBackup(name string) (string, error) {
 	return getLatestBackupAmong(primary, legacy)
 }
 
+// isBackupSourceSidecar reports names that record where a backup came from
+// and are not backups. Directory backups keep a file named "source". File
+// backups keep a sibling whose name ends in ".source".
+func isBackupSourceSidecar(name string) bool {
+	return name == nssBackupSourceName || strings.HasSuffix(name, nssBackupSourceSuffix)
+}
+
 // backupBasenameUnix extracts a comparable unix timestamp from a backup
 // basename. Supported forms:
 //   - bare digits: "1761780000"
@@ -521,7 +528,7 @@ func pickLatestBackupName(names []string) string {
 // Newer backups use unix-timestamp basenames (bare digits, legacy NSS
 // cert8.db-<ts>/cert.db-<ts>, or Java <name>-<ts>.bck). Selection compares
 // those parsed timestamps. If nothing parses, names are sorted lexicographically
-// and the last entry is returned.
+// and the last entry is returned. Source sidecars are never selected.
 func getLatestBackup(dir string) (string, error) {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
@@ -531,9 +538,16 @@ func getLatestBackup(dir string) (string, error) {
 		return "", nil
 	}
 
-	names := make([]string, len(ents))
+	names := make([]string, 0, len(ents))
 	for i := range ents {
-		names[i] = ents[i].Name()
+		name := ents[i].Name()
+		if isBackupSourceSidecar(name) {
+			continue
+		}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return "", nil
 	}
 	best := pickLatestBackupName(names)
 	if best == "" {
@@ -562,6 +576,9 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 	case primaryErr == nil:
 		for _, ent := range primaryEnts {
 			name := ent.Name()
+			if isBackupSourceSidecar(name) {
+				continue
+			}
 			seen[name] = cand{path: filepath.Join(primary, name), fromPrimary: true}
 			names = append(names, name)
 		}
@@ -577,6 +594,9 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 		case legacyErr == nil:
 			for _, ent := range legacyEnts {
 				name := ent.Name()
+				if isBackupSourceSidecar(name) {
+					continue
+				}
 				if _, ok := seen[name]; ok {
 					continue
 				}
