@@ -235,7 +235,7 @@ func flagVersion() *cli.BoolFlag {
 func flagForce() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "force",
-		Usage:       "allow restore into a different store path than the backup came from",
+		Usage:       "allow restore into a different store path than the backup came from, including an NSS backup with no recorded profile",
 		HideDefault: true,
 		Local:       true,
 	}

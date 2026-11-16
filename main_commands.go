@@ -525,6 +525,12 @@ func restoreCommand(st *runState) *cli.Command {
     trustprune restore --app openssl --bundle /path/to/ca-bundle.pem --backup <backup-dir>
     trustprune restore --app openssl --bundle /other/ca-bundle.pem --backup <backup-dir> --force
 
+  NSS (firefox, and chrome on Linux): backups record the profile directory.
+  Restore into a different profile, or from a backup with no recorded profile,
+  is refused before any write unless --force.
+    trustprune restore --app firefox
+    trustprune restore --app firefox --backup <backup-dir> --force
+
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{

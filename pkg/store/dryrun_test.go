@@ -239,6 +239,7 @@ func TestNSSDryRun_RestoreLeavesStoreUnchanged(t *testing.T) {
 
 	before := dirSHA256(t, nssdbDir)
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, alternate, nssdbDir)
 	buf := enableDryRunCaptureAny(t)
 	if err := s.Restore(alternate); err != nil {
 		t.Fatalf("Restore dry-run: %v", err)
@@ -313,6 +314,7 @@ func TestNSSDryRun_RestoreWithoutFlagDoesMutate(t *testing.T) {
 
 	before := fileSHA256(t, filepath.Join(nssdbDir, "cert9.db"))
 	s := NssStore("firefox-test", "0", nssdbDir)
+	nssStampSource(t, alternate, nssdbDir)
 	SetDryRun(false)
 	if err := s.Restore(alternate); err != nil {
 		t.Fatalf("Restore: %v", err)

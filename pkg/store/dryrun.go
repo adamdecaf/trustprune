@@ -66,8 +66,9 @@ func DryRunVerbose() bool {
 }
 
 // SetForceRestore allows Restore to write a backup into a different store path
-// than the one recorded when the backup was taken (java, certifi, and an
-// explicit openssl PEM via -bundle).
+// than the one recorded when the backup was taken (java, certifi, an explicit
+// openssl PEM via -bundle, and an NSS profile). It also allows an NSS backup
+// that has no recorded profile.
 func SetForceRestore(v bool) {
 	dryRunMu.Lock()
 	defer dryRunMu.Unlock()

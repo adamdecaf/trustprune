@@ -121,6 +121,8 @@ For **java** and **certifi**, `--store` is the store to restore into — the sam
 
 For **openssl**, `--bundle <pem>` is the live PEM to restore into. `--backup` stays the backup source; automatic selection runs only when `--backup` is not set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `--force`. Without `--bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `--force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`.
 
+For **firefox** and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
+
 ```bash
 trustprune restore
 trustprune restore --backup /path/to/backup
@@ -141,7 +143,7 @@ trustprune restore --app java --dry-run
 | `--store <path>` | Java/certifi: store to restore into |
 | `--backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to restore into. `--backup` remains the backup source |
-| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, and openssl `--bundle`) |
+| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, openssl `--bundle`, and NSS firefox/chrome). Also allows an NSS backup that has no recorded profile. |
 | `--dry-run` | Print the plan without writing |
 
 
