@@ -55,6 +55,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [allowlist](docs/allowlists.md#allowlisting) | Distrust certificates that are not on your allowlist |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
+| [diff](docs/usage.md#diff) | Compare two certificate files and print the fields that differ |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
@@ -101,7 +102,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
 3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store. `allowlist --dry-run` lists kept certificates and ends with `dry-run: N kept, M removed`; `-v` adds per-certificate remove and keep lines.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
-5. **No stray positionals.** Commands other than `connect` accept only flags. An unexpected positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
+5. **No stray positionals.** Commands other than `connect` and `diff` accept only flags. `connect` accepts one URL (`--url` or one positional, not both). `diff` accepts exactly two certificate paths. Any other positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
 
 Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `--backup`. For java and certifi, restore `--store` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `--force`. For openssl, `--bundle <pem>` is the live PEM for list, backup, restore, and allowlist; `--backup` is the backup source, and a backup recorded for a different PEM is refused unless `--force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files and record the profile directory; restore into a different profile, or from a backup with no recorded profile, is refused unless `--force`. Darwin platform restore honors `--backup` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 
@@ -177,6 +178,10 @@ trustprune connect -v google.com         # chain table after the one-line summar
 trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 # ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+
+# Compare two certificates (PEM or DER). Exit 0 when identical, 1 when a field differs.
+trustprune diff old.pem new.pem
+trustprune diff --format json old.pem new.der
 
 trustprune version
 trustprune --version

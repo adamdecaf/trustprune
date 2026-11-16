@@ -16,6 +16,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
@@ -297,6 +298,74 @@ func connectAction(_ context.Context, c *cli.Command) error {
 		return cmd.ConnectWithAppStoreFile(u, app, path, opts)
 	}
 	return cmd.ConnectWithAppStore(u, app, opts)
+}
+
+func diffCommand(st *runState) *cli.Command {
+	return &cli.Command{
+		Name:  "diff",
+		Usage: "Compare two certificate files",
+		UsageText: `trustprune diff [--format text|json] <left> <right>
+
+Compare two certificate files and print the fields that differ.
+Each file is PEM or DER and must contain exactly one certificate.
+Comments around a PEM CERTIFICATE block are ignored. Other PEM block
+types are ignored. The first path is the left side and the second is
+the right side.
+
+Exit status is 0 when every field matches and 1 when any field differs.
+The report is on stdout and is not an ERROR: line. A file that cannot
+be read, or that is not one certificate, exits 1 with ERROR: on stdout.
+The wrong number of paths, or an unknown --format, is a usage error
+(exit 2).
+
+Fields, in report order: subject, issuer, serial, validity, key, sans,
+sha256, signature_algorithm.
+
+  subject and issuer are full distinguished names.
+  serial is the decimal serial number.
+  validity is NotBefore and NotAfter in UTC (RFC3339), joined by " .. ".
+  key is the public key type and size, such as RSA-2048.
+  sans are DNS names, email addresses, IP addresses, and URIs, in that order.
+  sha256 is the hex SHA-256 fingerprint of the certificate.
+  signature_algorithm is the signature algorithm, such as SHA256-RSA.
+
+Text (the default) prints one line per differing field. Identical
+certificates print "identical".
+
+  trustprune diff old.pem new.pem
+  subject: "CN=Old" != "CN=New"
+
+  trustprune diff --format json old.pem new.der
+
+JSON is one object. differences lists only fields that differ.
+An unknown format is a usage error and names json and text.
+`,
+		Flags: []cli.Flag{
+			flagDiffFormat(),
+		},
+		ArgValidator: diffArgValidator,
+		Before:       diffBefore,
+		Action:       withTrace(st, diffAction),
+	}
+}
+
+func diffBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if _, err := cmd.NormalizeDiffFormat(c.String("format")); err != nil {
+		return ctx, usageExit(c, err.Error())
+	}
+	return ctx, nil
+}
+
+func diffAction(_ context.Context, c *cli.Command) error {
+	args := c.Args().Slice()
+	if len(args) != 2 {
+		return usageExit(c, "expected two certificate files")
+	}
+	err := cmd.DiffCertificates(args[0], args[1], cmd.DiffOptions{Format: c.String("format")})
+	if errors.Is(err, cmd.ErrCertificatesDiffer) {
+		return differExit{}
+	}
+	return err
 }
 
 func genAllowlistCommand(st *runState) *cli.Command {
