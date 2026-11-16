@@ -24,10 +24,26 @@ import (
 
 // Status describes whether a named certificate store was found on this
 // machine and the path used to reach it. Detection is read-only.
+//
+// GuideOnly is set when the app is installed and trustprune only prints a
+// pruning guide. The apps table shows that row as "guide only". Path is the
+// install that was found, not a trust-store file.
 type Status struct {
-	Name  string `json:"name"`
-	Found bool   `json:"found"`
-	Path  string `json:"path"`
+	Name      string `json:"name"`
+	Found     bool   `json:"found"`
+	Path      string `json:"path"`
+	GuideOnly bool   `json:"guideOnly,omitempty"`
+}
+
+// StatusLabel is the STATUS cell in `trustprune apps`.
+func (s Status) StatusLabel() string {
+	if s.Found && s.GuideOnly {
+		return "guide only"
+	}
+	if s.Found {
+		return "found"
+	}
+	return "not-found"
 }
 
 // DetectStatuses returns status for every supported app (sorted) plus the
@@ -50,6 +66,8 @@ func detectApp(name string) Status {
 		return detectChrome()
 	case "firefox":
 		return detectFirefox()
+	case "foxit":
+		return detectFoxit()
 	case "java":
 		return detectJava()
 	case "openssl":

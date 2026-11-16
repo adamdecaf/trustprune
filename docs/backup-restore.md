@@ -128,6 +128,10 @@ Restore with no backup refuses before any filesystem write (dry-run included). E
 
 `--bundle <pem>` on `list`, `backup`, `restore`, and `allowlist` uses that PEM and skips `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro defaults, and git. On `allowlist`, `--file` remains the allowlist. On `restore`, `--backup` remains the backup source. With `--bundle` and no `--backup`, restore picks the newest backup whose `source` matches that PEM (backups with no `source` file are skipped). A backup recorded for a different path is refused before any write unless `--force`. Backups with no `source` file can still be applied with an explicit `--backup`. Discovery restore (no `--bundle`) of a PEM uses the newest backup recorded for that file and also accepts a legacy backup with no `source`; a backup recorded for a different bundle is refused unless `--force`. Allowlist uses the same selection. Automatic restore of a discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup (directory mirrors have no `source` file). Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`. If discovery cannot resolve a path, only backups with no `source` file match.
 
+## Foxit (`--app foxit`)
+
+Foxit is guide only. `backup`, `restore`, and `allowlist` print the pruning guide and exit 1. They do not create a backup directory. The Trusted Certificates file is **unverified**, so there is nothing to copy. See [Platforms](platforms.md#foxit).
+
 ## Windows
 
 Platform Add, Backup, Remove, and Restore are unimplemented (return success with no work). Only `list` reads the machine certificate stores.
