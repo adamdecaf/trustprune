@@ -60,7 +60,7 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
 
-Allowlisting also applies Chromium's certificate blocklist, so certificates in that bundled list are never kept. That behavior cannot be disabled today.
+Allowlisting also applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys (DigiNotar, CNNIC, WoSign, StartCom, and Symantec legacy roots), so those certificates are never kept. That behavior cannot be disabled today.
 
 ## Platform and application support
 

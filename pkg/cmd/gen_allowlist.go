@@ -96,8 +96,16 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 		return fmt.Errorf("unable to find any CA's from %d urls retrieved", len(accum))
 	}
 
-	// prep summary
+	// prep summary. Denylisted CAs are omitted from the table and the file.
 	sortCAs(authorities)
+	nFound := len(authorities)
+	authorities, err = dropDenylisted(os.Stdout, authorities)
+	if err != nil {
+		return err
+	}
+	if len(authorities) == 0 {
+		return fmt.Errorf("all %d discovered CAs are denylisted and were skipped", nFound)
+	}
 	if err := writeAllowlistSummary(os.Stdout, authorities, opts.Verbose); err != nil {
 		return err
 	}
@@ -141,6 +149,34 @@ func previewAllowlistFingerprint(fp string, verbose bool) string {
 		return fp
 	}
 	return fp[:allowlistFingerprintPreview]
+}
+
+// dropDenylisted removes CAs on the built-in denylist and writes a note for
+// each one. Nil entries are dropped without a note.
+func dropDenylisted(w io.Writer, cas []*gen.CA) ([]*gen.CA, error) {
+	if w == nil {
+		w = io.Discard
+	}
+	kept := make([]*gen.CA, 0, len(cas))
+	for _, ca := range cas {
+		if ca == nil || ca.Certificate == nil {
+			continue
+		}
+		denied, name := allowlist.Denied(ca.Certificate)
+		if !denied {
+			kept = append(kept, ca)
+			continue
+		}
+		fp := ca.Fingerprint
+		if fp == "" {
+			fp = certutil.GetHexSHA256Fingerprint(*ca.Certificate)
+		}
+		if _, err := fmt.Fprintf(w, "NOTE: skipping denylisted certificate %s sha256=%s (%s)\n",
+			certutil.StringifyPKIXName(ca.Certificate.Subject), fp, name); err != nil {
+			return nil, err
+		}
+	}
+	return kept, nil
 }
 
 func getChoices(from, file string) []string {

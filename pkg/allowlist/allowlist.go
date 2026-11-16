@@ -39,9 +39,16 @@ type Allowlist struct {
 }
 
 // Matches checks a given x509 certificate against the criteria and
-// returns if it's matched by an item in the allowlist
+// returns if it's matched by an item in the allowlist.
+//
+// A denylisted certificate never matches, even when this allowlist names
+// its fingerprint or country. The denylist matches the certificate SHA-256
+// and the SubjectPublicKeyInfo SHA-256.
 func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	if inc == nil {
+		return false
+	}
+	if denied, _ := Denied(inc); denied {
 		return false
 	}
 

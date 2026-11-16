@@ -61,6 +61,8 @@ Allowlist completed successfully
 
 While it writes the file, `gen-allowlist` prints a summary table with headers `CA`, `FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`. The fingerprint column shows the first 16 characters. `-v` prints each full fingerprint. At most three example DNS names are shown; `COUNT` is the full number of names.
 
+CAs on the built-in denylist are left out of that table and out of the file. Each one prints `NOTE: skipping denylisted certificate ...` first. See [Denylisted certificates](#denylisted-certificates).
+
 ### Platform presets
 
 When generation actually runs, the default platform preset for this OS is merged in unless you pass `--no-presets` or an explicit `--presets` list:
@@ -116,9 +118,17 @@ $ trustprune gen-allowlist --out allowlist.yaml --from firefox
 
 ### Blocklisted certificates
 
-`trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted.
+`trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted. That list matches certificate SHA-256 fingerprints.
 
 There is currently no way to disable this behavior.
+
+### Denylisted certificates
+
+A smaller denylist is always applied as well, including when an allowlist names the certificate by fingerprint or by country. It covers roots and intermediates that were publicly distrusted: DigiNotar, CNNIC, WoSign, StartCom, and Symantec legacy roots (GeoTrust, thawte, and VeriSign roots removed from Mozilla NSS). The entries are committed in `pkg/allowlist/denylist.go`.
+
+Each entry has two SHA-256 values: the certificate itself, and the certificate's SubjectPublicKeyInfo. A later certificate that reuses a denylisted key is rejected even though its own fingerprint is new. `gen-allowlist` skips these CAs and prints a `NOTE:` line. They are not written to the allowlist file. There is no flag to turn this off.
+
+The list is hand-curated. `go generate ./pkg/allowlist` prints how to refresh it and does not download anything. Recompute a fingerprint from the source named on that entry before adding it, and leave it out when you are not sure. Tests do not use the network.
 
 ### Files
 
