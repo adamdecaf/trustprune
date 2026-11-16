@@ -34,7 +34,7 @@ var (
 
 // FirefoxStore returns a Mozilla Firefox implementation of Store
 func FirefoxStore() Store {
-	dirs := FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"))
+	dirs := FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"), os.Getenv)
 	if len(dirs) > 0 {
 		return NssStore("firefox", firefoxVersion(), dirs[0])
 	}
@@ -46,18 +46,16 @@ func FirefoxStore() Store {
 // contains "default" and it holds a non-empty cert9.db or cert8.db.
 // Results are ordered by most recent cert DB mtime first; equal mtimes
 // sort by path.
-func FirefoxProfileDirs(home, appdata string) []string {
-	var roots []string
-	if home != "" {
-		roots = append(roots,
-			filepath.Join(home, ".config", "mozilla", "firefox"),
-			filepath.Join(home, ".mozilla", "firefox"),
-			filepath.Join(home, "Library", "Application Support", "Firefox", "Profiles"),
-		)
+//
+// getenv looks up XDG_CONFIG_HOME and MOZ_LEGACY_HOME; nil means os.Getenv.
+// The XDG root is $XDG_CONFIG_HOME/mozilla/firefox, or ~/.config/mozilla/firefox
+// when XDG_CONFIG_HOME is unset or not absolute. MOZ_LEGACY_HOME=1 puts
+// ~/.mozilla/firefox ahead of the XDG root.
+func FirefoxProfileDirs(home, appdata string, getenv func(string) string) []string {
+	if getenv == nil {
+		getenv = os.Getenv
 	}
-	if appdata != "" {
-		roots = append(roots, filepath.Join(appdata, "Mozilla", "Firefox", "Profiles"))
-	}
+	roots := firefoxProfileRoots(home, appdata, getenv)
 
 	type profile struct {
 		path  string
@@ -97,6 +95,50 @@ func FirefoxProfileDirs(home, appdata string) []string {
 		out[i] = p.path
 	}
 	return out
+}
+
+func firefoxProfileRoots(home, appdata string, getenv func(string) string) []string {
+	var roots []string
+	xdg := xdgMozillaFirefox(home, getenv)
+	legacy := ""
+	macos := ""
+	if home != "" {
+		legacy = filepath.Join(home, ".mozilla", "firefox")
+		macos = filepath.Join(home, "Library", "Application Support", "Firefox", "Profiles")
+	}
+	if getenv("MOZ_LEGACY_HOME") == "1" {
+		if legacy != "" {
+			roots = append(roots, legacy)
+		}
+		if xdg != "" {
+			roots = append(roots, xdg)
+		}
+	} else {
+		if xdg != "" {
+			roots = append(roots, xdg)
+		}
+		if legacy != "" {
+			roots = append(roots, legacy)
+		}
+	}
+	if macos != "" {
+		roots = append(roots, macos)
+	}
+	if appdata != "" {
+		roots = append(roots, filepath.Join(appdata, "Mozilla", "Firefox", "Profiles"))
+	}
+	return roots
+}
+
+func xdgMozillaFirefox(home string, getenv func(string) string) string {
+	xdg := getenv("XDG_CONFIG_HOME")
+	if xdg == "" || !filepath.IsAbs(xdg) {
+		if home == "" {
+			return ""
+		}
+		xdg = filepath.Join(home, ".config")
+	}
+	return filepath.Join(xdg, "mozilla", "firefox")
 }
 
 func certDBModTime(dir string) (time.Time, bool) {

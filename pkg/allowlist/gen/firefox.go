@@ -47,7 +47,7 @@ func getFirefoxUrls(db *sqlite3.DbFile) ([]*url.URL, error) {
 }
 
 func findFirefoxPlacesDB() (*sqlite3.DbFile, error) {
-	path := findFirefoxPlacesPath(store.FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA")))
+	path := findFirefoxPlacesPath(store.FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"), os.Getenv))
 	if path == "" {
 		return nil, errors.New("unable to find firefox places.sqlite")
 	}

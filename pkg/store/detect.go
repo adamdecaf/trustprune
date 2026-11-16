@@ -115,7 +115,7 @@ func locateChromeNSS(home string) (string, bool) {
 
 func detectFirefox() Status {
 	s := Status{Name: "firefox"}
-	dirs := FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"))
+	dirs := FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"), os.Getenv)
 	if len(dirs) > 0 {
 		s.Found = true
 		s.Path = dirs[0]

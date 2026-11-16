@@ -77,7 +77,7 @@ func TestFindFirefoxPlacesPath_UsesProfileDirs(t *testing.T) {
 	writeFirefoxCertDB(t, second, older)
 	writePlaces(t, second)
 
-	dirs := store.FirefoxProfileDirs(home, "")
+	dirs := store.FirefoxProfileDirs(home, "", func(string) string { return "" })
 	if len(dirs) != 2 || dirs[0] != first {
 		t.Fatalf("FirefoxProfileDirs()=%q want first %s", dirs, first)
 	}
