@@ -368,14 +368,23 @@ func TestListFormatDefaultAndUnknown(t *testing.T) {
 		if res.code != 0 {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
-		line, _, _ := strings.Cut(res.stdout, "\n")
-		for _, header := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"} {
-			if !strings.Contains(line, header) {
-				t.Fatalf("verbose header %q missing from %q", header, line)
+		lines := strings.Split(strings.TrimRight(res.stdout, "\n"), "\n")
+		if len(lines) < 2 {
+			t.Fatalf("verbose output:\n%s", res.stdout)
+		}
+		if lines[0] != "PATH: "+lots {
+			t.Fatalf("shared path line=%q", lines[0])
+		}
+		for _, header := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"} {
+			if !strings.Contains(lines[1], header) {
+				t.Fatalf("verbose header %q missing from %q", header, lines[1])
 			}
 		}
-		if strings.Contains(line, "SHA256 FINGERPRINT") || strings.Contains(line, "NOT BEFORE") || strings.Contains(line, "NOT AFTER") {
-			t.Fatalf("old verbose header: %q", line)
+		if strings.Contains(lines[1], "PATH") {
+			t.Fatalf("shared path kept the PATH column: %q", lines[1])
+		}
+		if strings.Contains(lines[1], "SHA256 FINGERPRINT") || strings.Contains(lines[1], "NOT BEFORE") || strings.Contains(lines[1], "NOT AFTER") {
+			t.Fatalf("old verbose header: %q", lines[1])
 		}
 	})
 }

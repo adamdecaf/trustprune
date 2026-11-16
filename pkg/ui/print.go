@@ -23,11 +23,10 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"text/tabwriter"
 	"time"
+	"unicode/utf8"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
-	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
 var (
@@ -121,67 +120,175 @@ func truncateColumn(s string, n int) string {
 	return string(r[:n-1]) + "…"
 }
 
-// tablePrinter outputs a nicely formatted table of the certs found. This uses golang's
-// native text/tabwriter package to align based on the rows given to it.
+// tablePrinter outputs a table of the certificates. Each column is as wide as
+// its longest header or cell, and columns are separated by two spaces.
+// Verbose output adds the full fingerprint, serial, and dates. When every row
+// has the same path, that path is printed once as "PATH: <path>" and the PATH
+// column is omitted. Mixed paths keep the PATH column.
 type tablePrinter struct {
 	verbose bool
 	path    string
-	now     time.Time // zero means time.Now()
+	// paths, when non-nil, is one source path per certificate in write order.
+	// Nil uses path for every row. An empty path is printed as "-".
+	paths []string
+	now   time.Time // zero means time.Now()
 }
 
 func (tablePrinter) close() {}
-func (p tablePrinter) write(fd io.Writer, certs []*x509.Certificate) error {
-	w := tabwriter.NewWriter(fd, 0, 0, 1, ' ', 0)
+func (p tablePrinter) write(w io.Writer, certs []*x509.Certificate) error {
 	now := p.now
 	if now.IsZero() {
 		now = time.Now()
 	}
+
+	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT"}
 	if p.verbose {
-		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256-FINGERPRINT\tSERIAL\tPATH\tNOT-BEFORE\tNOT-AFTER")
-	} else {
-		fmt.Fprintln(w, "SUBJECT\tISSUER\tKEY\tDAYS\tSHA256-FINGERPRINT")
+		headers = append(headers, "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER")
 	}
 
-	rows := make([]string, len(certs))
+	rows := make([][]string, len(certs))
 	for i := range certs {
-		fingerprint := certutil.GetHexSHA256Fingerprint(*certs[i])
-		subject := certutil.StringifyPKIXName(certs[i].Subject)
-		issuer := certutil.StringifyPKIXName(certs[i].Issuer)
-		c1 := truncateColumn(subject, tableColumnWidth)
-		c2 := "="
-		if !bytes.Equal(certs[i].RawIssuer, certs[i].RawSubject) {
-			c2 = truncateColumn(issuer, tableColumnWidth)
-		}
-		key := certutil.FormatKeyLabel(certs[i])
-		daysLeft := certutil.DaysUntilExpiry(certs[i], now)
-		var days string
-		if p.verbose {
-			days = fmt.Sprintf("%d", daysLeft)
-		} else {
-			days = formatTableDays(daysLeft)
-		}
-		if p.verbose {
-			serial := certs[i].SerialNumber.String()
-			path := p.path
-			if path == "" {
-				path = "-"
-			}
-			c5 := certs[i].NotBefore.Format("2006-01-02")
-			c6 := certs[i].NotAfter.Format("2006-01-02")
-			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fingerprint, serial, path, c5, c6)
-		} else {
-			rows[i] = fmt.Sprintf("%s\t%s\t%s\t%s\t%s", c1, c2, key, days, fingerprint[:fingerprintPreviewLength])
-		}
+		rows[i] = p.tableCells(certs[i], now, i)
 	}
 
-	file.SortNames(rows)
-	for i := range rows {
-		fmt.Fprintln(w, rows[i])
+	if p.verbose && len(rows) > 0 && columnEqual(rows, columnIndex(headers, "PATH")) {
+		if _, err := fmt.Fprintf(w, "PATH: %s\n", rows[0][columnIndex(headers, "PATH")]); err != nil {
+			return err
+		}
+		headers, rows = dropColumn(headers, rows, "PATH")
 	}
-	if err := w.Flush(); err != nil {
-		return fmt.Errorf("flushing output table: %w", err)
+
+	sort.Slice(rows, func(i, j int) bool {
+		return strings.ToLower(strings.Join(rows[i], "\t")) < strings.ToLower(strings.Join(rows[j], "\t"))
+	})
+
+	_, err := io.WriteString(w, alignTable(headers, rows))
+	return err
+}
+
+func (p tablePrinter) tableCells(cert *x509.Certificate, now time.Time, i int) []string {
+	fingerprint := certutil.GetHexSHA256Fingerprint(*cert)
+	subject := truncateColumn(certutil.StringifyPKIXName(cert.Subject), tableColumnWidth)
+	issuer := "="
+	if !bytes.Equal(cert.RawIssuer, cert.RawSubject) {
+		issuer = truncateColumn(certutil.StringifyPKIXName(cert.Issuer), tableColumnWidth)
 	}
-	return nil
+	key := certutil.FormatKeyLabel(cert)
+	daysLeft := certutil.DaysUntilExpiry(cert, now)
+	days := formatTableDays(daysLeft)
+	fp := fingerprint[:fingerprintPreviewLength]
+	if p.verbose {
+		days = fmt.Sprintf("%d", daysLeft)
+		fp = fingerprint
+	}
+	cells := []string{subject, issuer, key, days, fp}
+	if !p.verbose {
+		return cells
+	}
+	return append(cells,
+		cert.SerialNumber.String(),
+		p.rowPath(i),
+		cert.NotBefore.Format("2006-01-02"),
+		cert.NotAfter.Format("2006-01-02"),
+	)
+}
+
+// rowPath is the verbose PATH cell for certificate i.
+func (p tablePrinter) rowPath(i int) string {
+	path := p.path
+	if p.paths != nil {
+		path = ""
+		if i >= 0 && i < len(p.paths) {
+			path = p.paths[i]
+		}
+	}
+	if path == "" {
+		return "-"
+	}
+	return path
+}
+
+func columnIndex(headers []string, name string) int {
+	for i, header := range headers {
+		if header == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func columnEqual(rows [][]string, idx int) bool {
+	if idx < 0 || len(rows) == 0 {
+		return false
+	}
+	first := rows[0][idx]
+	for _, row := range rows[1:] {
+		if row[idx] != first {
+			return false
+		}
+	}
+	return true
+}
+
+func dropColumn(headers []string, rows [][]string, name string) ([]string, [][]string) {
+	idx := columnIndex(headers, name)
+	if idx < 0 {
+		return headers, rows
+	}
+	nextHeaders := make([]string, 0, len(headers)-1)
+	nextHeaders = append(nextHeaders, headers[:idx]...)
+	nextHeaders = append(nextHeaders, headers[idx+1:]...)
+	for i, row := range rows {
+		if idx >= len(row) {
+			continue
+		}
+		next := make([]string, 0, len(row)-1)
+		next = append(next, row[:idx]...)
+		next = append(next, row[idx+1:]...)
+		rows[i] = next
+	}
+	return nextHeaders, rows
+}
+
+// alignTable left-aligns cells and separates columns with two spaces.
+// Each column is as wide as its longest header or cell. There is no minimum
+// width. Each row, including the last, ends with a newline. No trailing spaces.
+func alignTable(headers []string, rows [][]string) string {
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, row := range rows {
+		for i, cell := range row {
+			if i >= len(widths) {
+				break
+			}
+			if n := utf8.RuneCountInString(cell); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	var b strings.Builder
+	writeRow := func(cells []string) {
+		for i, cell := range cells {
+			if i > 0 {
+				b.WriteString("  ")
+			}
+			b.WriteString(cell)
+			if i == len(cells)-1 || i >= len(widths) {
+				continue
+			}
+			if pad := widths[i] - utf8.RuneCountInString(cell); pad > 0 {
+				b.WriteString(strings.Repeat(" ", pad))
+			}
+		}
+		b.WriteByte('\n')
+	}
+	writeRow(headers)
+	for _, row := range rows {
+		writeRow(row)
+	}
+	return b.String()
 }
 
 type opensslPrinter struct {

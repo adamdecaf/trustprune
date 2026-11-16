@@ -81,23 +81,24 @@ An unknown `--format` is a usage error (exit 2) and names the valid formats (`js
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `--app` flag. `--out <path>` writes that formatted output to a file for every format and for `--count`. Stdout stays empty.
 
-Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise.
+Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise.
 
 ```
 $ trustprune list
-SUBJECT                                  ISSUER KEY       DAYS SHA256-FINGERPRINT
-EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516
-Entrust Root Certification Authority     =      RSA-2048  330  73c176434f1bc6d5
-Entrust Root Certification Authority - … =      ECDSA-384 4369 02ed0eb28c14da45
+SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT
+EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516
+Entrust Root Certification Authority      =       RSA-2048   330   73c176434f1bc6d5
+Entrust Root Certification Authority - …  =       ECDSA-384  4369  02ed0eb28c14da45
 ...
 ```
 
-`-v` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. Verbose headers are SHA256-FINGERPRINT, SERIAL, PATH, NOT-BEFORE, and NOT-AFTER.
+`-v` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER.
 
 ```
 $ trustprune list -v
-SUBJECT                                  ISSUER KEY       DAYS SHA256-FINGERPRINT                                               SERIAL                                  PATH              NOT-BEFORE NOT-AFTER
-EE Certification Centre Root CA          =      RSA-2048  1811 3e84ba4342908516e77573c0992f0979ca084e4685681ff195ccba8a229b8a76 112324828676200291871926431888494945866 testdata/lots.crt 2010-10-30 2030-12-17
+PATH: testdata/lots.crt
+SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT                                                SERIAL                                   NOT-BEFORE  NOT-AFTER
+EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516e77573c0992f0979ca084e4685681ff195ccba8a229b8a76  112324828676200291871926431888494945866  2010-10-30  2030-12-17
 ...
 ```
 
