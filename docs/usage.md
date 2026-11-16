@@ -259,6 +259,16 @@ trustprune backup --app poppler --store /path/to/nssdb
 trustprune allowlist --app poppler --store /path/to/nssdb --file allowlist.yaml --dry-run
 ```
 
+### Evince and Papers
+
+Evince and Papers are not `--app` values.
+
+**Papers** ([pps-poppler.c](https://gitlab.gnome.org/GNOME/papers/-/blob/18958ac9397bed07bb6c9a1d62331422c9fc0d95/libdocument/backend/pdf/pps-poppler.c), checked at `18958ac9`) validates signatures with poppler and leaves the NSS directory unset. The effective backend is `POPPLER_SIGNATURE_BACKEND` when set, otherwise poppler's compile-time default (NSS when that backend was built first; [CryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/CryptoSignBackend.cc)). When the effective backend is NSS, `--app poppler` is the store Papers uses, including list, backup, allowlist, and restore. When the effective backend is GPG, Papers reads `$GNUPGHOME` (default `~/.gnupg`; [GPGMECryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/GPGMECryptoSignBackend.cc)). That store is report-only, the same as poppler's GPG backend: trustprune does not list or prune `trustlist.txt`.
+
+**Evince** ([ev-poppler.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/backend/pdf/ev-poppler.c) and [ev-form-field.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/libdocument/ev-form-field.c), `main` at `e822030`) maps signature form fields and has no signature-validation call ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)). There is no trust store to prune. If Evince adds validation later, reopen [issue #391](https://github.com/adamdecaf/trustprune/issues/391).
+
+The [platforms page](platforms.md) has the same coverage with the source links.
+
 ## allowlist
 
 Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
