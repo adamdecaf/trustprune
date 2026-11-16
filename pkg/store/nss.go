@@ -378,11 +378,11 @@ func (s nssStore) GetLatestBackup() (string, error) {
 	return dir, nil
 }
 
-// latestNSSBackupFor returns the newest backup for nssType whose recorded
-// source matches dest, or that has no source sidecar (legacy). A newer
-// backup taken from a different profile is skipped. An empty dest does not
-// filter on source. Restore keeps using GetLatestBackup so a retargeted
-// profile still surfaces the --force refusal.
+// latestNSSBackupFor returns the newest backup for nssType. When dest is set,
+// only backups whose recorded source matches dest are returned; source-less
+// (legacy) backups are skipped so allowlist does not treat them as a backup
+// of dest. An empty dest does not filter on source. Restore keeps using
+// GetLatestBackup so a retargeted profile still surfaces the --force refusal.
 func latestNSSBackupFor(nssType, dest string) (string, error) {
 	uhome := file.HomeDir()
 	if uhome == "" {
@@ -411,8 +411,10 @@ func latestNSSBackupFor(nssType, dest string) (string, error) {
 			continue
 		}
 		paths[name] = path
-		if recorded != "" && dest != "" && !sameNSSProfile(recorded, dest) {
-			continue
+		if dest != "" {
+			if recorded == "" || !sameNSSProfile(recorded, dest) {
+				continue
+			}
 		}
 		matched = append(matched, name)
 	}
@@ -436,8 +438,9 @@ func NSSAllowlistBackupError(s Store, app string) error {
 	if !ok {
 		return nil
 	}
-	// A backup of this directory authorizes the change even when a newer
-	// backup was taken from somewhere else.
+	// A sourced backup of this directory authorizes the change even when a
+	// newer backup was taken from somewhere else. A source-less (legacy)
+	// backup does not, matching restore, unless --force is set above.
 	matched, err := latestNSSBackupFor(nssType, storePath)
 	if err != nil {
 		return err
@@ -456,7 +459,7 @@ func NSSAllowlistBackupError(s Store, app string) error {
 	if err != nil {
 		return fmt.Errorf("store/nss: reading source of backup %s: %w", latest, err)
 	}
-	if recorded == "" || sameNSSProfile(recorded, storePath) {
+	if recorded != "" && sameNSSProfile(recorded, storePath) {
 		return nil
 	}
 	label := strings.TrimSpace(app)
@@ -469,6 +472,9 @@ func NSSAllowlistBackupError(s Store, app string) error {
 	cmd := "trustprune backup --app " + nssType
 	if display != "" {
 		cmd += " --store " + display
+	}
+	if recorded == "" {
+		return fmt.Errorf("no backup for %s at %s; latest backup %s has no recorded source profile; run: %s; pass --force to allowlist this store anyway", label, display, latest, cmd)
 	}
 	return fmt.Errorf("no backup for %s at %s; latest backup %s was taken from %s; run: %s; pass --force to allowlist this store anyway", label, display, latest, recorded, cmd)
 }

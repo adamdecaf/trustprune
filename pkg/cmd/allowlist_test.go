@@ -281,6 +281,71 @@ func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 			t.Fatal("B's own backup did not authorize allowlist")
 		}
 	})
+
+}
+
+func TestAllowlist_NSSSourceLessBackupRequiresForce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetForceRestore(false)
+	store.SetDryRun(false)
+	t.Cleanup(func() {
+		store.SetForceRestore(false)
+		store.SetDryRun(false)
+		store.SetDryRunOutput(nil)
+	})
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte(dir+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alPath := filepath.Join(t.TempDir(), "allowlist.json")
+	if err := os.WriteFile(alPath, []byte(`{"Fingerprints":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sA := store.NssStore("poppler", "0", a)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := sA.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("latest backup: %q err=%v", latest, err)
+	}
+	if err := os.Remove(filepath.Join(latest, "source")); err != nil {
+		t.Fatal(err)
+	}
+
+	store.SetDryRun(true)
+	var plan bytes.Buffer
+	store.SetDryRunOutput(&plan)
+	g := &noWriteStore{Store: store.NssStore("poppler", "0", b)}
+	err = allowlistStore(g, "poppler", alPath)
+	if g.removed {
+		t.Fatal("Remove was called for a source-less backup")
+	}
+	if err == nil || !strings.Contains(err.Error(), "no recorded source") || !strings.Contains(err.Error(), "--force") || !strings.Contains(err.Error(), "trustprune backup") {
+		t.Fatalf("expected source-less refusal mentioning --force, got %v", err)
+	}
+	if plan.Len() != 0 {
+		t.Fatalf("plan printed before refusing: %q", plan.String())
+	}
+
+	store.SetForceRestore(true)
+	g2 := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
+	if err := allowlistStore(g2, "poppler", alPath); err != nil {
+		t.Fatal(err)
+	}
+	if !g2.removed {
+		t.Fatal("--force did not reach Remove for a source-less backup")
+	}
 }
 
 func TestNoBackupError_Platform(t *testing.T) {
