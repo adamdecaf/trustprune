@@ -209,6 +209,7 @@ func newApp(st *runState) *cli.Command {
 			appsCommand(st),
 			backupCommand(st),
 			connectCommand(st),
+			diffCommand(st),
 			genAllowlistCommand(st),
 			listCommand(st),
 			restoreCommand(st),
@@ -310,6 +311,21 @@ func rejectPositionalArgs(_ context.Context, c *cli.Command) error {
 		return nil
 	}
 	return usageExit(c, fmt.Sprintf("unexpected argument(s): %s", strings.Join(args, " ")))
+}
+
+func diffArgValidator(_ context.Context, c *cli.Command) error {
+	if _, err := cmd.NormalizeDiffFormat(c.String("format")); err != nil {
+		return usageExit(c, err.Error())
+	}
+	args := c.Args().Slice()
+	switch len(args) {
+	case 2:
+		return nil
+	case 0, 1:
+		return usageExit(c, "expected two certificate files")
+	default:
+		return usageExit(c, fmt.Sprintf("unexpected argument(s): %s", strings.Join(args[2:], " ")))
+	}
 }
 
 func connectArgValidator(_ context.Context, c *cli.Command) error {
@@ -459,6 +475,15 @@ func parseConnectURL(flagURL string, positional []string) (*url.URL, error) {
 	}
 	return cmd.NormalizeConnectURL(raw)
 }
+
+// differExit is the diff command's "fields differ" status.
+// The report is already on stdout. An empty message keeps finishRun from
+// adding an ERROR: line. Exit code 1 matches other failures; a difference
+// is told apart from a read error by the absence of ERROR:.
+type differExit struct{}
+
+func (differExit) Error() string { return "" }
+func (differExit) ExitCode() int { return 1 }
 
 type usageErr struct {
 	msg string
