@@ -234,9 +234,9 @@ A PEM file is rewritten like `--app ssl` (atomic install, refuse empty bundle). 
 
 pdfsig and other poppler NSS users trust an NSS database. `--app poppler` uses that database. `list` shows the chosen path (verbose table `PATH`, and JSON `path`). `apps` prints the same path in the PATH column.
 
-`--store <dir>` is poppler's `-nssdir` and skips discovery. Otherwise the directory is chosen the same way as poppler's `NSSSignatureConfiguration::setNSSDir`: the newest Firefox profile whose name contains `default` when `certutil -L -d sql:<dir>` succeeds. A profile that fails that probe falls back to `~/.pki/nssdb` (a failed Firefox open does not try `/etc/pki/nssdb`). With no profile, `/etc/pki/nssdb` is used when it contains `cert9.db` and the probe succeeds; otherwise `~/.pki/nssdb`.
+`--store <dir>` is poppler's `-nssdir` and skips discovery. Otherwise the directory is chosen the same way as poppler's `NSSSignatureConfiguration::setNSSDir`: the newest Firefox profile whose name contains `default` and that has a regular non-empty `cert9.db` (a cert8-only profile is skipped) when `certutil -L -d sql:<dir>` succeeds, or when certutil cannot be found or run. A profile that fails that probe falls back to `~/.pki/nssdb` (a failed Firefox open does not try `/etc/pki/nssdb`). With no cert9 profile, `/etc/pki/nssdb` is used when it contains a regular non-empty `cert9.db` and the probe succeeds or certutil cannot be found or run; otherwise `~/.pki/nssdb`. `apps` marks poppler found only when that chosen directory contains `cert9.db`. `list` still shows the chosen path.
 
-Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Built-in `libnssckbi` roots are not enumerated yet, so a root that exists only in that module is not listed and is not distrusted.
+Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. Built-in `libnssckbi` roots are not enumerated yet, so a root that exists only in that module is not listed and is not distrusted.
 
 ```bash
 trustprune list --app poppler
@@ -249,7 +249,7 @@ trustprune allowlist --app poppler --store /path/to/nssdb --file allowlist.yaml 
 
 ## allowlist
 
-Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). Always applies Chromium's certificate blocklist so known-bad CAs are never kept (cannot be disabled).
+Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist so known-bad CAs are never kept (cannot be disabled).
 
 Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
 
@@ -281,6 +281,7 @@ dry-run: 2 kept, 3 removed
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
 | `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed` |
+| `--force` | Allow an NSS allowlist when the latest backup was taken from a different directory and this directory has no backup of its own |
 | `-v`, `--v` | With `--dry-run`, also print per-certificate remove and keep details |
 
 Example YAML:

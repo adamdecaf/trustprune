@@ -69,6 +69,12 @@ func allowlistStore(s store.Store, app, path string) error {
 	if latest == "" {
 		return store.NoBackupError(app)
 	}
+	// An NSS backup recorded for a different directory does not authorize
+	// changes here unless this directory has a backup of its own. --force
+	// allows it, the same way restore does.
+	if err := store.NSSAllowlistBackupError(s, app); err != nil {
+		return err
+	}
 
 	if err := s.Remove(al); err != nil {
 		return err

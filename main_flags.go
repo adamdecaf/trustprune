@@ -240,3 +240,12 @@ func flagForce() *cli.BoolFlag {
 		Local:       true,
 	}
 }
+
+func flagAllowlistForce() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "force",
+		Usage:       "allow an allowlist when the latest NSS backup was taken from a different directory",
+		HideDefault: true,
+		Local:       true,
+	}
+}

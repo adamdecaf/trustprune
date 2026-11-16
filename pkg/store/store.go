@@ -566,12 +566,17 @@ func getLatestBackup(dir string) (string, error) {
 // empty legacy is ignored. If no basename parses as a timestamp, falls back to
 // lexicographic SortNames (last wins), still preferring primary for ties on the
 // same basename.
-func getLatestBackupAmong(primary string, legacy string) (string, error) {
-	type cand struct {
-		path        string
-		fromPrimary bool
-	}
-	seen := make(map[string]cand)
+type storeBackupCand struct {
+	path        string
+	fromPrimary bool
+}
+
+// listStoreBackupCandidates merges primary and legacy backup directory
+// listings. primary is preferred for a given basename. A non-missing read
+// error on primary is returned immediately; legacy is only consulted when
+// primary is absent or readable. empty legacy is ignored.
+func listStoreBackupCandidates(primary, legacy string) (map[string]storeBackupCand, []string, error) {
+	seen := make(map[string]storeBackupCand)
 	var names []string
 
 	primaryEnts, primaryErr := os.ReadDir(primary)
@@ -582,13 +587,13 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 			if isBackupSourceSidecar(name) {
 				continue
 			}
-			seen[name] = cand{path: filepath.Join(primary, name), fromPrimary: true}
+			seen[name] = storeBackupCand{path: filepath.Join(primary, name), fromPrimary: true}
 			names = append(names, name)
 		}
 	case os.IsNotExist(primaryErr):
 		// Fall through to legacy.
 	default:
-		return "", primaryErr
+		return nil, nil, primaryErr
 	}
 
 	if legacy != "" {
@@ -603,7 +608,7 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 				if _, ok := seen[name]; ok {
 					continue
 				}
-				seen[name] = cand{path: filepath.Join(legacy, name), fromPrimary: false}
+				seen[name] = storeBackupCand{path: filepath.Join(legacy, name), fromPrimary: false}
 				names = append(names, name)
 			}
 		case os.IsNotExist(legacyErr):
@@ -611,9 +616,31 @@ func getLatestBackupAmong(primary string, legacy string) (string, error) {
 		default:
 			// No usable primary entries and legacy is unreadable: surface that.
 			if len(names) == 0 {
-				return "", legacyErr
+				return nil, nil, legacyErr
 			}
 		}
+	}
+	return seen, names, nil
+}
+
+// listStoreBackupPaths returns the merged backup paths, primary preferred
+// for a given basename.
+func listStoreBackupPaths(primary, legacy string) ([]string, error) {
+	seen, names, err := listStoreBackupCandidates(primary, legacy)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, seen[name].path)
+	}
+	return out, nil
+}
+
+func getLatestBackupAmong(primary string, legacy string) (string, error) {
+	seen, names, err := listStoreBackupCandidates(primary, legacy)
+	if err != nil {
+		return "", err
 	}
 
 	if len(names) == 0 {

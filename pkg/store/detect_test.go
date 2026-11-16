@@ -101,6 +101,47 @@ func TestDetectJavaWithTempKeystore(t *testing.T) {
 	}
 }
 
+func TestDetectPopplerFoundRequiresCert9(t *testing.T) {
+	home := t.TempDir()
+	sys := t.TempDir()
+	opens := func(string) (bool, error) { return true, nil }
+	selected := PopplerNSSDir(home, "", getenvMap(nil), sys, opens)
+	fallback := filepath.Join(home, ".pki", "nssdb")
+	if selected != fallback {
+		t.Fatalf("PopplerNSSDir()=%q want fallback %q", selected, fallback)
+	}
+	// Path selection still returns the fallback. Found does not treat that
+	// path as an existing store.
+	st := popplerDetectStatus(selected)
+	if st.Name != "poppler" || st.Found || st.Path != "" {
+		t.Fatalf("clean machine status=%#v, want not found", st)
+	}
+
+	if err := os.MkdirAll(fallback, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	st = popplerDetectStatus(fallback)
+	if st.Found || st.Path != "" {
+		t.Fatalf("directory without cert9.db marked found: %#v", st)
+	}
+
+	if err := os.WriteFile(filepath.Join(fallback, "cert9.db"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st = popplerDetectStatus(fallback)
+	if st.Found {
+		t.Fatalf("empty cert9.db marked found: %#v", st)
+	}
+
+	if err := os.WriteFile(filepath.Join(fallback, "cert9.db"), []byte("certdb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st = popplerDetectStatus(fallback)
+	if !st.Found || st.Path != fallback {
+		t.Fatalf("cert9 status=%#v, want found %q", st, fallback)
+	}
+}
+
 func TestDetectOpenSSLWithTempPath(t *testing.T) {
 	isolateOpenSSLLookup(t)
 

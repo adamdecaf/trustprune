@@ -1315,3 +1315,5 @@ func TestNSSLatestBackup_SkipsSourceSidecar(t *testing.T) {
 		t.Fatalf("sidecar picked as chrome backup: %q", got)
 	}
 }
+
+

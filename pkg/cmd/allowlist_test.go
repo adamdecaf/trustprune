@@ -167,6 +167,116 @@ func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 	}
 }
 
+// allowlistRecorder counts Remove and does not touch the live NSS DB.
+type allowlistRecorder struct {
+	store.Store
+	removed bool
+}
+
+func (s *allowlistRecorder) Remove(allowlist.Allowlist) error {
+	s.removed = true
+	return nil
+}
+
+func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	store.SetForceRestore(false)
+	store.SetDryRun(false)
+	t.Cleanup(func() {
+		store.SetForceRestore(false)
+		store.SetDryRun(false)
+		store.SetDryRunOutput(nil)
+	})
+
+	a := filepath.Join(t.TempDir(), "a")
+	b := filepath.Join(t.TempDir(), "b")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte(dir+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	alPath := filepath.Join(t.TempDir(), "allowlist.json")
+	if err := os.WriteFile(alPath, []byte(`{"Fingerprints":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sA := store.NssStore("poppler", "0", a)
+	if err := sA.Backup(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("mismatch refuses before remove", func(t *testing.T) {
+		for _, dry := range []bool{false, true} {
+			name := "write"
+			if dry {
+				name = "dry-run"
+			}
+			t.Run(name, func(t *testing.T) {
+				store.SetForceRestore(false)
+				store.SetDryRun(dry)
+				var plan bytes.Buffer
+				store.SetDryRunOutput(&plan)
+				g := &noWriteStore{Store: store.NssStore("poppler", "0", b)}
+				err := allowlistStore(g, "poppler", alPath)
+				if g.removed {
+					t.Fatal("Remove was called for a backup recorded from another directory")
+				}
+				if err == nil {
+					t.Fatal("expected an error")
+				}
+				msg := err.Error()
+				if !strings.Contains(msg, "trustprune backup") || !strings.Contains(msg, b) || !strings.Contains(msg, "--store") || !strings.Contains(msg, a) {
+					t.Fatalf("error should name store B, source A, and trustprune backup: %v", err)
+				}
+				if !strings.Contains(msg, "--force") {
+					t.Fatalf("error should mention --force: %v", err)
+				}
+				if plan.Len() != 0 {
+					t.Fatalf("plan printed before refusing: %q", plan.String())
+				}
+			})
+		}
+	})
+
+	t.Run("force reaches remove", func(t *testing.T) {
+		store.SetForceRestore(true)
+		store.SetDryRun(true)
+		g := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
+		if err := allowlistStore(g, "poppler", alPath); err != nil {
+			t.Fatal(err)
+		}
+		if !g.removed {
+			t.Fatal("--force did not reach Remove")
+		}
+	})
+
+	t.Run("older backup of this store still authorizes", func(t *testing.T) {
+		store.SetForceRestore(false)
+		store.SetDryRun(false)
+		sB := store.NssStore("poppler", "0", b)
+		if err := sB.Backup(); err != nil {
+			t.Fatal(err)
+		}
+		// A newer backup of A must not hide B's own backup.
+		if err := store.NssStore("poppler", "0", a).Backup(); err != nil {
+			t.Fatal(err)
+		}
+		store.SetDryRun(true)
+		g := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
+		if err := allowlistStore(g, "poppler", alPath); err != nil {
+			t.Fatal(err)
+		}
+		if !g.removed {
+			t.Fatal("B's own backup did not authorize allowlist")
+		}
+	})
+}
+
 func TestNoBackupError_Platform(t *testing.T) {
 	err := store.NoBackupError("")
 	if !strings.Contains(err.Error(), "no backup for "+runtime.GOOS+" in ") ||
