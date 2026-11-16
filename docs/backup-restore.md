@@ -80,7 +80,7 @@ NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile
 
 A failed stage leaves the live profile files untouched. Restore from a **legacy single file** uses the same stage-then-swap path onto `cert9.db` (or `cert8.db` if the backup basename contains `cert8`). Explicit `--backup` is honored.
 
-Backup also writes a `source` file in the timestamp directory recording the profile directory the files came from. That file is not part of the profile set and is not copied onto the live profile. Restore compares it to the profile being restored into and refuses a different directory before any write (dry-run included) unless `--force` is given. A backup with no `source` file — an older release, or a legacy single file — is refused the same way unless `--force`. Firefox profiles share one backup directory, so a source-less backup is not assumed to belong to the profile currently selected.
+Backup also writes a `source` file in the timestamp directory recording the resolved profile directory the files came from (symlinks are followed so a later retarget cannot silently match). That file is not part of the profile set and is not copied onto the live profile. Restore compares it to the profile being restored into and refuses a different directory before any write (dry-run included) unless `--force` is given. A backup with no `source` file — an older release, or a legacy single file — is refused the same way unless `--force`. Firefox profiles share one backup directory, so a source-less backup is not assumed to belong to the profile currently selected.
 
 ## Java
 

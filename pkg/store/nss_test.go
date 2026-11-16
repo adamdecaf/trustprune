@@ -1023,6 +1023,79 @@ func TestNSSRestore_MatchingSource(t *testing.T) {
 	}
 }
 
+func TestNSSRestore_SymlinkRetargetRequiresForce(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	nssResetForce(t)
+
+	root := t.TempDir()
+	a := filepath.Join(root, "a")
+	b := filepath.Join(root, "b")
+	link := filepath.Join(root, "current")
+	for _, dir := range []string{a, b} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(a, "cert9.db"), []byte("from-a\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(b, "cert9.db"), []byte("live-b\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(a, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+
+	s := NssStore("firefox", "0", link)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := s.GetLatestBackup()
+	if err != nil || latest == "" {
+		t.Fatalf("GetLatestBackup: %q err=%v", latest, err)
+	}
+	got, err := readNSSBackupSource(latest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("recorded source %q want resolved path %q", got, want)
+	}
+
+	if err := os.Remove(link); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(b, link); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.Restore("")
+	if err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected refuse after symlink retarget, got %v", err)
+	}
+	body, err := os.ReadFile(filepath.Join(b, "cert9.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(body, []byte("live-b\n")) {
+		t.Fatalf("B mutated without --force: %q", body)
+	}
+}
+
+func TestWriteNSSBackupSource_UnresolvablePath(t *testing.T) {
+	dir := t.TempDir()
+	dangling := filepath.Join(dir, "missing")
+	if err := writeNSSBackupSource(dir, dangling); err == nil {
+		t.Fatal("expected error for unresolvable profile path")
+	}
+}
+
 func TestNSSRestore_RefusesMismatchedProfile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

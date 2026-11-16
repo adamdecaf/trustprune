@@ -241,14 +241,34 @@ func (s nssStore) Backup() error {
 	return nil
 }
 
-// nssCanonicalPath returns the absolute, cleaned profile directory. Symlinks
-// are not resolved here: the recorded path is what the operator named, and
-// sameNSSProfile still treats a resolved symlink as the same profile.
-func nssCanonicalPath(p string) string {
+// nssCleanPath returns the absolute, cleaned profile directory without
+// following symlinks.
+func nssCleanPath(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}
 	return filepath.Clean(p)
+}
+
+// nssResolvedPath follows symlinks after cleaning. It errors if resolution
+// fails so a backup cannot record a path whose target may later change.
+func nssResolvedPath(p string) (string, error) {
+	p = nssCleanPath(p)
+	resolved, err := filepath.EvalSymlinks(p)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
+// nssCanonicalPath returns the absolute, cleaned profile directory, following
+// symlinks when they resolve. If resolution fails, it returns the cleaned path.
+func nssCanonicalPath(p string) string {
+	resolved, err := nssResolvedPath(p)
+	if err != nil {
+		return nssCleanPath(p)
+	}
+	return resolved
 }
 
 // sameNSSProfile reports whether a recorded source path names profile, either
@@ -264,14 +284,19 @@ func sameNSSProfile(recorded, profile string) bool {
 }
 
 // writeNSSBackupSource creates the source sidecar exactly once (O_EXCL).
-// A second call fails and leaves the first record untouched.
+// The recorded path is the resolved profile directory. A second call fails
+// and leaves the first record untouched.
 func writeNSSBackupSource(dir, profile string) error {
+	recorded, err := nssResolvedPath(profile)
+	if err != nil {
+		return fmt.Errorf("store/nss: resolving profile path %s: %w", nssCleanPath(profile), err)
+	}
 	path := filepath.Join(dir, nssBackupSourceName)
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
-	_, err = f.WriteString(nssCanonicalPath(profile) + "\n")
+	_, err = f.WriteString(recorded + "\n")
 	if err == nil {
 		err = f.Sync()
 	}
