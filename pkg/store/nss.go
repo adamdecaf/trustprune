@@ -917,6 +917,10 @@ func (c crtutil) getExecPath() (string, error) {
 			return c.execPaths[i], nil
 		}
 	}
+	// Fall back to PATH so installs outside the usual prefixes are found.
+	if p, err := exec.LookPath("certutil"); err == nil {
+		return p, nil
+	}
 	return "", errors.New("nss: certutil not found; install NSS tools (libnss3-tools, nss-tools or brew install nss)")
 }
 

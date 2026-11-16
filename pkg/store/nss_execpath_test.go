@@ -59,7 +59,19 @@ func TestNSSGetExecPath(t *testing.T) {
 		t.Errorf("got %q, want %q", got, bin)
 	}
 
+	// Not in execPaths, but on PATH: found through the PATH fallback.
+	t.Setenv("PATH", dir)
 	c = crtutil{execPaths: []string{missing}}
+	got, err = c.getExecPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != bin {
+		t.Errorf("PATH fallback: got %q, want %q", got, bin)
+	}
+
+	// Neither in execPaths nor on PATH.
+	t.Setenv("PATH", t.TempDir())
 	if _, err := c.getExecPath(); err == nil || !strings.Contains(err.Error(), "install NSS tools") {
 		t.Errorf("expected actionable not-found error, got %v", err)
 	}
