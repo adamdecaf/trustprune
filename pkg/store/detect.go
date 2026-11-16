@@ -54,6 +54,8 @@ func detectApp(name string) Status {
 		return detectJava()
 	case "openssl":
 		return detectOpenSSL()
+	case "poppler":
+		return detectPoppler()
 	case "ssl":
 		return detectSSL()
 	default:
@@ -119,6 +121,16 @@ func detectFirefox() Status {
 	if len(dirs) > 0 {
 		s.Found = true
 		s.Path = dirs[0]
+	}
+	return s
+}
+
+func detectPoppler() Status {
+	s := Status{Name: "poppler"}
+	dir := popplerNSSDir()
+	if dir != "" {
+		s.Found = true
+		s.Path = dir
 	}
 	return s
 }

@@ -121,8 +121,8 @@ func TestCLIStoreOverrideRejectedBeforeWrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	const sentinel = "preserve-me\n"
-	const wantFirefox = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
-	const wantNoApp = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+	const wantFirefox = "--store with --app firefox is only supported for java (keystore override), certifi (cacert.pem override) and poppler (nss db override)"
+	const wantNoApp = "--store overrides the trust store path and is only supported with --app java, --app certifi or --app poppler"
 
 	// Commands that take --store: add, allowlist, backup, connect, list, restore.
 	// --file is required on add and allowlist. connect gets a URL so a missed

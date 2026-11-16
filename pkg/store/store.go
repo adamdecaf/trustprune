@@ -40,6 +40,7 @@ var (
 		"firefox": FirefoxStore(),
 		"java":    JavaStore(),
 		"openssl": OpenSSLStore(),
+		"poppler": PopplerStore(),
 		"ssl":     SSLStore(),
 	}
 
@@ -146,7 +147,7 @@ func platformAppName(app string) bool {
 // storeOverrideApp is an app that accepts a non-empty trust-store path
 // (CLI --store). storeOverrideApps is the only such list. ForAppWithStore and
 // the rejection messages are built from it. Order is part of the text:
-// java, then certifi.
+// java, then certifi, then poppler.
 type storeOverrideApp struct {
 	name string
 	// what is the parenthetical in the rejection message.
@@ -157,12 +158,13 @@ type storeOverrideApp struct {
 var storeOverrideApps = []storeOverrideApp{
 	{name: "java", what: "keystore override", at: JavaStoreAt},
 	{name: "certifi", what: "cacert.pem override", at: CertifiStoreAt},
+	{name: "poppler", what: "nss db override", at: PopplerStoreAt},
 }
 
 // SupportsStoreOverride reports whether app accepts a non-empty trust-store
 // path (CLI --store). The check is case-insensitive and does not trim.
-// java and certifi return true. Every other name, including the platform OS
-// name and unknown apps, returns false.
+// java, certifi, and poppler return true. Every other name, including the
+// platform OS name and unknown apps, returns false.
 func SupportsStoreOverride(app string) bool {
 	key := strings.ToLower(app)
 	for i := range storeOverrideApps {
@@ -271,9 +273,10 @@ func ForApp(app string) (Store, error) {
 
 // ForAppWithStore returns a Store for app, optionally overriding the trust-store
 // path with storePath. java uses it as a keystore override; certifi uses it as a
-// cacert.pem override (one bundle per venv). Used by -store on list, backup,
-// connect, restore, add, and allowlist. Other apps, including the platform OS
-// name, reject a non-empty storePath. Empty storePath is ForApp.
+// cacert.pem override (one bundle per venv); poppler uses it as an NSS directory
+// (pdfsig -nssdir). Used by -store on list, backup, connect, restore, add, and
+// allowlist. Other apps, including the platform OS name, reject a non-empty
+// storePath. Empty storePath is ForApp.
 // Apps that accept storePath are storeOverrideApps (SupportsStoreOverride).
 func ForAppWithStore(app, storePath string) (Store, error) {
 	if strings.TrimSpace(storePath) == "" {

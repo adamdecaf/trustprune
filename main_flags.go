@@ -35,7 +35,7 @@ func flagApp() *cli.StringFlag {
 func flagStore() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:      "store",
-		Usage:     "trust-store path for --app java (cacerts) or --app certifi (cacert.pem)",
+		Usage:     "trust-store path for --app java (cacerts), --app certifi (cacert.pem), or --app poppler (NSS db)",
 		TakesFile: true,
 		Local:     true,
 	}

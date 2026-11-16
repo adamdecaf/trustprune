@@ -37,10 +37,11 @@ func addCommand(st *runState) *cli.Command {
   Add a certificate to an application's store
     trustprune add --file <path> --app <name>
 
-  Add a certificate to a specific certifi bundle or Java keystore.
+  Add a certificate to a specific certifi bundle, Java keystore, or poppler NSS db.
   --file is the certificate to import. --store is the trust store.
     trustprune add --file <path> --app certifi --store /path/to/cacert.pem
     trustprune add --file <path> --app java --store /path/to/cacerts
+    trustprune add --file <path> --app poppler --store /path/to/nssdb
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
@@ -86,9 +87,10 @@ func allowlistCommand(st *runState) *cli.Command {
   Remove untrusted certificates in an app
     trustprune allowlist --file allowlist.json --app java
 
-  --file is the allowlist. --store overrides the java or certifi store path.
+  --file is the allowlist. --store overrides the java, certifi, or poppler store path.
     trustprune allowlist --file allowlist.yaml --app certifi --store /path/to/cacert.pem
     trustprune allowlist --file allowlist.yaml --app java --store /path/to/cacerts
+    trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb
 
   Remove untrusted certificates in an explicit OpenSSL PEM CA bundle
     trustprune allowlist --app openssl --file allowlist.json --bundle /path/to/ca-bundle.pem
@@ -113,7 +115,7 @@ func allowlistBefore(ctx context.Context, c *cli.Command) (context.Context, erro
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err
 	}
-	if err := rejectStoreWithBundle(c, "allowlist: --bundle names the openssl PEM; --store is only for java/certifi"); err != nil {
+	if err := rejectStoreWithBundle(c, "allowlist: --bundle names the openssl PEM; --store is only for java/certifi/poppler"); err != nil {
 		return ctx, err
 	}
 	return ctx, rejectIncompatibleStore(c)
@@ -182,6 +184,7 @@ func backupCommand(st *runState) *cli.Command {
 
   Java: --store <cacerts> overrides trust-store search and backs up that keystore.
   Certifi: --store <cacert.pem> overrides discovery and backs up that bundle.
+  Poppler: --store <dir> is pdfsig -nssdir and backs up that NSS db.
   OpenSSL: --bundle <ca-bundle.pem> backs up that PEM file instead of discovery.
     trustprune backup --app openssl --bundle /path/to/ca-bundle.pem
 
@@ -237,7 +240,7 @@ and treated as https. Pass the target as --url <url> or as one positional argume
 Explicit http:// is rejected. If --app is provided then the certificates for that
 application are loaded and used for the connection.
 
-  --store <path> overrides discovery for --app java (cacerts) and --app certifi (cacert.pem).
+  --store <path> overrides discovery for --app java (cacerts), --app certifi (cacert.pem), and --app poppler (NSS db).
   -v, --verbose prints the verified chain after the one-line summary. It has no effect with --format json.
   --format text (default) or json. An unknown format is a usage error.
 
@@ -399,9 +402,11 @@ func listCommand(st *runState) *cli.Command {
   List certificates from a file (no --app). --file here is not a store path.
     trustprune list --file <path>
 
-  List certificates from a Java keystore or certifi bundle (skips discovery)
+  List certificates from a Java keystore, certifi bundle, or poppler NSS db (skips discovery).
+  The chosen path is included in list output.
     trustprune list --app java --store <cacerts>
     trustprune list --app certifi --store /path/to/cacert.pem
+    trustprune list --app poppler --store /path/to/nssdb
 
   List certificates in an explicit OpenSSL PEM CA bundle
     trustprune list --app openssl --bundle /path/to/ca-bundle.pem
@@ -465,9 +470,9 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 	}
 	app := flagString(c, "app")
 	if app != "" && flagString(c, "file") != "" {
-		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java or certifi path")
+		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java, certifi, or poppler path")
 	}
-	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi path, not both"); err != nil {
+	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi/poppler path, not both"); err != nil {
 		return ctx, err
 	}
 	return ctx, rejectIncompatibleStore(c)
@@ -512,12 +517,13 @@ func restoreCommand(st *runState) *cli.Command {
   Restore an application from its latest matching backup
     trustprune restore --app java
 
-  Java and certifi: --store is the store to restore into (same as backup/list).
+  Java, certifi, and poppler: --store is the store to restore into (same as backup/list).
   --backup selects the backup source. A backup taken from a different path is
   refused before any write unless --force is given.
     trustprune restore --app certifi --store /path/to/venv/.../cacert.pem
     trustprune restore --app java --store /path/to/cacerts --backup /path/to/cacerts-<ts>.bck
     trustprune restore --app java --store /other/cacerts --backup <backup> --force
+    trustprune restore --app poppler --store /path/to/nssdb
 
   OpenSSL: --bundle is the live PEM to restore into. --backup is the backup
   source. A backup recorded for a different PEM is refused unless --force.
@@ -525,7 +531,7 @@ func restoreCommand(st *runState) *cli.Command {
     trustprune restore --app openssl --bundle /path/to/ca-bundle.pem --backup <backup-dir>
     trustprune restore --app openssl --bundle /other/ca-bundle.pem --backup <backup-dir> --force
 
-  NSS (firefox, and chrome on Linux): backups record the profile directory.
+  NSS (firefox, poppler, and chrome on Linux): backups record the profile directory.
   Restore into a different profile, or from a backup with no recorded profile,
   is refused before any write unless --force.
     trustprune restore --app firefox
@@ -551,7 +557,7 @@ func restoreBefore(ctx context.Context, c *cli.Command) (context.Context, error)
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err
 	}
-	if err := rejectStoreWithBundle(c, "restore: --bundle names the openssl PEM to restore into; --store is only for java/certifi"); err != nil {
+	if err := rejectStoreWithBundle(c, "restore: --bundle names the openssl PEM to restore into; --store is only for java/certifi/poppler"); err != nil {
 		return ctx, err
 	}
 	return ctx, rejectIncompatibleStore(c)

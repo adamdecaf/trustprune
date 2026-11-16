@@ -27,7 +27,7 @@ func storePath(c *cli.Command) string {
 
 // rejectIncompatibleStore rejects --store unless --app supports a trust-store
 // path override. The allowed apps come from store.SupportsStoreOverride
-// (java and certifi), not a second list here.
+// (java, certifi, and poppler), not a second list here.
 //
 // No --app, and a recognized app that does not support --store (for example
 // firefox, or the platform OS name), are usage errors. An unknown app keeps

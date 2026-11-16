@@ -158,15 +158,15 @@ func TestRestorePrintsLivePath(t *testing.T) {
 }
 
 // TestRestore_StoreRejectedForUnsupportedApp checks that --store is only a
-// restore target for java and certifi; other apps must error, not treat it as
-// a backup source.
+// restore target for java, certifi, and poppler; other apps must error, not
+// treat it as a backup source.
 func TestRestore_StoreRejectedForUnsupportedApp(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
 	storePath := filepath.Join(t.TempDir(), "cert9.db")
 	err := Restore("firefox", storePath, "")
-	const want = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	const want = "--store with --app firefox is only supported for java (keystore override), certifi (cacert.pem override) and poppler (nss db override)"
 	if err == nil || err.Error() != want {
 		t.Fatalf("error %v, want %q", err, want)
 	}
@@ -193,7 +193,7 @@ func TestRestore_EmptyAppWithStoreRejected(t *testing.T) {
 	// can rewrite the host CA directory. This case must fail before that call.
 	dir := t.TempDir()
 	storePath := filepath.Join(dir, "nested", "cacerts")
-	const want = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+	const want = "--store overrides the trust store path and is only supported with --app java, --app certifi or --app poppler"
 
 	for _, app := range []string{"", "   "} {
 		err := Restore(app, storePath, "")

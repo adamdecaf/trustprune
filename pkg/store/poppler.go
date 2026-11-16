@@ -15,9 +15,45 @@
 package store
 
 import (
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+
+	"github.com/adamdecaf/trustprune/pkg/file"
 )
+
+// PopplerStore returns the NSS store pdfsig uses when no directory is given.
+// The path is PopplerNSSDir with this process's home, APPDATA, and environment.
+func PopplerStore() Store {
+	return NssStore("poppler", "", popplerNSSDir())
+}
+
+// PopplerStoreAt returns an NSS store at dir and skips PopplerNSSDir.
+// dir is an explicit --store path (pdfsig -nssdir).
+func PopplerStoreAt(dir string) Store {
+	return NssStore("poppler", "", dir)
+}
+
+func popplerNSSDir() string {
+	return PopplerNSSDir(file.HomeDir(), os.Getenv("APPDATA"), os.Getenv, "/etc/pki/nssdb", popplerNSSOpens)
+}
+
+// popplerNSSOpens reports whether certutil can list dir as a shared NSS DB.
+// Output is discarded; only a zero exit counts as success.
+func popplerNSSOpens(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	expath, err := cutil.getExecPath()
+	if err != nil {
+		return false
+	}
+	cmd := exec.Command(expath, "-L", "-d", "sql:"+dir)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run() == nil
+}
 
 // PopplerNSSDir mirrors poppler's NSSSignatureConfiguration::setNSSDir when no
 // explicit -nssdir is given. It returns the first FirefoxProfileDirs entry if

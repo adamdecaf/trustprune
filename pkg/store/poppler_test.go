@@ -21,6 +21,42 @@ import (
 	"time"
 )
 
+func TestForAppPopplerIsNSS(t *testing.T) {
+	s, err := ForApp("poppler")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ns, ok := s.(nssStore)
+	if !ok {
+		t.Fatalf("ForApp(\"poppler\") type %T, want nssStore", s)
+	}
+	if ns.nssType != "poppler" {
+		t.Fatalf("nssType=%q", ns.nssType)
+	}
+	info := s.GetInfo()
+	if info == nil || info.Name != "Poppler" || info.Path == "" {
+		t.Fatalf("GetInfo()=%#v, want name Poppler and a path", info)
+	}
+	detected := detectPoppler()
+	if detected.Name != "poppler" || !detected.Found || detected.Path == "" {
+		t.Fatalf("detectPoppler()=%#v, want the chosen path", detected)
+	}
+
+	const override = "/tmp/poppler-nssdb"
+	over, err := ForAppWithStore("poppler", override)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ons, ok := over.(nssStore)
+	if !ok || ons.nssType != "poppler" {
+		t.Fatalf("override type %T", over)
+	}
+	oinfo := over.GetInfo()
+	if oinfo == nil || oinfo.Path != override || oinfo.Name != "Poppler" {
+		t.Fatalf("override GetInfo()=%#v, want path %s", oinfo, override)
+	}
+}
+
 func TestPopplerNSSDir(t *testing.T) {
 	alwaysOpen := func(string) bool { return true }
 	neverOpen := func(string) bool { return false }

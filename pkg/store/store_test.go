@@ -340,8 +340,8 @@ func TestGetLatestBackup_NSSMixedUnderTempHome(t *testing.T) {
 }
 
 func TestStoreOverrideSourceOfTruth(t *testing.T) {
-	if !SupportsStoreOverride("java") || !SupportsStoreOverride("JAVA") || !SupportsStoreOverride("certifi") {
-		t.Fatal("java and certifi must accept --store")
+	if !SupportsStoreOverride("java") || !SupportsStoreOverride("JAVA") || !SupportsStoreOverride("certifi") || !SupportsStoreOverride("poppler") || !SupportsStoreOverride("POPPLER") {
+		t.Fatal("java, certifi, and poppler must accept --store")
 	}
 	for _, app := range []string{"firefox", "chrome", "openssl", "ssl", runtime.GOOS, "nope", "", " java"} {
 		if SupportsStoreOverride(app) {
@@ -349,7 +349,7 @@ func TestStoreOverrideSourceOfTruth(t *testing.T) {
 		}
 	}
 
-	const wantFirefox = "--store with --app firefox is only supported for java (keystore override) and certifi (cacert.pem override)"
+	const wantFirefox = "--store with --app firefox is only supported for java (keystore override), certifi (cacert.pem override) and poppler (nss db override)"
 	if got := StoreOverrideUnsupportedError("firefox").Error(); got != wantFirefox {
 		t.Fatalf("unsupported error %q", got)
 	}
@@ -363,7 +363,7 @@ func TestStoreOverrideSourceOfTruth(t *testing.T) {
 		t.Fatalf("ForAppWithStore %s: %v", runtime.GOOS, err)
 	}
 
-	const wantNoApp = "--store overrides the trust store path and is only supported with --app java or --app certifi"
+	const wantNoApp = "--store overrides the trust store path and is only supported with --app java, --app certifi or --app poppler"
 	if got := StoreOverrideNoAppError().Error(); got != wantNoApp {
 		t.Fatalf("no-app error %q", got)
 	}
