@@ -105,6 +105,26 @@ func TestFirefoxProfileDirs(t *testing.T) {
 			},
 		},
 		{
+			name: "reject cert9.db directory",
+			setup: func(t *testing.T) (string, string, func(string) string, []string) {
+				home := t.TempDir()
+				bad := filepath.Join(home, ".mozilla", "firefox", "aaaa.default-release")
+				if err := os.MkdirAll(filepath.Join(bad, "cert9.db"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				// Give the directory a nonzero size and a newer mtime than the valid DB.
+				if err := os.WriteFile(filepath.Join(bad, "cert9.db", "x"), []byte("x"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Chtimes(filepath.Join(bad, "cert9.db"), newer, newer); err != nil {
+					t.Fatal(err)
+				}
+				good := filepath.Join(home, ".mozilla", "firefox", "bbbb.default")
+				writeFirefoxCertDB(t, good, "cert9.db", older)
+				return home, "", getenvMap(nil), []string{good}
+			},
+		},
+		{
 			name: "MOZ_LEGACY_HOME=1 still prefers newer XDG profile",
 			setup: func(t *testing.T) (string, string, func(string) string, []string) {
 				home := t.TempDir()

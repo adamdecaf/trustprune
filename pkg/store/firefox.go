@@ -43,7 +43,7 @@ func FirefoxStore() Store {
 
 // FirefoxProfileDirs returns NSS profile directories under the given home
 // and Windows APPDATA roots. A profile is included when its directory name
-// contains "default" and it holds a non-empty cert9.db or cert8.db.
+// contains "default" and it holds a non-empty regular cert9.db or cert8.db file.
 // Results are ordered by most recent cert DB mtime first; equal mtimes
 // sort by path.
 //
@@ -153,7 +153,7 @@ func certDBModTime(dir string) (time.Time, bool) {
 		if os.IsNotExist(err) {
 			continue
 		}
-		if err != nil || cfi.Size() == 0 {
+		if err != nil || !cfi.Mode().IsRegular() || cfi.Size() == 0 {
 			return time.Time{}, false
 		}
 		return cfi.ModTime(), true
