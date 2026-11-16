@@ -65,5 +65,6 @@ Researched but not yet supported:
 - Android
 - Kubernetes
 - iOS
+- PDF reader document-signing trust (Adobe, Foxit, Okular, poppler): see the [research note](research/pdf-readers.md)
 
 [← Home](index.md)
