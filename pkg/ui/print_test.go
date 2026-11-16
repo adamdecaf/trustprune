@@ -23,6 +23,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -272,11 +273,17 @@ func TestTablePrinterVerboseGolden(t *testing.T) {
 	compareGolden(t, tableVerboseGoldenPath, out)
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	header := lines[0]
-	for _, name := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"} {
+	if lines[0] != "PATH: testdata/lots.crt" {
+		t.Fatalf("shared path line: %q", lines[0])
+	}
+	header := lines[1]
+	for _, name := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"} {
 		if !strings.Contains(header, name) {
 			t.Errorf("header missing %s: %q", name, header)
 		}
+	}
+	if strings.Contains(header, "PATH") {
+		t.Fatalf("shared path kept the PATH column: %q", header)
 	}
 	if strings.Contains(header, "SHA256 FINGERPRINT") || strings.Contains(header, "NOT BEFORE") || strings.Contains(header, "NOT AFTER") {
 		t.Fatalf("old verbose header spacing: %q", header)
@@ -437,7 +444,8 @@ func TestTablePrinterDaysMarkers(t *testing.T) {
 	if len(lines) < 6 {
 		t.Fatalf("expected header + 5 rows:\n%s", out)
 	}
-	// Find DAYS column by splitting on runs of spaces after tabwriter
+	// Find DAYS column by splitting on whitespace. Columns are separated by
+	// two spaces; Fields collapses that padding.
 	wantSubstr := map[string]string{
 		"Expired Root":  "expired",
 		"Soon Root":     "42!",
@@ -482,24 +490,231 @@ func TestTablePrinterDaysMarkers(t *testing.T) {
 	if strings.Contains(vout, "expired") || strings.Contains(vout, "42!") {
 		t.Fatalf("verbose table should keep numeric days:\n%s", vout)
 	}
-	if !strings.Contains(vout, "SHA256-FINGERPRINT") || !strings.Contains(vout, "NOT-BEFORE") || !strings.Contains(vout, "NOT-AFTER") || !strings.Contains(vout, "SERIAL") || !strings.Contains(vout, "PATH") {
+	vlines := strings.Split(strings.TrimRight(vout, "\n"), "\n")
+	if len(vlines) < 2 || vlines[0] != "PATH: -" {
+		t.Fatalf("shared empty path line:\n%s", vout)
+	}
+	vheader := vlines[1]
+	if strings.Contains(vheader, "PATH") {
+		t.Fatalf("shared path kept the PATH column:\n%s", vout)
+	}
+	if !strings.Contains(vheader, "SHA256-FINGERPRINT") || !strings.Contains(vheader, "NOT-BEFORE") || !strings.Contains(vheader, "NOT-AFTER") || !strings.Contains(vheader, "SERIAL") {
 		t.Fatalf("verbose headers:\n%s", vout)
 	}
 	if strings.Contains(vout, "SHA256 FINGERPRINT") || strings.Contains(vout, "NOT BEFORE") || strings.Contains(vout, "NOT AFTER") {
 		t.Fatalf("old verbose headers still present:\n%s", vout)
 	}
-	if !strings.Contains(vout, "\t-2\t") && !strings.Contains(vout, " -2 ") {
-		// tabwriter may use spaces; look for the expired cert's day count
-		found := false
-		for _, line := range strings.Split(vout, "\n") {
-			if strings.Contains(line, "Expired Root") && strings.Contains(line, "-2") {
-				found = true
-				break
+	found := false
+	for _, line := range vlines {
+		if strings.Contains(line, "Expired Root") && strings.Contains(line, "-2") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("verbose missing numeric -2 for expired:\n%s", vout)
+	}
+}
+
+func TestTableColumnWidthsMatchContent(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	certs := []*x509.Certificate{
+		mustTestCertWithExpiry(t, "Ab", now.Add(10*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Wider Subject", now.Add(200*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Expired Root", now.Add(-48*time.Hour)),
+	}
+
+	var buf bytes.Buffer
+	if err := (tablePrinter{now: now}).write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT"}
+	rows := expectedTableRows(certs, now, false, nil)
+	assertContentColumnWidths(t, buf.String(), headers, rows)
+
+	// DAYS is "expired" (7), wider than the header and not a fixed 8.
+	// SHA256-FINGERPRINT (19) is wider than the 16-character preview.
+	daysWidth := utf8.RuneCountInString("expired")
+	fpWidth := utf8.RuneCountInString("SHA256-FINGERPRINT")
+	if got := contentWidth(headers, rows, 3); got != daysWidth {
+		t.Fatalf("DAYS width=%d want %d", got, daysWidth)
+	}
+	if got := contentWidth(headers, rows, 4); got != fpWidth {
+		t.Fatalf("fingerprint width=%d want %d", got, fpWidth)
+	}
+}
+
+func TestVerboseTablePathColumn(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	certs := []*x509.Certificate{
+		mustTestCertWithExpiry(t, "Alpha", now.Add(100*24*time.Hour)),
+		mustTestCertWithExpiry(t, "Beta", now.Add(120*24*time.Hour)),
+	}
+
+	t.Run("shared path", func(t *testing.T) {
+		var buf bytes.Buffer
+		p := tablePrinter{verbose: true, paths: []string{"stores/one.pem", "stores/one.pem"}, now: now}
+		if err := p.write(&buf, certs); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		if len(lines) < 2 || lines[0] != "PATH: stores/one.pem" {
+			t.Fatalf("shared path line:\n%s", out)
+		}
+		if strings.Contains(lines[1], "PATH") {
+			t.Fatalf("PATH column kept for one path:\n%s", out)
+		}
+		for _, line := range lines[1:] {
+			if strings.Contains(line, "stores/one.pem") {
+				t.Fatalf("path repeated in the table:\n%s", out)
 			}
 		}
-		if !found {
-			t.Fatalf("verbose missing numeric -2 for expired:\n%s", vout)
+		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"}
+		rows := expectedTableRows(certs, now, true, []string{"stores/one.pem", "stores/one.pem"})
+		rows = dropPathCells(rows)
+		assertContentColumnWidths(t, strings.Join(lines[1:], "\n")+"\n", headers, rows)
+		// SERIAL is the header (6), not a fixed 48. DAYS is the header (4), not 8.
+		if got := contentWidth(headers, rows, 3); got != len("DAYS") {
+			t.Fatalf("verbose DAYS width=%d want %d", got, len("DAYS"))
 		}
+		if got := contentWidth(headers, rows, 5); got != len("SERIAL") {
+			t.Fatalf("SERIAL width=%d want %d", got, len("SERIAL"))
+		}
+	})
+
+	t.Run("mixed paths", func(t *testing.T) {
+		var buf bytes.Buffer
+		paths := []string{"a.pem", "b.pem"}
+		p := tablePrinter{verbose: true, paths: paths, now: now}
+		if err := p.write(&buf, certs); err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		if strings.HasPrefix(out, "PATH:") {
+			t.Fatalf("mixed paths were hoisted:\n%s", out)
+		}
+		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		if !strings.Contains(lines[0], "PATH") {
+			t.Fatalf("mixed paths dropped PATH:\n%s", out)
+		}
+		if !strings.Contains(out, "a.pem") || !strings.Contains(out, "b.pem") {
+			t.Fatalf("missing path cells:\n%s", out)
+		}
+		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"}
+		rows := expectedTableRows(certs, now, true, paths)
+		assertContentColumnWidths(t, out, headers, rows)
+		if got := contentWidth(headers, rows, 5); got != len("SERIAL") {
+			t.Fatalf("SERIAL width=%d want %d", got, len("SERIAL"))
+		}
+		if got := contentWidth(headers, rows, 6); got != len("a.pem") {
+			t.Fatalf("PATH width=%d want %d", got, len("a.pem"))
+		}
+	})
+}
+
+func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, paths []string) [][]string {
+	rows := make([][]string, len(certs))
+	for i, cert := range certs {
+		fp := certutil.GetHexSHA256Fingerprint(*cert)
+		subject := truncateColumn(certutil.StringifyPKIXName(cert.Subject), tableColumnWidth)
+		issuer := "="
+		if !bytes.Equal(cert.RawIssuer, cert.RawSubject) {
+			issuer = truncateColumn(certutil.StringifyPKIXName(cert.Issuer), tableColumnWidth)
+		}
+		key := certutil.FormatKeyLabel(cert)
+		daysLeft := certutil.DaysUntilExpiry(cert, now)
+		days := formatTableDays(daysLeft)
+		preview := fp[:fingerprintPreviewLength]
+		if verbose {
+			days = fmt.Sprintf("%d", daysLeft)
+			preview = fp
+		}
+		rows[i] = []string{subject, issuer, key, days, preview}
+		if verbose {
+			path := "-"
+			if i < len(paths) && paths[i] != "" {
+				path = paths[i]
+			}
+			rows[i] = append(rows[i],
+				cert.SerialNumber.String(),
+				path,
+				cert.NotBefore.Format("2006-01-02"),
+				cert.NotAfter.Format("2006-01-02"),
+			)
+		}
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		return strings.ToLower(strings.Join(rows[i], "\t")) < strings.ToLower(strings.Join(rows[j], "\t"))
+	})
+	return rows
+}
+
+func dropPathCells(rows [][]string) [][]string {
+	out := make([][]string, len(rows))
+	for i, row := range rows {
+		// SUBJECT ISSUER KEY DAYS FP SERIAL PATH NOT-BEFORE NOT-AFTER
+		next := append([]string{}, row[:6]...)
+		next = append(next, row[7:]...)
+		out[i] = next
+	}
+	return out
+}
+
+func contentWidth(headers []string, rows [][]string, col int) int {
+	w := utf8.RuneCountInString(headers[col])
+	for _, row := range rows {
+		if n := utf8.RuneCountInString(row[col]); n > w {
+			w = n
+		}
+	}
+	return w
+}
+
+func assertContentColumnWidths(t *testing.T, out string, headers []string, rows [][]string) {
+	t.Helper()
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	if len(lines) != len(rows)+1 {
+		t.Fatalf("got %d lines, want %d\n%s", len(lines), len(rows)+1, out)
+	}
+	widths := make([]int, len(headers))
+	for i, h := range headers {
+		widths[i] = utf8.RuneCountInString(h)
+	}
+	for _, row := range rows {
+		if len(row) != len(headers) {
+			t.Fatalf("row has %d cells, headers %d: %q", len(row), len(headers), row)
+		}
+		for i, cell := range row {
+			if n := utf8.RuneCountInString(cell); n > widths[i] {
+				widths[i] = n
+			}
+		}
+	}
+	check := func(line string, cells []string) {
+		t.Helper()
+		rest := line
+		for i, cell := range cells {
+			if !strings.HasPrefix(rest, cell) {
+				t.Fatalf("col %d %q: line %q rest %q", i, cell, line, rest)
+			}
+			rest = rest[len(cell):]
+			if i == len(cells)-1 {
+				if rest != "" {
+					t.Fatalf("trailing %q on %q", rest, line)
+				}
+				return
+			}
+			gap := strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)) + "  "
+			if !strings.HasPrefix(rest, gap) {
+				t.Fatalf("col %d gap %q want %q (width %d) line %q", i, rest, gap, widths[i], line)
+			}
+			rest = rest[len(gap):]
+		}
+	}
+	check(lines[0], headers)
+	for i, row := range rows {
+		check(lines[i+1], row)
 	}
 }
 

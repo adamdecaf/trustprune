@@ -65,7 +65,9 @@ type Config struct {
 	// Default (and possible) value(s) can be found in the ui package
 	UI string
 
-	// Verbose adds full fingerprint, serial, and store path columns to table output.
+	// Verbose adds the full fingerprint, serial, and dates to table output.
+	// A path shared by every row is printed once above the table; mixed paths
+	// stay in a PATH column.
 	Verbose bool
 
 	// SourcePath is the -file path when listing from a file (included in JSON).
