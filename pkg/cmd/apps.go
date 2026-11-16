@@ -48,25 +48,25 @@ func printAppsTerse(w io.Writer, statuses []store.Status) error {
 		headerApp    = "APP"
 		headerStatus = "STATUS"
 		headerPath   = "PATH"
-		stateWidth   = len("not-found")
 	)
 	maxName := len(headerApp)
+	stateWidth := len(headerStatus)
 	for _, s := range statuses {
 		if n := len(s.Name); n > maxName {
 			maxName = n
+		}
+		if n := len(s.StatusLabel()); n > stateWidth {
+			stateWidth = n
 		}
 	}
 	if _, err := fmt.Fprintf(w, "%-*s  %-*s  %s\n", maxName, headerApp, stateWidth, headerStatus, headerPath); err != nil {
 		return fmt.Errorf("writing apps output failed: %w; retry or use --format json", err)
 	}
 	for _, s := range statuses {
-		state := "not-found"
+		state := s.StatusLabel()
 		path := "-"
-		if s.Found {
-			state = "found"
-			if s.Path != "" {
-				path = s.Path
-			}
+		if s.Found && s.Path != "" {
+			path = s.Path
 		}
 		if _, err := fmt.Fprintf(w, "%-*s  %-*s  %s\n", maxName, s.Name, stateWidth, state, path); err != nil {
 			return fmt.Errorf("writing apps output failed: %w; retry or use --format json", err)

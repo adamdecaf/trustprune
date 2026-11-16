@@ -102,6 +102,44 @@ func TestPrintAppsShortIsTerse(t *testing.T) {
 	}
 }
 
+func TestPrintAppsGuideOnly(t *testing.T) {
+	t.Parallel()
+
+	statuses := []store.Status{
+		{Name: "firefox", Found: false},
+		{Name: "foxit", Found: true, GuideOnly: true, Path: "/Applications/Foxit PDF Editor.app"},
+	}
+	var buf bytes.Buffer
+	if err := printApps(&buf, statuses, ""); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines: %q", buf.String())
+	}
+	if !strings.Contains(lines[2], "foxit") || !strings.Contains(lines[2], "guide only") || !strings.Contains(lines[2], "/Applications/Foxit PDF Editor.app") {
+		t.Fatalf("foxit line = %q", lines[2])
+	}
+	if strings.Contains(lines[2], "not-found") {
+		t.Fatalf("installed foxit reported not-found: %q", lines[2])
+	}
+
+	buf.Reset()
+	if err := printApps(&buf, statuses, "json"); err != nil {
+		t.Fatal(err)
+	}
+	var got []store.Status
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || !got[1].Found || !got[1].GuideOnly || got[1].Path == "" {
+		t.Fatalf("json %#v", got)
+	}
+	if got[0].GuideOnly || strings.Count(buf.String(), `"guideOnly"`) != 1 {
+		t.Fatalf("guideOnly should appear only on the installed foxit row:\n%s", buf.String())
+	}
+}
+
 func TestPrintAppsUnknownFormat(t *testing.T) {
 	t.Parallel()
 

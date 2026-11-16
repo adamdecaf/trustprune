@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -23,6 +24,17 @@ import (
 
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
+
+func TestBackupForAppFoxitGuideOnly(t *testing.T) {
+	t.Parallel()
+	err := BackupForApp("foxit")
+	if !errors.Is(err, store.ErrFoxitGuideOnly) {
+		t.Fatalf("backup foxit: %v", err)
+	}
+	if !strings.Contains(err.Error(), "guide only") {
+		t.Fatalf("backup foxit: %v", err)
+	}
+}
 
 func TestBackupForAppUnknown(t *testing.T) {
 	t.Parallel()

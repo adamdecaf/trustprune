@@ -4,7 +4,7 @@ title: Basics
 nav_order: 3
 ---
 
-Subcommands other than `connect` accept only flags. An unexpected positional argument is rejected with exit status 2 before any write. Flags after a positional argument are still parsed, so a stray extra argument with `--dry-run` after it is still a usage error. A shell glob that expands into multiple files can cause that.
+Subcommands other than `connect` and `diff` accept only flags. `connect` accepts one URL. `diff` accepts exactly two certificate paths. An unexpected positional argument is rejected with exit status 2 before any write. Flags after a positional argument are still parsed, so a stray extra argument with `--dry-run` after it is still a usage error. A shell glob that expands into multiple files can cause that.
 
 ## Add
 
@@ -76,6 +76,22 @@ An unknown `--format` is a usage error (exit 2) and names the valid formats (`js
 | `--url <url>` | URL or bare host to connect to, instead of the positional argument |
 | `-v`, `--verbose` | Print the verified chain after the one-line summary. No effect with `--format json` |
 | `--format` | `text` (default) is the one-line summary. `json` is one object (`url`, `tls_version`, `verified`, `root`, `leaf`, `chain`) |
+
+## Diff
+
+`diff` compares two certificate files and prints the fields that differ. Each file is PEM or DER and must contain one certificate. The comparison does not use the network.
+
+```
+$ trustprune diff old.pem new.pem
+subject: "CN=Old" != "CN=New"
+sha256: "<64 hex>" != "<64 hex>"
+
+$ trustprune diff --format json old.pem new.der
+```
+
+Exit status is 0 when the certificates match (`identical` on stdout) and 1 when a field differs. The field report has no `ERROR:` prefix. Unreadable files and files that are not a single certificate exit 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, exits 2.
+
+Compared fields are subject, issuer, serial, validity, key type and size, SANs, the SHA-256 fingerprint, and the signature algorithm. Full detail: [usage](usage.md#diff).
 
 ## List
 

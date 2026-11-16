@@ -10,18 +10,18 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `certifi`, `chrome`, `firefox`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, java, openssl, ssl)`.
+Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, openssl, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
-Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix.
+Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix. `diff` also exits 1 when the certificates differ; that report is the command output and has no `ERROR:` prefix.
 
 ```text
 ERROR: unknown flag --foo
 run 'trustprune list --help' for usage
 ```
 
-Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` still accepts one optional positional URL (or `--url`, not both).
+Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` accepts one optional positional URL (or `--url`, not both). `diff` accepts exactly two certificate paths.
 
 
 ## apps
@@ -35,7 +35,7 @@ trustprune apps --format json
 
 | Flag | Meaning |
 |------|---------|
-| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
+| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). An installed guide-only app adds `guideOnly: true` (Foxit). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
 
 Default terse output looks like:
 
@@ -49,6 +49,18 @@ openssl   found      /etc/ssl/certs/ca-certificates.crt
 ssl       not-found  -
 linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
+
+STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file.
+
+## Foxit
+
+`--app foxit` detects Foxit PDF Editor and Foxit PDF Reader on Windows and macOS. When one is installed, `trustprune apps` reports `guide only`. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print where Foxit trust comes from and exit 1. They do not read or write a Foxit trust list, and `--dry-run` does not plan a change.
+
+Trust comes from the local Trusted Certificates list (**Protect > Sign & Certify > Trusted Certificates**), from Foxit Approved Trust List (FATL) downloads into that list, from European Union Trusted Lists (EUTL) downloads on Mac, and on Windows from the Windows certificate store when Windows Integration is on.
+
+To remove a root, delete it or clear its trust in Trusted Certificates, then turn the download off so the next update does not add it back: **File > Preferences > Trust Manager**, clear **Load trusted certificates from Foxit server** (on by default, about every 28 days). On Mac, clear **Load trusted certificates from Foxit FATL / EUTL server** for both FATL and EUTL. On Windows, **File > Preferences > Signature** > **Windows Integration** trusts Windows store roots for signatures and certified documents. Removing a root there leaves the FATL copy in place.
+
+The on-disk Trusted Certificates list is **unverified**. Paths, the admin policy, and the full steps are in [Platforms](platforms.md#foxit).
 
 ## Environment
 
@@ -368,6 +380,54 @@ ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 | `--store <path>` | With `--app java` or `--app certifi`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
 | `--url <url>` | URL or bare host to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
 | `-v`, `--verbose` | Print the verified chain after the one-line summary. Ignored with `--format json` |
+| `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
+
+## diff
+
+Compare two certificate files and print the fields that differ. Each file is PEM or DER and must contain exactly one certificate. Comments around a PEM `CERTIFICATE` block are ignored, as are other PEM block types. The first path is the left side and the second path is the right side. There is no network access.
+
+```bash
+trustprune diff old.pem new.pem
+trustprune diff --format json old.pem new.der
+```
+
+Exit status is 0 when every compared field matches and 1 when any field differs. The report goes to stdout and is not an `ERROR:` line. A file that cannot be read, or that does not contain exactly one certificate, exits 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, is a usage error (exit 2) on stderr.
+
+Text (the default) prints one line per differing field. Values are quoted. Identical certificates print `identical`.
+
+```text
+subject: "CN=Old" != "CN=New"
+serial: "1" != "2"
+key: "RSA-2048" != "RSA-1024"
+sha256: "<64 hex>" != "<64 hex>"
+```
+
+JSON is one object. `differences` lists only fields that differ, in the same order as text. `sha256` is the full fingerprint. An empty `differences` array means the certificates match.
+
+```json
+{
+  "identical": false,
+  "left": "old.pem",
+  "right": "new.pem",
+  "differences": [
+    {"field": "subject", "left": "CN=Old", "right": "CN=New"}
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `subject` | Full distinguished name of the subject |
+| `issuer` | Full distinguished name of the issuer |
+| `serial` | Decimal serial number |
+| `validity` | `NotBefore` and `NotAfter` in UTC RFC3339, joined by ` .. ` |
+| `key` | Public key type and size, such as `RSA-2048` |
+| `sans` | DNS names, email addresses, IP addresses, and URIs, in that order |
+| `sha256` | Hex SHA-256 fingerprint of the certificate |
+| `signature_algorithm` | Signature algorithm name, such as `SHA256-RSA` |
+
+| Flag | Meaning |
+|------|---------|
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 
 ## version
