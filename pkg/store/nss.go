@@ -399,10 +399,14 @@ func latestNSSBackupFor(nssType, dest string) (string, error) {
 	}
 	var matched []string
 	paths := make(map[string]string, len(cands))
+	var firstReadErr error
 	for _, path := range cands {
 		recorded, err := readNSSBackupSource(path)
 		if err != nil {
-			return "", err
+			if firstReadErr == nil {
+				firstReadErr = fmt.Errorf("store/nss: reading source of backup %s: %w", path, err)
+			}
+			continue
 		}
 		name := filepath.Base(path)
 		// Prefer a later-listed path only if this basename is new;
@@ -420,6 +424,9 @@ func latestNSSBackupFor(nssType, dest string) (string, error) {
 	}
 	if best := pickLatestBackupName(matched); best != "" {
 		return paths[best], nil
+	}
+	if firstReadErr != nil {
+		return "", firstReadErr
 	}
 	return "", nil
 }
@@ -470,7 +477,7 @@ func NSSAllowlistBackupError(s Store, app string) error {
 	// source (Windows 8.3 short names expand under EvalSymlinks).
 	display := nssCanonicalPath(storePath)
 	cmd := "trustprune backup --app " + nssType
-	if display != "" {
+	if display != "" && SupportsStoreOverride(nssType) {
 		cmd += " --store " + display
 	}
 	if recorded == "" {

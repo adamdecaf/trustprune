@@ -372,3 +372,21 @@ func installCertutilTrap(t *testing.T, marker string) {
 	t.Cleanup(func() { cutil = orig })
 	cutil = crtutil{execPaths: []string{bin}}
 }
+
+func TestPopplerRequireCert9_PermissionError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "cert9.db"), []byte("certdb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+	if _, err := os.Stat(filepath.Join(dir, "cert9.db")); err == nil {
+		t.Skip("process can stat a mode-000 directory")
+	}
+	err := popplerStore{nssStore: nssStore{foundCertdbLocation: dir}}.requireCert9()
+	if err == nil || strings.Contains(err.Error(), "no NSS database found") || !strings.Contains(err.Error(), "checking NSS database") {
+		t.Fatalf("got %v, want a wrapped filesystem error", err)
+	}
+}
