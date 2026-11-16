@@ -38,6 +38,7 @@ var (
 		"certifi": CertifiStore(),
 		"chrome":  ChromeStore(),
 		"firefox": FirefoxStore(),
+		"foxit":   FoxitStore(),
 		"java":    JavaStore(),
 		"openssl": OpenSSLStore(),
 		"poppler": PopplerStore(),

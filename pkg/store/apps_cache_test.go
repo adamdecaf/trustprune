@@ -77,6 +77,39 @@ func TestFormatAppsHelpLineFreshCache(t *testing.T) {
 	}
 }
 
+func TestFormatAppsHelpLineGuideOnly(t *testing.T) {
+	withTempAppsCache(t)
+
+	statuses := []Status{
+		{Name: "foxit", Found: true, GuideOnly: true, Path: "/Applications/Foxit PDF Editor.app"},
+		{Name: "java", Found: true, Path: "/tmp/java"},
+	}
+	if err := SaveAppStatusesCache(statuses); err != nil {
+		t.Fatal(err)
+	}
+	got := FormatAppsHelpLine()
+	if !strings.Contains(got, "foxit (guide only)") {
+		t.Fatalf("help line = %q", got)
+	}
+	if !strings.Contains(got, "java (found)") || strings.Contains(got, "foxit (found)") {
+		t.Fatalf("help line = %q", got)
+	}
+
+	gotStatuses, ok := ReadFreshAppStatuses()
+	if !ok {
+		t.Fatal("expected fresh cache")
+	}
+	var foxit Status
+	for _, st := range gotStatuses {
+		if st.Name == "foxit" {
+			foxit = st
+		}
+	}
+	if !foxit.Found || !foxit.GuideOnly || foxit.Path == "" {
+		t.Fatalf("cached foxit %#v", foxit)
+	}
+}
+
 func TestFormatAppsHelpLineStaleCache(t *testing.T) {
 	dir := withTempAppsCache(t)
 

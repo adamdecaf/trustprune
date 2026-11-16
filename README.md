@@ -55,11 +55,12 @@ Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) f
 | [allowlist](docs/allowlists.md#allowlisting) | Distrust certificates that are not on your allowlist |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
+| [diff](docs/usage.md#diff) | Compare two certificate files and print the fields that differ |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
 
-Allowlisting also applies Chromium's certificate blocklist, so certificates in that bundled list are never kept. That behavior cannot be disabled today.
+Allowlisting also applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys (DigiNotar, CNNIC, WoSign, StartCom, and Symantec legacy roots), so those certificates are never kept. That behavior cannot be disabled today.
 
 ## Platform and application support
 
@@ -85,6 +86,7 @@ Honest status as of late October 2026. Levels match what the code does today.
 | **Supported** | Python certifi | Mozilla CA bundle used by requests and friends (`--app certifi`). Discovery via `certifi.where()`, pip vendored certifi, site-packages fallbacks; `--store` overrides the bundle on list/backup/connect/restore/add/allowlist. Restore records the bundle path and refuses a cross-path restore unless `--force`. |
 | **Supported** | OpenSSL | CA bundle PEM files and OpenSSL cert directories (`--app openssl`): list/add/allowlist/backup/restore. Path order: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then git `http.sslCAInfo`. `--bundle <pem>` selects an explicit PEM file for list, backup, restore, and allowlist and skips that discovery. PEM backups record the bundle path; restore into a different PEM (discovery or `--bundle`) is refused unless `--force`. Discovery allowlist accepts a backup recorded for the discovered PEM or a legacy backup with no `source` (a source-less backup may belong to another PEM and does not show the live file is recoverable). Hashed cert directories are not selected by `--bundle`. Darwin `/etc/ssl/cert.pem` stays `--app ssl`. |
 | **Supported (Darwin)** | `ssl` (`/etc/ssl/cert.pem`) | list/add/allowlist/backup/restore for the CLI PEM bundle Apple keychain blocks do not cover; list uses a cryptobyte fallback for negative-serial certs Go rejects; truly unparsable PEM blocks stay skipped (stderr warning) and add/allowlist keep them when rewriting; see [platforms](https://trustprune.com/platforms) |
+| **Guide only** | Foxit PDF Reader / Editor (`--app foxit`) | Detects an install on Windows and macOS. `apps` reports `guide only` and the install path. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print a pruning guide (Trusted Certificates, FATL/EUTL, Windows Integration) and do not read or write Foxit trust data. The on-disk Trusted Certificates list is unverified. See [platforms](https://trustprune.com/platforms). |
 
 
 
@@ -102,7 +104,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
 3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store. `allowlist --dry-run` lists kept certificates and ends with `dry-run: N kept, M removed`; `-v` adds per-certificate remove and keep lines.
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
-5. **No stray positionals.** Commands other than `connect` accept only flags. An unexpected positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
+5. **No stray positionals.** Commands other than `connect` and `diff` accept only flags. `connect` accepts one URL (`--url` or one positional, not both). `diff` accepts exactly two certificate paths. Any other positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
 
 Linux restore uses a temp-dir-then-swap so a failed restore leaves the live CA directory intact. Explicit backup paths use `--backup`. For java, certifi, and poppler, restore `--store` is the store to restore into, matching backup/list; a backup taken from a different path is refused unless `--force`. For openssl, `--bundle <pem>` is the live PEM for list, backup, restore, and allowlist; `--backup` is the backup source, and a backup recorded for a different PEM is refused unless `--force`. NSS backups copy `cert9.db` / `cert8.db` and related profile files and record the profile directory; restore into a different profile, or from a backup with no recorded profile, is refused unless `--force`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. Darwin platform restore honors `--backup` for the login-keychain backup directory. Full detail: [Backup and restore](https://trustprune.com/backup-restore).
 
@@ -180,6 +182,10 @@ trustprune connect -v google.com         # chain table after the one-line summar
 trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 # ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+
+# Compare two certificates (PEM or DER). Exit 0 when identical, 1 when a field differs.
+trustprune diff old.pem new.pem
+trustprune diff --format json old.pem new.der
 
 trustprune version
 trustprune --version
