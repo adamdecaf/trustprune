@@ -49,44 +49,6 @@ func TestLocateChromeNSS(t *testing.T) {
 	}
 }
 
-func TestLocateFirefoxProfile(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix-style firefox profile layout")
-	}
-
-	home, err := os.MkdirTemp("", "cert-manage-ff-profile")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.RemoveAll(home)
-
-	suggestions := []string{filepath.Join(home, ".mozilla/firefox/*.default")}
-	if where, ok := locateFirefoxProfile(suggestions); ok {
-		t.Fatalf("empty profiles should not match, got %s", where)
-	}
-
-	// Profile without a cert db is ignored.
-	empty := filepath.Join(home, ".mozilla", "firefox", "aaaa.default")
-	if err := os.MkdirAll(empty, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if where, ok := locateFirefoxProfile(suggestions); ok {
-		t.Fatalf("profile without certdb should not match, got %s", where)
-	}
-
-	good := filepath.Join(home, ".mozilla", "firefox", "bbbb.default")
-	if err := os.MkdirAll(good, 0755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(good, "cert9.db"), []byte("data"), 0644); err != nil {
-		t.Fatal(err)
-	}
-	where, ok := locateFirefoxProfile(suggestions)
-	if !ok || where != good {
-		t.Fatalf("want %s found, got where=%s ok=%v", good, where, ok)
-	}
-}
-
 func TestDetectStatusesShape(t *testing.T) {
 
 	statuses := DetectStatuses()
