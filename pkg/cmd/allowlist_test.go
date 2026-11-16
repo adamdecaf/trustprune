@@ -230,7 +230,13 @@ func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 					t.Fatal("expected an error")
 				}
 				msg := err.Error()
-				if !strings.Contains(msg, "trustprune backup") || !strings.Contains(msg, b) || !strings.Contains(msg, "--store") || !strings.Contains(msg, a) {
+				canon := func(p string) string {
+					if r, err := filepath.EvalSymlinks(p); err == nil {
+						return r
+					}
+					return p
+				}
+				if !strings.Contains(msg, "trustprune backup") || !strings.Contains(msg, canon(b)) || !strings.Contains(msg, "--store") || !strings.Contains(msg, canon(a)) {
 					t.Fatalf("error should name store B, source A, and trustprune backup: %v", err)
 				}
 				if !strings.Contains(msg, "--force") {

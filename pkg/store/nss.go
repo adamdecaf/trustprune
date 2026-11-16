@@ -463,11 +463,14 @@ func NSSAllowlistBackupError(s Store, app string) error {
 	if label == "" {
 		label = nssType
 	}
+	// Print the resolved store path so the message matches the recorded
+	// source (Windows 8.3 short names expand under EvalSymlinks).
+	display := nssCanonicalPath(storePath)
 	cmd := "trustprune backup --app " + nssType
-	if storePath != "" {
-		cmd += " --store " + storePath
+	if display != "" {
+		cmd += " --store " + display
 	}
-	return fmt.Errorf("no backup for %s at %s; latest backup %s was taken from %s; run: %s; pass --force to allowlist this store anyway", label, storePath, latest, recorded, cmd)
+	return fmt.Errorf("no backup for %s at %s; latest backup %s was taken from %s; run: %s; pass --force to allowlist this store anyway", label, display, latest, recorded, cmd)
 }
 
 // nssAllowlistTarget is the NSS app and directory allowlist must have a
