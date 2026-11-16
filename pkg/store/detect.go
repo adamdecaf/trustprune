@@ -115,25 +115,12 @@ func locateChromeNSS(home string) (string, bool) {
 
 func detectFirefox() Status {
 	s := Status{Name: "firefox"}
-	if where, ok := locateFirefoxProfile(firefoxProfileSuggestions); ok {
+	dirs := FirefoxProfileDirs(file.HomeDir(), os.Getenv("APPDATA"), os.Getenv)
+	if len(dirs) > 0 {
 		s.Found = true
-		s.Path = where
+		s.Path = dirs[0]
 	}
 	return s
-}
-
-// locateFirefoxProfile mirrors FirefoxStore: first profile glob match that
-// contains a non-empty cert8.db or cert9.db.
-func locateFirefoxProfile(suggestions []string) (string, bool) {
-	for i := range suggestions {
-		matches, _ := filepath.Glob(suggestions[i])
-		for j := range matches {
-			if containsCertdb(matches[j]) {
-				return matches[j], true
-			}
-		}
-	}
-	return "", false
 }
 
 func detectJava() Status {
