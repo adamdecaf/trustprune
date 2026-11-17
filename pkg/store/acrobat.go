@@ -480,7 +480,7 @@ func (s acrobatStore) Restore(where string) error {
 }
 
 func acrobatBackupFile(src string) (string, error) {
-	st, err := os.Stat(src)
+	st, err := os.Stat(src) // #nosec G703 -- src is the discovered or backup address book path
 	if err != nil {
 		return "", fmt.Errorf("acrobat backup %s: %w", src, err)
 	}
@@ -513,7 +513,7 @@ func sameAcrobatPath(recorded, dest string) bool {
 }
 
 func acrobatBackupSourceFile(src string) string {
-	st, err := os.Stat(src)
+	st, err := os.Stat(src) // #nosec G703 -- src is a trustprune backup path or dest store
 	if err == nil && st.IsDir() {
 		return filepath.Join(src, nssBackupSourceName)
 	}
