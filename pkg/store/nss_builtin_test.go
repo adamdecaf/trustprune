@@ -36,6 +36,7 @@ type fakeCertutil struct {
 	pemByNick    map[string]string
 	addedPEM     []byte
 	failAll      bool
+	failAdd      bool
 }
 
 func (f *fakeCertutil) run(_ string, args []string) ([]byte, []byte, error) {
@@ -44,6 +45,9 @@ func (f *fakeCertutil) run(_ string, args []string) ([]byte, []byte, error) {
 	case f.failAll && certutilFlagIs(args, "-h", "all"):
 		return nil, []byte("could not find token"), errors.New("exit status 1")
 	case certutilHasFlag(args, "-A"):
+		if f.failAdd {
+			return nil, []byte("add failed"), errors.New("exit status 1")
+		}
 		path, ok := certutilFlag(args, "-i")
 		if !ok {
 			return nil, []byte("missing -i"), errors.New("exit status 1")
@@ -389,5 +393,108 @@ func TestNSSList_BuiltinListError(t *testing.T) {
 	_, err := s.List(&ListOptions{Trusted: true})
 	if err == nil || !strings.Contains(err.Error(), "built-in roots") {
 		t.Fatalf("err = %v, want built-in roots failure", err)
+	}
+}
+
+func TestNSSRemove_BuiltinOnlyRootOnAllowlist(t *testing.T) {
+	root := loadStoreCert(t, "example.crt", 0)
+	const nick = "Example Builtin Root"
+	full := nssBuiltinTokenPrefix + nick
+	fake := &fakeCertutil{
+		listInternal: nssListOutput(),
+		listAll:      nssListOutput(nssListRow(full, "C,C,C")),
+		pemByNick:    map[string]string{full: certPEM(t, root)},
+	}
+	s := nssStoreWithCertutil(t, fake.run)
+	keep := allowlist.FromCertificates([]*x509.Certificate{root})
+	if err := s.Remove(keep); err != nil {
+		t.Fatal(err)
+	}
+	if _, args := findCertutilFlag(fake.cmds, "-A"); args != nil {
+		t.Fatalf("allowlisted built-in root issued certutil -A: %q", args)
+	}
+	if _, args := findCertutilFlag(fake.cmds, "-M"); args != nil {
+		t.Fatalf("allowlisted built-in root issued certutil -M: %q", args)
+	}
+}
+
+func TestNSSRemove_BuiltinOnlyAddFailureSkipsModify(t *testing.T) {
+	root := loadStoreCert(t, "example.crt", 0)
+	const nick = "Example Builtin Root"
+	full := nssBuiltinTokenPrefix + nick
+	fake := &fakeCertutil{
+		listInternal: nssListOutput(),
+		listAll:      nssListOutput(nssListRow(full, "C,C,C")),
+		pemByNick:    map[string]string{full: certPEM(t, root)},
+		failAdd:      true,
+	}
+	s := nssStoreWithCertutil(t, fake.run)
+	if err := s.Remove(allowlist.Allowlist{}); err == nil {
+		t.Fatal("expected certutil -A failure")
+	}
+	if _, args := findCertutilFlag(fake.cmds, "-A"); args == nil {
+		t.Fatalf("missing certutil -A, cmds %#v", fake.cmds)
+	}
+	if _, args := findCertutilFlag(fake.cmds, "-M"); args != nil {
+		t.Fatalf("failed -A must not run certutil -M: %q", args)
+	}
+}
+
+func TestNSSList_BuiltinCertificateReadError(t *testing.T) {
+	const nick = "Example Builtin Root"
+	full := nssBuiltinTokenPrefix + nick
+	fake := &fakeCertutil{
+		listInternal: nssListOutput(),
+		listAll:      nssListOutput(nssListRow(full, "C,C,C")),
+	}
+	s := nssStoreWithCertutil(t, fake.run)
+	_, err := s.List(&ListOptions{Trusted: true})
+	if err == nil || !strings.Contains(err.Error(), "reading built-in root") {
+		t.Fatalf("err = %v, want reading built-in root failure", err)
+	}
+}
+
+func TestNSSList_BuiltinNicknameWithoutCertificate(t *testing.T) {
+	const nick = "Example Builtin Root"
+	full := nssBuiltinTokenPrefix + nick
+	fake := &fakeCertutil{
+		listInternal: nssListOutput(),
+		listAll:      nssListOutput(nssListRow(full, "C,C,C")),
+		pemByNick:    map[string]string{full: "not a certificate"},
+	}
+	s := nssStoreWithCertutil(t, fake.run)
+	_, err := s.List(&ListOptions{Trusted: true})
+	if err == nil || !strings.Contains(err.Error(), "no certificate for built-in root") {
+		t.Fatalf("err = %v, want no certificate for built-in root", err)
+	}
+}
+
+func TestNSSList_BuiltinNickMatchIgnoresDifferentFingerprint(t *testing.T) {
+	certs := distinctStoreCerts(t, 2)
+	internal, other := certs[0], certs[1]
+	const nick = "Shared Name"
+	full := nssBuiltinTokenPrefix + nick
+	fake := &fakeCertutil{
+		listInternal: nssListOutput(nssListRow(nick, "CT,C,C")),
+		listAll: nssListOutput(
+			nssListRow(nick, "CT,C,C"),
+			nssListRow(full, "C,C,C"),
+		),
+		pemByNick: map[string]string{
+			nick: certPEM(t, internal),
+			full: certPEM(t, other),
+		},
+	}
+	got := listTrustedNSS(t, nssStoreWithCertutil(t, fake.run))
+	counts := fingerprintCounts(got)
+	internalFP := certutil.GetHexSHA256Fingerprint(*internal)
+	otherFP := certutil.GetHexSHA256Fingerprint(*other)
+	if counts[internalFP] != 1 || counts[otherFP] != 0 || len(got) != 1 {
+		t.Fatalf("listed %d certs (internal %d, other %d), want only the internal root", len(got), counts[internalFP], counts[otherFP])
+	}
+	for _, args := range fake.cmds {
+		if got, ok := certutilFlag(args, "-n"); ok && got == full {
+			t.Fatalf("nickname match must skip reading the built-in cert, args %q", args)
+		}
 	}
 }

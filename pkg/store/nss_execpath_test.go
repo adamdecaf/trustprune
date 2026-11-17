@@ -76,3 +76,19 @@ func TestNSSGetExecPath(t *testing.T) {
 		t.Errorf("expected actionable not-found error, got %v", err)
 	}
 }
+
+func TestNSSGetExecPath_WindowsSkipsPATH(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("PATH skip is Windows-only")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "certutil.exe")
+	if err := os.WriteFile(bin, []byte("MZ"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	c := crtutil{execPaths: []string{filepath.Join(dir, "missing", "certutil")}}
+	if _, err := c.getExecPath(); err == nil || !strings.Contains(err.Error(), "install NSS tools") {
+		t.Errorf("Windows PATH must not yield system certutil, got %v", err)
+	}
+}

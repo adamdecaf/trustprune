@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -918,8 +919,12 @@ func (c crtutil) getExecPath() (string, error) {
 		}
 	}
 	// Fall back to PATH so installs outside the usual prefixes are found.
-	if p, err := exec.LookPath("certutil"); err == nil {
-		return p, nil
+	// Skip Windows: LookPath("certutil") can resolve System32\certutil.exe,
+	// which is not the NSS tool.
+	if runtime.GOOS != "windows" {
+		if p, err := exec.LookPath("certutil"); err == nil {
+			return p, nil
+		}
 	}
 	return "", errors.New("nss: certutil not found; install NSS tools (libnss3-tools, nss-tools or brew install nss)")
 }
@@ -1002,10 +1007,15 @@ func (c crtutil) command(args ...string) ([]byte, error) {
 		run = defaultCertutilRun
 	}
 	stdout, stderr, err := run(bin, args)
-	if err != nil && debug {
-		fmt.Printf("Command was:\n %s %s\n", bin, strings.Join(args, " "))
-		fmt.Printf("Output was: %q\n", string(stdout))
-		fmt.Printf("Stderr was: %q\n", string(stderr))
+	if err != nil {
+		if debug {
+			fmt.Printf("Command was:\n %s %s\n", bin, strings.Join(args, " "))
+			fmt.Printf("Output was: %q\n", string(stdout))
+			fmt.Printf("Stderr was: %q\n", string(stderr))
+		}
+		if msg := strings.TrimSpace(string(stderr)); msg != "" {
+			err = fmt.Errorf("store/nss: certutil: %w: %s", err, msg)
+		}
 	}
 	return stdout, err
 }
