@@ -256,7 +256,7 @@ pdfsig and other poppler NSS users trust an NSS database. `--app poppler` uses t
 
 `--store <dir>` is poppler's `-nssdir` and skips discovery. Otherwise the directory is chosen the same way as poppler's `NSSSignatureConfiguration::setNSSDir`: the newest Firefox profile whose name contains `default` and that has a regular non-empty `cert9.db` (a cert8-only profile is skipped) when `certutil -L -d sql:<dir>` succeeds, or when certutil cannot be found or run. A profile that fails that probe falls back to `~/.pki/nssdb` (a failed Firefox open does not try `/etc/pki/nssdb`). With no cert9 profile, `/etc/pki/nssdb` is used when it contains a regular non-empty `cert9.db` and the probe succeeds or certutil cannot be found or run; otherwise `~/.pki/nssdb`. `apps` marks poppler found only when that chosen directory contains `cert9.db`. `list` still shows the chosen path.
 
-Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. Built-in `libnssckbi` roots are not enumerated yet, so a root that exists only in that module is not listed and is not distrusted.
+Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. List includes built-in `libnssckbi` roots. A root that exists only in that module is distrusted with a `p,p,p` override on the internal token.
 
 ```bash
 trustprune list --app poppler
