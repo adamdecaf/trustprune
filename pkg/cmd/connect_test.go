@@ -787,6 +787,138 @@ func TestFormatConnectJSON(t *testing.T) {
 	})
 }
 
+func TestFormatConnectPresented(t *testing.T) {
+	t.Parallel()
+
+	leafRaw := bytes.Repeat([]byte{0x11}, 16)
+	caRaw := bytes.Repeat([]byte{0x22}, 16)
+	leafExpires := time.Date(2030, 1, 2, 3, 0, 0, 0, time.FixedZone("EAST", 9*60*60))
+	caExpires := time.Date(2031, 3, 4, 0, 0, 0, 0, time.UTC)
+	leaf := &x509.Certificate{
+		Raw:      leafRaw,
+		Subject:  pkix.Name{CommonName: "leaf.example"},
+		Issuer:   pkix.Name{CommonName: "ca.example"},
+		NotAfter: leafExpires,
+	}
+	ca := &x509.Certificate{
+		Raw:      caRaw,
+		Subject:  pkix.Name{CommonName: "ca.example"},
+		Issuer:   pkix.Name{CommonName: "ca.example"},
+		NotAfter: caExpires,
+	}
+	leafFP := sha256Hex(leafRaw)
+	caFP := sha256Hex(caRaw)
+
+	t.Run("marks missing certs and hints the root-most", func(t *testing.T) {
+		t.Parallel()
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "" +
+			"presented chain:\n" +
+			"INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256\n" +
+			"0      leaf.example (not in store)  ca.example  2030-01-01  " + leafFP[:16] + "\n" +
+			"1      ca.example (not in store)    ca.example  2031-03-04  " + caFP[:16] + "\n" +
+			connectTrustHint(caFP) + "\n"
+		if got != want {
+			t.Fatalf("text =\n%s\nwant\n%s", got, want)
+		}
+		if strings.Contains(got, "--sha256") {
+			t.Fatalf("hint invented a flag:\n%s", got)
+		}
+		if !strings.Contains(got, "--file") {
+			t.Fatalf("hint missing --file:\n%s", got)
+		}
+	})
+
+	t.Run("leaf in store still marks the CA", func(t *testing.T) {
+		t.Parallel()
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "0      leaf.example ") || strings.Contains(got, "leaf.example (not in store)") {
+			t.Fatalf("leaf should be unmarked:\n%s", got)
+		}
+		if !strings.Contains(got, "ca.example (not in store)") {
+			t.Fatalf("CA should be marked:\n%s", got)
+		}
+		if !strings.HasSuffix(got, connectTrustHint(caFP)+"\n") {
+			t.Fatalf("hint = %q", got[strings.LastIndex(got, "to trust"):])
+		}
+	})
+
+	t.Run("all in store has no hint", func(t *testing.T) {
+		t.Parallel()
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf, ca})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to trust a CA") {
+			t.Fatalf("store certs were marked:\n%s", got)
+		}
+		if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") {
+			t.Fatalf("missing columns:\n%s", got)
+		}
+	})
+
+	t.Run("json fields and in_store", func(t *testing.T) {
+		t.Parallel()
+		got, err := formatConnectPresentedJSON("https://leaf.example", []*x509.Certificate{leaf, ca}, tls.VersionTLS13, []*x509.Certificate{ca})
+		if err != nil {
+			t.Fatal(err)
+		}
+		dec := json.NewDecoder(strings.NewReader(got))
+		dec.DisallowUnknownFields()
+		var doc connectFailJSON
+		if err := dec.Decode(&doc); err != nil {
+			t.Fatalf("decode %s: %v", got, err)
+		}
+		if doc.Verified || doc.URL != "https://leaf.example" || doc.TLSVersion != "tls1.3" {
+			t.Fatalf("header = %+v", doc)
+		}
+		if len(doc.PresentedChain) != 2 {
+			t.Fatalf("chain = %+v", doc.PresentedChain)
+		}
+		if doc.PresentedChain[0] != (connectPresentedCert{
+			Subject: "leaf.example", Issuer: "ca.example", NotAfter: "2030-01-01", SHA256: leafFP, InStore: false,
+		}) {
+			t.Fatalf("leaf = %+v", doc.PresentedChain[0])
+		}
+		if doc.PresentedChain[1].InStore != true || doc.PresentedChain[1].SHA256 != caFP || doc.PresentedChain[1].Subject != "ca.example" {
+			t.Fatalf("ca = %+v", doc.PresentedChain[1])
+		}
+		if len(doc.PresentedChain[0].SHA256) != 64 {
+			t.Fatalf("sha256 = %q", doc.PresentedChain[0].SHA256)
+		}
+	})
+
+	t.Run("empty json chain", func(t *testing.T) {
+		t.Parallel()
+		got, err := formatConnectPresentedJSON("https://leaf.example", nil, 0, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, `"presented_chain": []`) || !strings.Contains(got, `"verified": false`) {
+			t.Fatalf("json = %s", got)
+		}
+		if strings.Contains(got, "tls_version") {
+			t.Fatalf("unknown version leaked: %s", got)
+		}
+	})
+
+	t.Run("nil cert", func(t *testing.T) {
+		t.Parallel()
+		if _, err := formatConnectPresentedText([]*x509.Certificate{leaf, nil}, nil); err == nil || !strings.Contains(err.Error(), "certificate 1 is nil") {
+			t.Fatalf("text err = %v", err)
+		}
+		if _, err := formatConnectPresentedJSON("https://x", []*x509.Certificate{nil}, tls.VersionTLS12, nil); err == nil || !strings.Contains(err.Error(), "certificate 0 is nil") {
+			t.Fatalf("json err = %v", err)
+		}
+	})
+}
+
 func TestConnectUnknownFormatDoesNotDial(t *testing.T) {
 	t.Parallel()
 

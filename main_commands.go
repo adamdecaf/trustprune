@@ -249,7 +249,7 @@ Explicit http:// is rejected. If --app is provided then the certificates for tha
 application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts), --app certifi (cacert.pem), and --app poppler (NSS db).
-  -v, --verbose prints the verified chain after the one-line summary. It has no effect with --format json.
+  -v, --verbose prints the verified chain after the one-line summary. When verification fails it prints the chain the server presented. It has no effect with --format json.
   --format text (default) or json. An unknown format is a usage error.
 
   Bare host, one-line success:
@@ -264,6 +264,11 @@ application are loaded and used for the connection.
 
   Failure:
     ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+
+  -v after a verification failure prints that presented chain (same columns).
+  A subject ending in " (not in store)" is missing from the selected store.
+  The hint uses allowlist --file. Put the sha256 value in that file under fingerprints.
+    to trust a CA run: trustprune allowlist --file <path> sha256 <64 hex>
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),

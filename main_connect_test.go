@@ -15,8 +15,13 @@
 package main
 
 import (
+	"crypto/x509"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 func TestParseConnectURL(t *testing.T) {
@@ -118,10 +123,81 @@ func TestConnectFormatUsage(t *testing.T) {
 			"default: text",
 			"options: json, text",
 			"no effect with --format json",
+			"to trust a CA run: trustprune allowlist --file <path> sha256 <64 hex>",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("connect help missing %q:\n%s", needle, res.stdout)
 			}
 		}
 	})
+}
+
+func TestConnectPresentedChainExitCode(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(srv.Close)
+	cert := srv.Certificate()
+	if cert == nil {
+		t.Fatal("missing server certificate")
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	t.Run("verbose", func(t *testing.T) {
+		res := runCLI(t, bin, home, "connect", "-v", srv.URL)
+		if res.code != 1 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "presented chain:") || !strings.Contains(res.stdout, connectNotInStoreSubject(cert)) {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "to trust a CA run: trustprune allowlist --file <path> sha256 "+fp) {
+			t.Fatalf("missing hint:\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "ERROR: "+srv.URL+": unknown authority") {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		if strings.Contains(res.stdout, "--sha256") {
+			t.Fatalf("invented flag:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("quiet", func(t *testing.T) {
+		res := runCLI(t, bin, home, "connect", srv.URL)
+		if res.code != 1 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "presented chain:") || strings.Contains(res.stdout, "INDEX") {
+			t.Fatalf("quiet connect printed a chain:\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "ERROR: "+srv.URL+": unknown authority") {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		res := runCLI(t, bin, home, "connect", "--format", "json", srv.URL)
+		if res.code != 1 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, `"presented_chain"`) || !strings.Contains(res.stdout, fp) || !strings.Contains(res.stdout, `"in_store": false`) {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "ERROR: "+srv.URL+": unknown authority") {
+			t.Fatalf("missing error:\n%s", res.stdout)
+		}
+		if strings.Contains(res.stdout, "presented chain:") {
+			t.Fatalf("json included the text table:\n%s", res.stdout)
+		}
+	})
+}
+
+func connectNotInStoreSubject(cert *x509.Certificate) string {
+	name := cert.Subject.CommonName
+	if name == "" {
+		name = cert.Subject.String()
+	}
+	return name + " (not in store)"
 }

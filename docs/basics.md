@@ -61,11 +61,13 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 `-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is the same UTC `YYYY-MM-DD` date as the text line.
 
-A handshake failure is one short line:
+A handshake failure is one short line, and the exit status stays 1:
 
 ```
 ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 ```
+
+`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The hint line names `trustprune allowlist --file` and the full SHA-256 to put under `fingerprints` in that file. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON.
 
 An unknown `--format` is a usage error (exit 2) and names the valid formats (`json`, `text`).
 
