@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -88,6 +89,49 @@ func TestListCertsForAppWithFileMissingStore(t *testing.T) {
 	err := ListCertsForAppWithFile("certifi", missing, &ui.Config{Count: true})
 	if err == nil || !strings.Contains(err.Error(), "not found") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+func TestListCertsForAppOkularReportsBackend(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("POPPLER_SIGNATURE_BACKEND", "")
+	t.Setenv("APPDATA", "")
+	t.Setenv("MOZ_LEGACY_HOME", "")
+
+	cfgDir := filepath.Join(home, ".config")
+	if err := os.MkdirAll(cfgDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rc := filepath.Join(cfgDir, "okular-generator-popplerrc")
+	if err := os.WriteFile(rc, []byte("[Signatures]\nSignatureBackend=GPG\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := ListCertsForApp("okular", &ui.Config{Count: true})
+	if !errors.Is(err, store.ErrOkularGPG) {
+		t.Fatalf("GPG list: %v", err)
+	}
+
+	custom := filepath.Join(t.TempDir(), "okular-nssdb")
+	if err := os.MkdirAll(custom, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(custom, "cert9.db"), []byte("certdb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rc, []byte("[Signatures]\nSignatureBackend=NSS\nUseDefaultCertDB=false\nDBCertificatePath="+custom+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.ForApp("okular")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := st.GetInfo()
+	if info == nil || info.Path != custom {
+		t.Fatalf("list meta path %#v, want %q", info, custom)
 	}
 }
 

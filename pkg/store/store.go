@@ -40,6 +40,7 @@ var (
 		"firefox": FirefoxStore(),
 		"foxit":   FoxitStore(),
 		"java":    JavaStore(),
+		"okular":  OkularStore(),
 		"openssl": OpenSSLStore(),
 		"poppler": PopplerStore(),
 		"ssl":     SSLStore(),
@@ -265,6 +266,11 @@ func ForApp(app string) (Store, error) {
 		return Platform(), nil
 	}
 	key := strings.ToLower(app)
+	if key == "okular" {
+		// Always re-read the rc file and POPPLER_SIGNATURE_BACKEND so list
+		// reports the current DB or GPG backend.
+		return OkularStore(), nil
+	}
 	s, ok := appStores[key]
 	if !ok {
 		return nil, unknownAppError(app)
