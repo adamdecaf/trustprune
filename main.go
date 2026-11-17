@@ -112,6 +112,8 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	store.SetDryRun(false)
 	store.SetDryRunVerbose(false)
 	store.SetForceRestore(false)
+	store.SetAllowlistCountOnly(false)
+	store.ResetAllowlistStats()
 
 	prevHelp := cli.HelpPrinter
 	cli.HelpPrinter = func(w io.Writer, templ string, data any) {

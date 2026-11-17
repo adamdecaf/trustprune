@@ -101,6 +101,8 @@ Allowlist completed successfully
 3
 ```
 
+Current `allowlist` also prints `N removed, M kept` after the success line. The `3` above is from `list --count`.
+
 The copy is now 2,897 bytes. Chromium's certificate blocklist is applied as well, and cannot be turned off.
 
 ## Check the bundle, then restore

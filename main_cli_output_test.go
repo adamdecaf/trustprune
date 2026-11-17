@@ -15,6 +15,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -222,6 +223,120 @@ func TestCLIAllowlistDryRunDefaultAndVerbose(t *testing.T) {
 		t.Fatalf("-v and --v stdout differ\n-v:\n%s\n--v:\n%s", verb.stdout, long.stdout)
 	}
 	assertSameBytes(t, bundle, before)
+}
+
+func TestCLIAllowlistCountAndSummary(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	help := runCLI(t, bin, home, "allowlist", "--help")
+	if help.code != 0 {
+		t.Fatalf("help code=%d stdout=%s stderr=%s", help.code, help.stdout, help.stderr)
+	}
+	if !strings.Contains(help.stdout+help.stderr, "print only the number of certificates removed or untrusted") {
+		t.Fatalf("allowlist help missing --count:\n%s%s", help.stdout, help.stderr)
+	}
+
+	bundle := filepath.Join(t.TempDir(), "cacert.pem")
+	src, err := os.ReadFile(filepath.Join("testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundle, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	certs, err := certutil.FromFile(bundle)
+	if err != nil || len(certs) < 2 {
+		t.Fatalf("bundle certs: %d %v", len(certs), err)
+	}
+	var keep *x509.Certificate
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if (allowlist.Allowlist{Fingerprints: []string{fp}}).Matches(c) {
+			keep = c
+			break
+		}
+	}
+	if keep == nil {
+		t.Fatal("no certificate matches its own fingerprint")
+	}
+	keepFP := certutil.GetHexSHA256Fingerprint(*keep)
+	stale1 := strings.Repeat("ab", 32)
+	stale2 := strings.Repeat("cd", 32)
+	al := allowlist.Allowlist{
+		Fingerprints: []string{keepFP, stale1, stale1, stale2},
+		Countries:    []string{"ZZ"},
+	}
+	keptN, removedN := 0, 0
+	for _, c := range certs {
+		if al.Matches(c) {
+			keptN++
+			continue
+		}
+		removedN++
+	}
+	if keptN == 0 || removedN == 0 {
+		t.Fatalf("kept=%d removed=%d", keptN, removedN)
+	}
+	alPath := filepath.Join(t.TempDir(), "allowlist.yaml")
+	if err := al.ToFile(alPath); err != nil {
+		t.Fatal(err)
+	}
+
+	noBackup := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath, "--count")
+	if noBackup.code != 1 || !strings.Contains(noBackup.stdout, "ERROR:") || strings.TrimSpace(noBackup.stdout) == fmt.Sprintf("%d", removedN) {
+		t.Fatalf("count without backup code=%d stdout=%s stderr=%s", noBackup.code, noBackup.stdout, noBackup.stderr)
+	}
+
+	backup := runCLI(t, bin, home, "backup", "-app", "certifi", "-store", bundle)
+	if backup.code != 0 {
+		t.Fatalf("backup code=%d stdout=%s stderr=%s", backup.code, backup.stdout, backup.stderr)
+	}
+	before := readTestFile(t, bundle)
+
+	dryCount := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath, "--dry-run", "--count", "-v")
+	if dryCount.code != 0 || dryCount.stdout != fmt.Sprintf("%d\n", removedN) {
+		t.Fatalf("dry-run count code=%d stdout=%q stderr=%s", dryCount.code, dryCount.stdout, dryCount.stderr)
+	}
+	assertSameBytes(t, bundle, before)
+
+	dry := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath, "--dry-run")
+	if dry.code != 0 {
+		t.Fatalf("dry-run code=%d stdout=%s stderr=%s", dry.code, dry.stdout, dry.stderr)
+	}
+	unmatched := "Unmatched allowlist entries:\n  " + stale1 + "\n  " + stale2 + "\n"
+	closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed\n", keptN, removedN)
+	if strings.Count(dry.stdout, unmatched) != 1 || !strings.HasSuffix(dry.stdout, closing) || strings.Contains(dry.stdout, "Allowlist completed successfully") {
+		t.Fatalf("dry-run stdout:\n%s", dry.stdout)
+	}
+	assertSameBytes(t, bundle, before)
+
+	real := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath)
+	want := "Allowlist completed successfully\n" + unmatched + fmt.Sprintf("%d removed, %d kept\n", removedN, keptN)
+	if real.code != 0 || real.stdout != want {
+		t.Fatalf("real code=%d stdout:\n%s\nwant:\n%s\nstderr=%s", real.code, real.stdout, want, real.stderr)
+	}
+
+	countHome := t.TempDir()
+	countBundle := filepath.Join(t.TempDir(), "cacert.pem")
+	if err := os.WriteFile(countBundle, src, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backup = runCLI(t, bin, countHome, "backup", "-app", "certifi", "-store", countBundle)
+	if backup.code != 0 {
+		t.Fatalf("backup code=%d stdout=%s stderr=%s", backup.code, backup.stdout, backup.stderr)
+	}
+	counted := runCLI(t, bin, countHome, "allowlist", "-app", "certifi", "-store", countBundle, "-file", alPath, "--count")
+	if counted.code != 0 || counted.stdout != fmt.Sprintf("%d\n", removedN) {
+		t.Fatalf("count code=%d stdout=%q stderr=%s", counted.code, counted.stdout, counted.stderr)
+	}
+	listed := runCLI(t, bin, countHome, "list", "-app", "certifi", "-store", countBundle, "--count")
+	if listed.code != 0 || listed.stdout != fmt.Sprintf("%d\n", keptN) {
+		t.Fatalf("list --count code=%d stdout=%q stderr=%s", listed.code, listed.stdout, listed.stderr)
+	}
 }
 
 func soleCertifiBackup(t *testing.T, home string) string {

@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/store"
@@ -70,7 +71,7 @@ func BackupForBundle(bundle string) error {
 
 // AllowlistForBundle applies an allowlist to an explicit openssl PEM CA bundle.
 // allowlistPath is the allowlist file (--file). bundle is the PEM (--bundle).
-func AllowlistForBundle(app, allowlistPath, bundle string) error {
+func AllowlistForBundle(app, allowlistPath, bundle string, stdout io.Writer) error {
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
 		return fmt.Errorf("--bundle requires --app openssl")
 	}
@@ -78,5 +79,5 @@ func AllowlistForBundle(app, allowlistPath, bundle string) error {
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, allowlistPath)
+	return allowlistStore(s, app, allowlistPath, stdout)
 }

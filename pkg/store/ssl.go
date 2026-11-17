@@ -188,10 +188,9 @@ func (s sslStore) Remove(al allowlist.Allowlist) error {
 	if len(kept.Certs) == 0 {
 		return fmt.Errorf("allowlist would leave %s empty; refusing to write an empty bundle. Adjust the allowlist or restore from backup", path)
 	}
-	if DryRun() {
-		details := reportDryRunCerts("remove", removed)
-		details = append(details, reportKeptRawPEM(kept.Entries)...)
-		reportAllowlistDryRun("ssl", path, kept.Certs, removed, unparsablePEMLines("", kept.Entries), nil, details)
+	details := reportDryRunCerts("remove", removed)
+	details = append(details, reportKeptRawPEM(kept.Entries)...)
+	if finishAllowlist(al, "ssl", path, kept.Certs, removed, unparsablePEMLines("", kept.Entries), nil, details) {
 		return nil
 	}
 	return s.replaceBundle(kept)

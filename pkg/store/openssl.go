@@ -342,10 +342,9 @@ func (s opensslStore) removeFromFile(path string, al allowlist.Allowlist) error 
 	if len(kept.Certs) == 0 {
 		return fmt.Errorf("allowlist would leave %s empty; refusing to write an empty bundle. Adjust the allowlist or restore from backup", path)
 	}
-	if DryRun() {
-		details := reportDryRunCerts("remove", removed)
-		details = append(details, reportKeptRawPEM(kept.Entries)...)
-		reportAllowlistDryRun("openssl", path, kept.Certs, removed, unparsablePEMLines("", kept.Entries), nil, details)
+	details := reportDryRunCerts("remove", removed)
+	details = append(details, reportKeptRawPEM(kept.Entries)...)
+	if finishAllowlist(al, "openssl", path, kept.Certs, removed, unparsablePEMLines("", kept.Entries), nil, details) {
 		return nil
 	}
 	return s.replaceBundle(path, kept)
@@ -377,23 +376,24 @@ func (s opensslStore) removeFromDir(dir string, al allowlist.Allowlist) error {
 	if totalKept == 0 {
 		return fmt.Errorf("allowlist would leave %s empty; refusing to remove the last certificates. Adjust the allowlist or restore from backup", dir)
 	}
-	if DryRun() {
-		var keptCerts []*x509.Certificate
-		var rawKeep []string
-		var details []string
-		for _, it := range plan {
-			keptCerts = append(keptCerts, it.kept.Certs...)
-			rawKeep = append(rawKeep, unparsablePEMLines("", it.kept.Entries)...)
-			for i := range it.removed {
-				details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(it.removed[i]), it.path))
-			}
-			details = append(details, reportKeptRawPEM(it.kept.Entries)...)
+	var keptCerts []*x509.Certificate
+	var rawKeep []string
+	var details []string
+	for _, it := range plan {
+		keptCerts = append(keptCerts, it.kept.Certs...)
+		rawKeep = append(rawKeep, unparsablePEMLines("", it.kept.Entries)...)
+		for i := range it.removed {
+			details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(it.removed[i]), it.path))
 		}
-		var extras []string
+		details = append(details, reportKeptRawPEM(it.kept.Entries)...)
+	}
+	var extras []string
+	if DryRun() && !AllowlistCountOnly() {
 		if bin := findCRehash(); bin != "" {
 			extras = append(extras, fmt.Sprintf("then run %s %s", bin, dir))
 		}
-		reportAllowlistDryRun("openssl", dir, keptCerts, allRemoved, rawKeep, extras, details)
+	}
+	if finishAllowlist(al, "openssl", dir, keptCerts, allRemoved, rawKeep, extras, details) {
 		return nil
 	}
 

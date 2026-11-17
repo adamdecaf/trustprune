@@ -17,6 +17,7 @@ package store
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/x509"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -35,7 +36,7 @@ func TestReportAllowlistDryRun_Format(t *testing.T) {
 		SetDryRunVerbose(false)
 	})
 
-	reportAllowlistDryRun("empty", "", nil, nil, nil, nil, []string{"remove hidden"})
+	reportAllowlistDryRun("empty", "", nil, nil, nil, nil, []string{"remove hidden"}, nil)
 	want := "dry-run: would remove certificates from empty\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
 	if buf.String() != want {
 		t.Fatalf("stub plan:\n%q", buf.String())
@@ -46,6 +47,7 @@ func TestReportAllowlistDryRun_Format(t *testing.T) {
 		[]string{"unparsable PEM block (4 bytes) in /ca/mixed.crt"},
 		[]string{"then run /bin/true"},
 		[]string{"remove CN=Nope (SHA256 aa) from /ca/mixed.crt", "keep unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+		nil,
 	)
 	want = "dry-run: would remove certificates from linux at /ca\n  then run /bin/true\nKept:\n  unparsable PEM block (4 bytes) in /ca/mixed.crt\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
 	if buf.String() != want {
@@ -58,8 +60,25 @@ func TestReportAllowlistDryRun_Format(t *testing.T) {
 		[]string{"unparsable PEM block (4 bytes) in /ca/mixed.crt"},
 		[]string{"then run /bin/true"},
 		[]string{"remove CN=Nope (SHA256 aa) from /ca/mixed.crt", "keep unparsable PEM block (4 bytes) in /ca/mixed.crt"},
+		nil,
 	)
 	want = "dry-run: would remove certificates from linux at /ca\n  then run /bin/true\nKept:\n  unparsable PEM block (4 bytes) in /ca/mixed.crt\n  remove CN=Nope (SHA256 aa) from /ca/mixed.crt\n  keep unparsable PEM block (4 bytes) in /ca/mixed.crt\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	if buf.String() != want {
+		t.Fatalf("verbose plan:\n%q", buf.String())
+	}
+
+	buf.Reset()
+	SetDryRunVerbose(false)
+	reportAllowlistDryRun("certifi", "/b", nil, nil, nil, nil, []string{"remove hidden"}, []string{"aa", "bb"})
+	want = "dry-run: would remove certificates from certifi at /b\nUnmatched allowlist entries:\n  aa\n  bb\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	if buf.String() != want {
+		t.Fatalf("unmatched plan:\n%q", buf.String())
+	}
+
+	buf.Reset()
+	SetDryRunVerbose(true)
+	reportAllowlistDryRun("certifi", "/b", nil, nil, nil, nil, []string{"remove CN=Nope"}, []string{"aa"})
+	want = "dry-run: would remove certificates from certifi at /b\n  remove CN=Nope\nUnmatched allowlist entries:\n  aa\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
 	if buf.String() != want {
 		t.Fatalf("verbose plan:\n%q", buf.String())
 	}
@@ -344,5 +363,33 @@ func TestFormatCertLine(t *testing.T) {
 	}
 	if !strings.Contains(line, "SHA256") {
 		t.Fatalf("line missing SHA256 label: %q", line)
+	}
+}
+
+func TestUnmatchedAllowlistFingerprints(t *testing.T) {
+	certs, err := certutil.FromFile(filepath.Join("..", "..", "testdata", "example.crt"))
+	if err != nil || len(certs) == 0 || certs[0] == nil {
+		t.Fatalf("load example.crt: %v", err)
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	stale := strings.Repeat("ab", 32)
+	other := strings.Repeat("cd", 32)
+	if stale == fp || other == fp {
+		t.Fatal("fixture fingerprint collided with example.crt")
+	}
+
+	got := unmatchedAllowlistFingerprints([]string{fp, stale, stale, other}, []*x509.Certificate{nil, certs[0]})
+	if strings.Join(got, "\n") != stale+"\n"+other {
+		t.Fatalf("unmatched = %v", got)
+	}
+
+	// A fingerprint that equals a certificate is not stale, including when
+	// that certificate is in the removed group.
+	got = unmatchedAllowlistFingerprints([]string{fp, stale}, nil, []*x509.Certificate{certs[0]})
+	if len(got) != 1 || got[0] != stale {
+		t.Fatalf("removed-group fingerprint listed: %v", got)
+	}
+	if unmatchedAllowlistFingerprints(nil, []*x509.Certificate{certs[0]}) != nil {
+		t.Fatal("empty fingerprint list should stay empty")
 	}
 }

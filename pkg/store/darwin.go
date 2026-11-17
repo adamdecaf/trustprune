@@ -426,19 +426,18 @@ func (s darwinStore) Remove(al allowlist.Allowlist) error {
 		return fmt.Errorf("remove: error reading certs from %s, err=%w", systemRootCertificates, err)
 	}
 
-	if DryRun() {
-		var kept []*x509.Certificate
-		var removed []*x509.Certificate
-		var details []string
-		for i := range roots {
-			if al.Matches(roots[i]) {
-				kept = append(kept, roots[i])
-				continue
-			}
-			removed = append(removed, roots[i])
-			details = append(details, fmt.Sprintf("distrust %s", formatCertLine(roots[i])))
+	var kept []*x509.Certificate
+	var removed []*x509.Certificate
+	var details []string
+	for i := range roots {
+		if al.Matches(roots[i]) {
+			kept = append(kept, roots[i])
+			continue
 		}
-		reportAllowlistDryRun("darwin", systemRootCertificates, kept, removed, nil, nil, details)
+		removed = append(removed, roots[i])
+		details = append(details, fmt.Sprintf("distrust %s", formatCertLine(roots[i])))
+	}
+	if finishAllowlist(al, "darwin", systemRootCertificates, kept, removed, nil, nil, details) {
 		return nil
 	}
 
