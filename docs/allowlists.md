@@ -67,6 +67,44 @@ While it writes the file, `gen-allowlist` prints a summary table with headers `C
 
 CAs on the built-in denylist are left out of that table and out of the file. Each one prints `NOTE: skipping denylisted certificate ...` first. See [Denylisted certificates](#denylisted-certificates).
 
+### Stats
+
+`--stats` prints a block to stderr after hosts are dialed. The summary table on stdout stays the same. Without `--stats`, that block is not printed.
+
+It is printed when generation dialed hosts, including when no CA could be recorded. It is not printed when generation stops before any dial, for example when no URLs were found.
+
+The block reports:
+
+- URLs read from the input, before duplicate hosts are collapsed, and how many unique hosts that was
+- TLS connections attempted, succeeded, and failed
+- hosts answered from a CA already recorded for that name, without a new connection (`reused hosts`)
+- total and average DNS lookup time, and how many lookups that was
+- total and average connect and TLS handshake time (from the start of the TCP dial through the handshake, including a dial that fails)
+- unique roots matched
+- total wall time, including writing the allowlist file
+
+Failed hosts are listed on a last line, at most 20, with a count of any left out (`(+N more)`). That line is omitted when every dial succeeded. IP addresses do not add DNS time. An example block:
+
+```
+stats:
+urls: 3
+unique hosts: 2
+tls attempted: 2
+tls succeeded: 2
+tls failed: 0
+reused hosts: 0
+dns: total 18ms, avg 9ms, lookups 2
+connect+tls: total 140ms, avg 70ms, handshakes 2
+roots: 1
+wall: 160ms
+```
+
+```
+$ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets --stats
+```
+
+The summary table is still printed on stdout. `--stats` only adds the block above on stderr.
+
 ### Platform presets
 
 When generation actually runs, the default platform preset for this OS is merged in unless you pass `--no-presets` or an explicit `--presets` list:

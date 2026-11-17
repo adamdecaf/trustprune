@@ -44,6 +44,9 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 		if !strings.Contains(body, "show full fingerprints in the summary table") {
 			t.Fatalf("help missing gen-allowlist -v usage:\n%s", body)
 		}
+		if !strings.Contains(body, "--stats") || !strings.Contains(body, "print connection and timing stats to stderr") {
+			t.Fatalf("help missing --stats:\n%s", body)
+		}
 		if strings.Contains(body, "serials, and paths") {
 			t.Fatalf("gen-allowlist reused list -v usage:\n%s", body)
 		}
@@ -79,6 +82,23 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 	t.Run("missing --out is exit 2", func(t *testing.T) {
 		res := runCLI(t, bin, home, "gen-allowlist", "--hosts", "example.com")
 		assertUsageError(t, res, "required flag --out not set")
+	})
+
+	t.Run("--stats is accepted and is not a source", func(t *testing.T) {
+		res := runCLI(t, bin, home, "gen-allowlist", "--stats")
+		assertUsageError(t, res, "required flag --out not set")
+
+		res = runCLI(t, bin, home, "gen-allowlist", "--out", out, "--stats")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "trustprune gen-allowlist") {
+			t.Fatalf("expected help, stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stderr, "stats:") {
+			t.Fatalf("stats printed without a dial:\n%s", res.stderr)
+		}
+		assertNoAllowlist(t, out)
 	})
 
 	t.Run("--out alone prints help and exits 0", func(t *testing.T) {

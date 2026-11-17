@@ -376,6 +376,7 @@ trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --from chrome,firefox
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com -v
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets --stats
 ```
 
 | Flag | Meaning |
@@ -387,8 +388,9 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com -v
 | `--from <types>` | Comma-separated sources: `browser` / `browsers`, `chrome`, `firefox`, `safari`, `file` |
 | `--file <path>` | Newline- or comma-delimited URLs (plain text or gzip CSV-style “top N” lists) |
 | `-v` | Show full fingerprints in the summary table. The default prints the first 16 characters |
+| `--stats` | Print connection and timing stats to stderr after hosts are dialed. The summary table is unchanged. The block lists URLs read, unique hosts, TLS attempts, successes, and failures (failed hosts, at most 20), hosts answered from a CA already recorded for that name, total and average DNS and connect+TLS times, unique roots, and wall time. Omitted when `--stats` is not set |
 
-Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--presets` and `--no-presets` together are a usage error (exit 2).
+Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--stats` alone does not count as a source. `--presets` and `--no-presets` together are a usage error (exit 2).
 
 ## add
 
