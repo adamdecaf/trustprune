@@ -31,7 +31,7 @@ Parent directory (created as needed):
 | Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
-| Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
+| Chrome / Firefox / poppler / okular (NSS) | `chrome/<unix-timestamp>/`, `firefox/<unix-timestamp>/`, `poppler/<unix-timestamp>/`, or `okular/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `--app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `--app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
@@ -61,7 +61,7 @@ If the swap rename itself fails after the live tree was moved aside, the previou
 
 ## NSS: full file set
 
-NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile set exist:
+NSS backups for Chrome (Linux), Firefox, poppler, and okular copy whichever members of the profile set exist:
 
 | Style | Files |
 |-------|-------|
@@ -127,6 +127,12 @@ Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolutio
 Restore with no backup refuses before any filesystem write (dry-run included). Explicit `--backup` is honored and still names the backup source.
 
 `--bundle <pem>` on `list`, `backup`, `restore`, and `allowlist` uses that PEM and skips `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro defaults, and git. On `allowlist`, `--file` remains the allowlist. On `restore`, `--backup` remains the backup source. With `--bundle` and no `--backup`, restore picks the newest backup whose `source` matches that PEM (backups with no `source` file are skipped). A backup recorded for a different path is refused before any write unless `--force`. Backups with no `source` file can still be applied with an explicit `--backup`. Discovery restore (no `--bundle`) of a PEM uses the newest backup recorded for that file and also accepts a legacy backup with no `source`; a backup recorded for a different bundle is refused unless `--force`. Allowlist uses the same selection. Automatic restore of a discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup (directory mirrors have no `source` file). Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`. If discovery cannot resolve a path, only backups with no `source` file match.
+
+## Okular (`--app okular`)
+
+When the effective signature backend is NSS, backups are the same NSS profile set as poppler, under `okular/<unix-timestamp>/`, with a `source` file recording the directory. Restore and allowlist use that recorded path the same way as firefox and poppler.
+
+When the backend is GPG, `backup`, `restore`, and `allowlist` report the GPG backend and exit 1. They do not create a backup directory.
 
 ## Foxit (`--app foxit`)
 
