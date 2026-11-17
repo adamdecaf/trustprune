@@ -249,7 +249,7 @@ pdfsig and other poppler NSS users trust an NSS database. `--app poppler` uses t
 
 `--store <dir>` is poppler's `-nssdir` and skips discovery. Otherwise the directory is chosen the same way as poppler's `NSSSignatureConfiguration::setNSSDir`: the newest Firefox profile whose name contains `default` and that has a regular non-empty `cert9.db` (a cert8-only profile is skipped) when `certutil -L -d sql:<dir>` succeeds, or when certutil cannot be found or run. A profile that fails that probe falls back to `~/.pki/nssdb` (a failed Firefox open does not try `/etc/pki/nssdb`). With no cert9 profile, `/etc/pki/nssdb` is used when it contains a regular non-empty `cert9.db` and the probe succeeds or certutil cannot be found or run; otherwise `~/.pki/nssdb`. `apps` marks poppler found only when that chosen directory contains `cert9.db`. `list` still shows the chosen path.
 
-Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. Built-in `libnssckbi` roots are not enumerated yet, so a root that exists only in that module is not listed and is not distrusted.
+Backup, restore, add, and allowlist use the same NSS code as `--app firefox`. Allowlist refuses when this directory has no backup of its own and the newest backup was recorded for a different directory, unless `--force`. List includes built-in `libnssckbi` roots. A root that exists only in that module is distrusted with a `p,p,p` override on the internal token.
 
 ```bash
 trustprune list --app poppler
@@ -259,6 +259,16 @@ trustprune backup --app poppler
 trustprune backup --app poppler --store /path/to/nssdb
 trustprune allowlist --app poppler --store /path/to/nssdb --file allowlist.yaml --dry-run
 ```
+
+### Evince and Papers
+
+Evince and Papers are not `--app` values.
+
+**Papers** ([pps-poppler.c](https://gitlab.gnome.org/GNOME/papers/-/blob/18958ac9397bed07bb6c9a1d62331422c9fc0d95/libdocument/backend/pdf/pps-poppler.c), checked at `18958ac9`) validates signatures with poppler and leaves the NSS directory unset. The effective backend is `POPPLER_SIGNATURE_BACKEND` when set, otherwise poppler's compile-time default (NSS when that backend was built first; [CryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/CryptoSignBackend.cc)). When the effective backend is NSS, `--app poppler` is the host store Papers uses, including list, backup, allowlist, and restore. A sandboxed Papers install (for example Flatpak) can use a different `XDG_CONFIG_HOME` and therefore a different NSS database than host `--app poppler`; confirm that install's database path before relying on pruning. When the effective backend is GPG, Papers reads `$GNUPGHOME` (default `~/.gnupg`; [GPGMECryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/GPGMECryptoSignBackend.cc)). That store is report-only, the same as poppler's GPG backend: trustprune does not list or prune `trustlist.txt`.
+
+**Evince** ([ev-poppler.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/backend/pdf/ev-poppler.c) and [ev-form-field.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/libdocument/ev-form-field.c), `main` at `e822030`) maps signature form fields and has no signature-validation call ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)). There is no trust store to prune. If Evince adds validation later, reopen [issue #391](https://github.com/adamdecaf/trustprune/issues/391).
+
+The [platforms page](platforms.md) has the same coverage with the source links.
 
 ## Okular (`--app okular`)
 

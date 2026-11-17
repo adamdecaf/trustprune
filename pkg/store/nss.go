@@ -19,10 +19,10 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -44,6 +44,10 @@ var (
 	// Run `certutil -A -H` for the full list
 	trustAttrsProhibited = "p,p,p"
 	trustAttrsTrusted    = "CT,C,C"
+
+	// nssBuiltinTokenPrefix marks nicknames certutil prints for the
+	// libnssckbi module ("Builtin Object Token") when listing every token.
+	nssBuiltinTokenPrefix = "Builtin Object Token:"
 
 	// NSS shared DB (cert9) profile files that must be backed up/restored together.
 	nssCert9ProfileFiles = []string{"cert9.db", "key4.db", "pkcs11.txt"}
@@ -75,6 +79,10 @@ type nssStore struct {
 	// Holds a trigger if we've made modifications (useful for triggering a "Restart app" message
 	// after we're done with modifications.
 	notify *sync.Once
+
+	// tool, when set, replaces the package certutil client. Tests inject a
+	// runner so list and remove do not spawn certutil. Nil uses cutil.
+	tool *crtutil
 }
 
 // NssStore returns an implementation of Store for NSS certificate stores
@@ -157,7 +165,7 @@ func (s nssStore) Add(certs []*x509.Certificate) error {
 		}
 
 		nick := strings.ReplaceAll(certutil.StringifyPKIXName(certs[i].Subject), " ", "_")
-		err = cutil.addCertificate(s.foundCertdbLocation, path, nick)
+		err = s.nssCertutil().addCertificate(s.foundCertdbLocation, path, nick)
 		if err != nil {
 			return err
 		}
@@ -523,13 +531,17 @@ func (s nssStore) GetInfo() *Info {
 // To list certificates with the NSS `certutil` tool the following would be ran
 // $ /usr/local/opt/nss/bin/certutil -L -d "$dir"
 //
+// Built-in roots from libnssckbi are included via `certutil -L -h all`.
+// Nicknames prefixed with "Builtin Object Token:" are read from that module
+// and deduplicated against the internal token by nickname and fingerprint.
+//
 // Note: `dir` represents a directory path which contains a cert.db file
 func (s nssStore) List(opts *ListOptions) ([]*x509.Certificate, error) {
 	if s.foundCertdbLocation == "" {
 		return nil, errors.New("unable to find NSS db directory")
 	}
 
-	items, err := cutil.listCertsFromDB(s.foundCertdbLocation)
+	items, err := s.nssCertutil().listCertsFromDB(s.foundCertdbLocation)
 	if err != nil {
 		return nil, err
 	}
@@ -551,7 +563,7 @@ func (s nssStore) Remove(al allowlist.Allowlist) error {
 		return errors.New("unable to find NSS db directory")
 	}
 
-	items, err := cutil.listCertsFromDB(s.foundCertdbLocation)
+	items, err := s.nssCertutil().listCertsFromDB(s.foundCertdbLocation)
 	if err != nil {
 		return err
 	}
@@ -560,17 +572,21 @@ func (s nssStore) Remove(al allowlist.Allowlist) error {
 		var kept []*x509.Certificate
 		var removed []*x509.Certificate
 		var details []string
+		var extras []string
 		for i := range items {
 			if al.MatchesAll(items[i].certs) {
 				kept = append(kept, items[i].certs...)
 				continue
+			}
+			if items[i].builtinOnly {
+				extras = append(extras, fmt.Sprintf("add built-in root %q to the internal token with trust %s", items[i].nick, trustAttrsProhibited))
 			}
 			for j := range items[i].certs {
 				removed = append(removed, items[i].certs[j])
 				details = append(details, fmt.Sprintf("distrust %s (nick %s)", formatCertLine(items[i].certs[j]), items[i].nick))
 			}
 		}
-		reportAllowlistDryRun(s.nssType, s.foundCertdbLocation, kept, removed, nil, nil, details)
+		reportAllowlistDryRun(s.nssType, s.foundCertdbLocation, kept, removed, nil, extras, details)
 		return nil
 	}
 
@@ -582,12 +598,42 @@ func (s nssStore) Remove(al allowlist.Allowlist) error {
 
 		// allowlist didn't match, blocklist cert
 		defer s.notifyToRestart()
-		err = cutil.modifyTrustAttributes(s.foundCertdbLocation, items[i].nick, trustAttrsProhibited)
-		if err != nil {
+		if err := s.distrustNSSItem(items[i]); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// distrustNSSItem sets p,p,p on item. A root that exists only in libnssckbi
+// is copied onto the internal token first; certutil -M cannot edit that module.
+func (s nssStore) distrustNSSItem(item certdbItem) error {
+	cu := s.nssCertutil()
+	if item.builtinOnly {
+		dir, err := os.MkdirTemp("", "cert-manage-nss-builtin")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = os.RemoveAll(dir) }()
+
+		path := filepath.Join(dir, "cert.pem")
+		if err := certutil.ToFile(path, item.certs); err != nil {
+			return err
+		}
+		// Trust is p,p,p on add so a failed -M cannot leave the new copy trusted.
+		if err := cu.addCertificateTrust(s.foundCertdbLocation, path, item.nick, trustAttrsProhibited); err != nil {
+			return err
+		}
+	}
+	return cu.modifyTrustAttributes(s.foundCertdbLocation, item.nick, trustAttrsProhibited)
+}
+
+// nssCertutil returns the certutil client for this store.
+func (s nssStore) nssCertutil() crtutil {
+	if s.tool != nil {
+		return *s.tool
+	}
+	return cutil
 }
 
 func (s nssStore) Restore(where string) error {
@@ -826,6 +872,11 @@ type certdbItem struct {
 	// The 'Trust Attributes' header from `certutil -L`, this represents three usecases for
 	// x509 Certificates: SSL,S/MIME,JAR/XPI
 	trustAttrs string
+
+	// builtinOnly is true when the certificate was read from libnssckbi and
+	// is not already present on the internal token. Remove adds it there
+	// before applying a trust override.
+	builtinOnly bool
 }
 
 func (c certdbItem) trustedForSSL() bool {
@@ -847,16 +898,32 @@ func (c certdbItem) trustedForSSL() bool {
 	return !strings.Contains(parts[0], "p")
 }
 
+// certutilRun executes certutil. bin is the resolved executable, or "certutil"
+// when a test injected the runner. args is the certutil argument vector.
+type certutilRun func(bin string, args []string) (stdout, stderr []byte, err error)
+
 // crtutil represents the NSS cli tool by the same name
 // https://developer.mozilla.org/en-US/docs/Mozilla/Projects/NSS/Tools/certutil
 type crtutil struct {
 	execPaths []string
+
+	// run, when set, executes certutil instead of exec.Command.
+	// Tests inject this so list and remove need no certutil binary and no network.
+	run certutilRun
 }
 
 func (c crtutil) getExecPath() (string, error) {
 	for i := range c.execPaths {
 		if file.IsExecutable(c.execPaths[i]) {
 			return c.execPaths[i], nil
+		}
+	}
+	// Fall back to PATH so installs outside the usual prefixes are found.
+	// Skip Windows: LookPath("certutil") can resolve System32\certutil.exe,
+	// which is not the NSS tool.
+	if runtime.GOOS != "windows" {
+		if p, err := exec.LookPath("certutil"); err == nil {
+			return p, nil
 		}
 	}
 	return "", errors.New("nss: certutil not found; install NSS tools (libnss3-tools, nss-tools or brew install nss)")
@@ -888,98 +955,188 @@ func nssCertutilDirAndScheme(where string) (dir, scheme string) {
 // Emulates the following
 // /usr/local/opt/nss/bin/certutil -A -a -n <nick> -t 'CT,C,C' -i cert.pem -d <dir>
 func (c crtutil) addCertificate(dir string, where string, nick string) error {
-	expath, err := c.getExecPath()
-	if err != nil {
-		return err
-	}
+	return c.addCertificateTrust(dir, where, nick, trustAttrsTrusted)
+}
+
+// addCertificateTrust adds a PEM certificate to the internal token with trust.
+func (c crtutil) addCertificateTrust(dir string, where string, nick string, trust string) error {
 	args := []string{
 		"-A", "-a",
 		"-n", nick,
-		"-t", trustAttrsTrusted,
+		"-t", trust,
 		"-i", where,
 		"-d", c.appendScheme(dir),
 	}
-	cmd := exec.Command(expath, args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		if debug {
-			fmt.Printf("Command was:\n %s\n", strings.Join(cmd.Args, " "))
-			fmt.Printf("Output was: %q\n", string(out))
-		}
-		return err
-	}
-	return nil
+	_, err := c.command(args...)
+	return err
 }
 
 // Emulates the following
 // /usr/local/opt/nss/bin/certutil -L -d '~/Library/Application Support/Firefox/Profiles/rrdlhe7o.default'
+// and also `certutil -L -h all` so libnssckbi roots are visible.
 //
 // TODO(adam): Check for opts.Expired or opts.Revoked
 func (c crtutil) listCertsFromDB(path string) ([]certdbItem, error) {
-	expath, err := c.getExecPath()
+	// Without -h, certutil lists only the internal token.
+	internalOut, err := c.command("-L", "-d", c.appendScheme(path))
+	if err != nil {
+		return nil, err
+	}
+	internal, err := c.attachCerts(path, c.parseCertutilList(internalOut))
 	if err != nil {
 		return nil, err
 	}
 
-	args := []string{
-		"-L",
-		"-d", c.appendScheme(path),
+	allOut, err := c.command("-L", "-h", "all", "-d", c.appendScheme(path))
+	if err != nil {
+		return nil, fmt.Errorf("store/nss: listing built-in roots in %s: %w", path, err)
 	}
-	cmd := exec.Command(expath, args...)
+	return c.mergeBuiltinRoots(path, internal, c.parseCertutilList(allOut))
+}
 
+// command runs certutil. A nil run field uses the probed certutil binary.
+func (c crtutil) command(args ...string) ([]byte, error) {
+	run := c.run
+	bin := "certutil"
+	if run == nil {
+		var err error
+		bin, err = c.getExecPath()
+		if err != nil {
+			return nil, err
+		}
+		run = defaultCertutilRun
+	}
+	stdout, stderr, err := run(bin, args)
+	if err != nil {
+		if debug {
+			fmt.Printf("Command was:\n %s %s\n", bin, strings.Join(args, " "))
+			fmt.Printf("Output was: %q\n", string(stdout))
+			fmt.Printf("Stderr was: %q\n", string(stderr))
+		}
+		if msg := strings.TrimSpace(string(stderr)); msg != "" {
+			err = fmt.Errorf("store/nss: certutil: %w: %s", err, msg)
+		}
+	}
+	return stdout, err
+}
+
+func defaultCertutilRun(bin string, args []string) ([]byte, []byte, error) {
+	cmd := exec.Command(bin, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	err := cmd.Run()
+	return stdout.Bytes(), stderr.Bytes(), err
+}
 
-	err = cmd.Run()
-	if err != nil {
-		if debug {
-			fmt.Printf("Command was:\n %s\n", strings.Join(cmd.Args, " "))
-		}
-		return nil, err
-	}
-
-	// parse out each 'Certificate Nickname' field
-	// there are some header lines that are either whitespace or contain the following:
-	//
-	// Certificate Nickname                                         Trust Attributes
-	// SSL,S/MIME,JAR/XPI
-	//
+// parseCertutilList reads `certutil -L` output. Header and blank lines are skipped.
+func (c crtutil) parseCertutilList(out []byte) []certdbItem {
 	items := make([]certdbItem, 0)
-	for {
-		// read next line
-		line, err := stdout.ReadString(byte('\n'))
-		if err != nil && !errors.Is(err, io.EOF) {
-			return nil, err
-		}
-
-		// convert the line into a certdbItem
+	for _, line := range strings.Split(string(out), "\n") {
 		nick, trust := c.parseCertdbItem(line)
 		if nick == "" || trust == "" {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			continue // skip blank lines (headers are returned here as blank)
+			continue
 		}
-		certs, err := c.readCertificatesForNick(path, nick)
+		items = append(items, certdbItem{
+			nick:       nick,
+			trustAttrs: trust,
+		})
+	}
+	return items
+}
+
+func (c crtutil) attachCerts(path string, items []certdbItem) ([]certdbItem, error) {
+	for i := range items {
+		certs, err := c.readCertificatesForNick(path, items[i].nick)
 		if err != nil {
 			return nil, err
 		}
+		items[i].certs = certs
+	}
+	return items, nil
+}
 
-		items = append(items, certdbItem{
-			nick:       nick,
-			certs:      certs,
-			trustAttrs: trust,
-		})
-
-		// quit if we hit the end
-		if errors.Is(err, io.EOF) {
-			break
+// mergeBuiltinRoots appends libnssckbi certificates that are not already on
+// the internal token. Matching uses the nickname with the token prefix
+// removed, and the certificate fingerprint.
+func (c crtutil) mergeBuiltinRoots(path string, internal, listed []certdbItem) ([]certdbItem, error) {
+	nicks := make(map[string]struct{}, len(internal))
+	fps := make(map[string]struct{})
+	for i := range internal {
+		if internal[i].nick != "" {
+			nicks[internal[i].nick] = struct{}{}
 		}
+		indexNSSFingerprints(fps, internal[i].certs)
 	}
 
-	return items, nil
+	out := internal
+	for i := range listed {
+		full := listed[i].nick
+		name, ok := nssBuiltinNick(full)
+		if !ok {
+			continue
+		}
+		if _, dup := nicks[name]; dup {
+			continue
+		}
+		if _, dup := nicks[full]; dup {
+			continue
+		}
+		certs, err := c.readCertificatesForNick(path, full)
+		if err != nil {
+			return nil, fmt.Errorf("store/nss: reading built-in root %q: %w", full, err)
+		}
+		if len(certs) == 0 {
+			return nil, fmt.Errorf("store/nss: no certificate for built-in root %q", full)
+		}
+		if nssFingerprintsOverlap(fps, certs) {
+			continue
+		}
+		out = append(out, certdbItem{
+			nick:        name,
+			certs:       certs,
+			trustAttrs:  listed[i].trustAttrs,
+			builtinOnly: true,
+		})
+		nicks[name] = struct{}{}
+		nicks[full] = struct{}{}
+		indexNSSFingerprints(fps, certs)
+	}
+	return out, nil
+}
+
+// nssBuiltinNick returns the certificate nickname inside the built-in token.
+func nssBuiltinNick(nick string) (string, bool) {
+	if !strings.HasPrefix(nick, nssBuiltinTokenPrefix) {
+		return "", false
+	}
+	name := strings.TrimSpace(strings.TrimPrefix(nick, nssBuiltinTokenPrefix))
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func indexNSSFingerprints(dst map[string]struct{}, certs []*x509.Certificate) {
+	for i := range certs {
+		if certs[i] == nil {
+			continue
+		}
+		dst[certutil.GetHexSHA256Fingerprint(*certs[i])] = struct{}{}
+	}
+}
+
+func nssFingerprintsOverlap(known map[string]struct{}, certs []*x509.Certificate) bool {
+	for i := range certs {
+		if certs[i] == nil {
+			continue
+		}
+		if _, ok := known[certutil.GetHexSHA256Fingerprint(*certs[i])]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (c crtutil) parseCertdbItem(line string) (nick string, trust string) {
@@ -1007,30 +1164,18 @@ func (c crtutil) parseCertdbItem(line string) (nick string, trust string) {
 //
 // /usr/local/opt/nss/bin/certutil -L -d "$dir" -n 'Microsoft IT SSL SHA2' -a
 func (c crtutil) readCertificatesForNick(path string, nick string) ([]*x509.Certificate, error) {
-	expath, err := c.getExecPath()
-	if err != nil {
-		return nil, err
-	}
-
 	args := []string{
 		"-L",
 		"-a",
 		"-d", c.appendScheme(path),
 		"-n", nick,
 	}
-	cmd := exec.Command(expath, args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	err = cmd.Run()
+	stdout, err := c.command(args...)
 	if err != nil {
-		if debug {
-			fmt.Printf("Command was:\n %s\n", strings.Join(cmd.Args, " "))
-		}
 		return nil, err
 	}
 
-	certs, err := certutil.ParsePEM(stdout.Bytes())
+	certs, err := certutil.ParsePEM(stdout)
 	if err != nil {
 		return nil, err
 	}
@@ -1042,24 +1187,15 @@ func (c crtutil) readCertificatesForNick(path string, nick string) ([]*x509.Cert
 //
 // $ /usr/local/opt/nss/bin/certutil -M -n <nick> -t <trust-args> -d <dir>
 func (c crtutil) modifyTrustAttributes(path string, nick, trustAttrs string) error {
-	expath, err := c.getExecPath()
-	if err != nil {
-		return err
-	}
-
 	args := []string{
 		"-M",
 		"-n", nick,
 		"-t", trustAttrs,
 		"-d", c.appendScheme(path),
 	}
-	cmd := exec.Command(expath, args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-
-	err = cmd.Run()
+	stdout, err := c.command(args...)
 	if debug {
-		fmt.Printf("Command was: \n%s\nOutput was: \n%s\n", strings.Join(cmd.Args, " "), stdout.String())
+		fmt.Printf("Command was: \n%s\nOutput was: \n%s\n", strings.Join(args, " "), string(stdout))
 	}
 	return err
 }
