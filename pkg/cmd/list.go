@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/httputil"
@@ -102,7 +103,13 @@ func ListCertsForPlatform(cfg *ui.Config) error {
 // ListCertsForApp finds certs for the given app.
 // The supported applications are listed in the readme. This includes
 // non-traditional applications like NSS.
+// --app acrobat prints a read-only trust settings report instead of
+// certificates. When Acrobat is not installed the text is
+// store.AcrobatNotInstalledReport and the command exits 0.
 func ListCertsForApp(app string, cfg *ui.Config) error {
+	if strings.ToLower(app) == "acrobat" {
+		return listAcrobatTrustReport(cfg)
+	}
 	st, err := store.ForApp(app)
 	if err != nil {
 		return err
@@ -118,6 +125,14 @@ func ListCertsForApp(app string, cfg *ui.Config) error {
 	// Output the certificates
 	meta := createMeta(st)
 	return ui.ListCertificatesWithMeta(meta, certificates, cfg)
+}
+
+func listAcrobatTrustReport(cfg *ui.Config) error {
+	text, err := store.AcrobatTrustReport()
+	if err != nil {
+		return err
+	}
+	return ui.WriteConfiguredText(cfg, text)
 }
 
 func createMeta(st store.Store) ui.Meta {
@@ -137,6 +152,9 @@ func createMeta(st store.Store) ui.Meta {
 // NSS directory). The parameter name is historical: callers pass the CLI
 // --store path. List output includes that path.
 func ListCertsForAppWithFile(app, storePath string, cfg *ui.Config) error {
+	if strings.ToLower(app) == "acrobat" && strings.TrimSpace(storePath) == "" {
+		return listAcrobatTrustReport(cfg)
+	}
 	st, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err

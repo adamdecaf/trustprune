@@ -60,6 +60,8 @@ func DetectStatuses() []Status {
 
 func detectApp(name string) Status {
 	switch name {
+	case "acrobat":
+		return detectAcrobat()
 	case "certifi":
 		return detectCertifi()
 	case "chrome":

@@ -10,7 +10,7 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
+Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -51,7 +51,15 @@ ssl       not-found  -
 linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
 
-STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file.
+STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file. For Acrobat, PATH is `addressbook.acrodata` when that file is found. Acrobat backup and restore copy the file. `list` prints a read-only trust settings report. `add`, `allowlist`, and `connect` print a pruning guide.
+
+## Acrobat
+
+`--app acrobat` finds the newest per-user `addressbook.acrodata` on Windows and macOS. `trustprune apps` reports `found` and that path. `backup` and `restore` copy the file unchanged. They refuse while a process named Acrobat, AcroRd32, or AdobeReader is running. `list` prints a read-only report of the AATL download, the EUTL download, and Windows store trust (`iMSStoreTrusted`). It does not parse the address book. When no registry key, plist, or address book is found, `list` prints `acrobat: not installed` and exits 0. `add`, `allowlist`, and `connect` print where Acrobat trust comes from and do not edit the file. `--dry-run` on backup and restore prints the copy plan and does not write. `--store` is rejected.
+
+The file lives under `%APPDATA%\Adobe\Acrobat\<ver>\Security` on Windows and `~/Library/Application Support/Adobe/Acrobat/<ver>/Security` on macOS. `DC` is newer than a numbered folder. A higher number is newer (`2024`, then `11.0`, then `10.0`). Linux is not probed.
+
+Trusted Identities in that address book are where AATL and EUTL certificates are loaded. Remove a root in **Preferences > Signatures > Identities & Trusted Certificates > More > Trusted Certificates**. Turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. On Windows, Windows Integration can also trust the Windows certificate store. The address book format is **unverified**. Listing address book entries read-only was not attempted. The file is treated as opaque. `list` reads the settings from `HKCU\Software\Adobe\{Adobe Acrobat,Acrobat Reader}\<ver>\Security\cDigSig` on Windows and from `~/Library/Preferences/com.adobe.Acrobat.Pro.plist` or `com.adobe.Reader.plist` on macOS (`/usr/bin/defaults read`). It does not write the registry or a plist. Paths and the full steps are in [Platforms](platforms.md#acrobat).
 
 ## Foxit
 

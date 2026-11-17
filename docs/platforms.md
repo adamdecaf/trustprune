@@ -34,7 +34,50 @@ Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RH
 | **Partial** | `okular` | Okular poppler generator. Config is the KConfig merge of `$XDG_CONFIG_DIRS` (default `/etc/xdg` on Unix) with the user file `~/.config/okular-generator-popplerrc` or `$XDG_CONFIG_HOME/okular-generator-popplerrc` (`[Signatures]`; user keys win). Flatpak and other sandbox paths are **unverified**. Effective backend: `SignatureBackend` if set, else `POPPLER_SIGNATURE_BACKEND`, else NSS (poppler's usual compiled default; a prebuilt binary cannot read the host poppler default). `[$e]` values are environment-expanded; an unexpanded `SignatureBackend` refuses NSS operations. NSS with `UseDefaultCertDB=false` uses `DBCertificatePath` (a `file://` URL is converted to a filesystem path); otherwise the same NSS lookup as `poppler`. `list` shows that directory. GPG is report-only. `apps` marks NSS found when the chosen directory has a regular non-empty `cert9.db`, and GPG as `guide only` with PATH `GPG`. | NSS: list, add, allowlist, backup, restore through the same NSS store as poppler, including the recorded-profile restore/allowlist guards. GPG: report the backend and exit without changes |
 | **Supported** | `openssl` | First existing path wins: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, then `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew OpenSSL cert dirs (`/usr/local/etc/openssl/certs`, `/opt/homebrew/etc/openssl/certs`, and `openssl@3` / `openssl@1.1` variants), then `git config --get http.sslCAInfo` (best-effort). Darwin `/etc/ssl/cert.pem` is **not** an openssl default (use `--app ssl`). `--bundle <pem>` is an explicit PEM file and skips this search. Rehash: `c_rehash` when present (`/usr/bin/c_rehash`, Homebrew openssl prefixes). | list, add, allowlist (Remove), backup, restore, `--dry-run` for both PEM **files** (atomic sibling-temp install, refuse empty bundle) and OpenSSL **cert directories** (`*.pem`/`*.crt`, directory swap, `c_rehash` after add; rehash after remove/restore if available). `restore` / `restore --dry-run` with no backup exits 1 with `ERROR: no backup for openssl in …; run: trustprune backup --app openssl` (not a silent no-op). `--bundle <pem>` overrides discovery for list, backup, restore, and allowlist and must be an existing PEM file (cert directories stay on `--app openssl` without `--bundle`). PEM backups record that path in `source`. `--bundle` restore uses the newest backup recorded for that file and refuses a different path unless `--force`. Discovery restore (no `--bundle`) follows the discovered PEM (legacy backups with no `source` still match) and refuses a backup recorded for a different bundle unless `--force` |
 | **Supported (Darwin)** | `ssl` | `/etc/ssl/cert.pem` — the PEM bundle curl, git, python3, ruby, perl, and openssl CLI tools read on macOS. Apple's keychain blocks do not apply here ([eMudhra / HT149555](https://support.apple.com/en-us/149555)). Not available as a store on Linux/Windows. | list, add, allowlist (Remove), backup, restore, `--dry-run`; atomic sibling-temp install (copy aside to `.restore-old`, refuse leftover aside, exclusive backup dirs); list/add/allowlist parse negative-serial certs via a cryptobyte fallback (no GODEBUG); other unparsable PEM blocks get a stderr warning and are kept in original order on rewrite; warns when the live file differs from the last trustprune write (typical after a macOS update restores Apple's copy) |
+| **Partial** | `acrobat` | Newest per-user `addressbook.acrodata` under `%APPDATA%\Adobe\Acrobat\<ver>\Security` (Windows) or `~/Library/Application Support/Adobe/Acrobat/<ver>/Security` (macOS). `DC` is newer than a numbered folder (`2024`, then `11.0`, then `10.0`). `apps` PATH is that file. Linux is not probed. The file format is **unverified**. | `apps` reports `found` when the file exists. `backup` and `restore` copy it unchanged and refuse while Acrobat, AcroRd32, or AdobeReader is running. `list` prints a read-only report of the AATL download, the EUTL download, and `iMSStoreTrusted` and exits 0. When no registry key, plist, or address book is found it prints `acrobat: not installed`. `add`, `allowlist`, and `connect` print the pruning guide. The address book is not parsed. Listing its entries read-only was not attempted. `--store` is rejected. Registry and plist are not written |
 | **Guide only** | `foxit` | Windows and macOS install of Foxit PDF Editor or Foxit PDF Reader (older PhantomPDF and Foxit Reader names too). `apps` PATH is that install. The Trusted Certificates file is **unverified**, so it is not a store path. Linux is not probed. | `apps` reports `guide only` when an install is found. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print the pruning guide and exit 1. They do not read or write Foxit trust data. `--dry-run` does not plan a change. `--store` is rejected |
+
+### Acrobat
+
+`--app acrobat` backs up and restores the Adobe Acrobat / Reader address book and reports AATL, EUTL, and Windows store trust settings. PDF signature trust in Acrobat is separate from the OS TLS store. trustprune copies `addressbook.acrodata` and prints how to change trust in the app. It does not list or prune entries in that file.
+
+`apps` shows `found` when the file exists, with that path in PATH. A machine with no file shows `not-found`. On Linux and other systems the row is `not-found`: a current Acrobat build for Linux is **unverified**, and those systems are not probed.
+
+#### Where the file is
+
+Adobe documents the per-user folder as `C:\Users\<user>\AppData\Roaming\Adobe\Acrobat\DC\Security` on Windows and `/Users/<user>/Library/Application Support/Adobe/Acrobat/DC/Security` on macOS. The file name is `addressbook.acrodata`. Older versions use `11.0`, `10.0`, and `9.0` in place of `DC`.
+
+trustprune lists the version directories under `Adobe\Acrobat` and keeps the newest one that has a regular `Security\addressbook.acrodata`. `DC` (any case) wins over every numbered folder, including a year folder such as `2024`. Numbered names compare as dotted integers, so `2024` beats `11.0` and `11.0` beats `10.0`. That order matches Adobe's address-book import search, which looks at `11.0`, then `10.0`, then `9.0`. Any other directory name is older than those. When two folders rank the same, the address book with the later modification time wins.
+
+#### Backup and restore
+
+`backup` copies the file into `acrobat/<unix-timestamp>/addressbook.acrodata` and records the live path in `source`. The bytes are unchanged. `restore` writes that copy back with the same sibling-temp swap as `--app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination). A backup recorded for a different path is refused unless `--force`. With no backup, restore refuses before any write.
+
+Both refuse while a process image named Acrobat, AcroRd32, or AdobeReader is running (an `.exe` suffix matches). Quit those programs and run the command again. `--dry-run` prints the copy plan and does not write. It still refuses when one of those processes is running, and when the address book is missing.
+
+#### Trust settings
+
+`list` prints a read-only report and exits 0. It does not print certificates. `--count` and `--format` do not change that report.
+
+The report names the AATL download (`cAdobeDownload` or `bLoadSettingsFromURL`), the EUTL download (`cEUTLDownload`), and Windows store trust (`iMSStoreTrusted`). `bLoadSettingsFromURL` of `0` is off and `1` is on. `iMSStoreTrusted` of `0x00` is none, `0x60` is signatures, and `0x62` is signatures and certified documents. A value that is absent is `not set`. trustprune does not apply Adobe's default when the value is missing.
+
+On Windows the keys are read under `HKCU\Software\Adobe\Adobe Acrobat\<ver>\Security\cDigSig` and `HKCU\Software\Adobe\Acrobat Reader\<ver>\Security\cDigSig`. `iMSStoreTrusted` is taken from `cDigSig\cCustomDownload`, then from `cDigSig`, then from `Security\cASPKI\cMSCAPI_DirectoryProvider` ([PrefRef: Security](https://www.adobe.com/devnet-docs/acrobatetk/tools/PrefRef/Windows/Security.html)). The open uses a read-only registry access mask.
+
+On macOS the same keys are read from `~/Library/Preferences/com.adobe.Acrobat.Pro.plist` and `~/Library/Preferences/com.adobe.Reader.plist` with `/usr/bin/defaults read`. Version hives such as `DC` and `11.0` are reported newest first, using the same order as the address book (`DC`, then a higher dotted number).
+
+Linux and other systems are not probed for these settings.
+
+When no registry key, no plist, and no address book are found, the report is one line: `acrobat: not installed`. A registry or plist read error is an error, not that line. The registry and the plist are never written.
+
+#### Pruning
+
+`add`, `allowlist`, and `connect` print a guide and exit 1. They do not parse the address book. `allowlist` still requires a backup first; once one exists, it prints the guide and does not edit the file.
+
+Trust comes from Trusted Identities in `addressbook.acrodata`. AATL and EUTL downloads load certificates into that same file. Remove a root in the app: **Preferences > Signatures > Identities & Trusted Certificates > More > Trusted Certificates**. Delete the certificate or clear its trust, then turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. The download interval is **unverified**.
+
+On Windows, Windows Integration can also trust roots in the Windows certificate store. Turning it off stops that path. A copy already in the address book stays.
+
+Listing address book entries read-only was not attempted. The file is treated as opaque. The address book format is **unverified**. trustprune does not rewrite it except to put a previous copy back on restore.
 
 ### Foxit
 
@@ -103,7 +146,7 @@ NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/
 | Linux / Windows / FreeBSD | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
 | Darwin | `~/Library/trustprune/` (read-only fallback `~/Library/cert-manage/`) |
 
-Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `okular/`, `poppler/`, `ssl/`, `openssl/`, `certifi/`.
+Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `okular/`, `poppler/`, `ssl/`, `openssl/`, `certifi/`, `acrobat/`.
 
 ## Future stores
 
@@ -118,6 +161,6 @@ Researched but not yet supported:
 - Android
 - Kubernetes
 - iOS
-- PDF reader document-signing trust other than pdfsig's NSS DB (`--app poppler`) and Okular (`--app okular`): Adobe, and poppler/Okular GPG backends (Papers on the NSS backend is covered by `--app poppler`; Evince has no signature validation). See the [research note](research/pdf-readers.md). Foxit install detection and the pruning guide are in [Foxit](#foxit)
+- PDF reader document-signing trust other than pdfsig's NSS DB (`--app poppler`), Okular (`--app okular`), and the Acrobat address book backup plus read-only settings report ([Acrobat](#acrobat)): listing or pruning Acrobat address book entries, and poppler/Okular GPG backends (Papers on the NSS backend is covered by `--app poppler`; Evince has no signature validation). See the [research note](research/pdf-readers.md). Foxit install detection and the pruning guide are in [Foxit](#foxit)
 
 [← Home](index.md)
