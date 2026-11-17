@@ -53,7 +53,7 @@ func TestConnectWithLocalTLSServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := connect(u, []*x509.Certificate{cert}, ConnectOptions{Verbose: true}); err != nil {
+	if err := connect(u, []*x509.Certificate{cert}, ConnectOptions{Verbose: true}, "", ""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -67,7 +67,7 @@ func TestConnectPresentedChain(t *testing.T) {
 
 	t.Run("verbose failure prints the presented chain", func(t *testing.T) {
 		out, err := captureConnectOut(t, func() error {
-			return connect(u, nil, ConnectOptions{Verbose: true})
+			return connect(u, nil, ConnectOptions{Verbose: true}, "", "")
 		})
 		if err == nil || err.Error() != u.String()+": unknown authority" {
 			t.Fatalf("err = %v", err)
@@ -75,7 +75,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if strings.Contains(out, "\nok ") || strings.HasPrefix(out, "ok ") {
 			t.Fatalf("failure reported success:\n%s", out)
 		}
-		table, ferr := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil)
+		table, ferr := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, "", "")
 		if ferr != nil {
 			t.Fatal(ferr)
 		}
@@ -95,7 +95,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if !strings.HasPrefix(caLine, "1 ") || !strings.Contains(caLine, caFP[:16]) {
 			t.Fatalf("ca line = %q", caLine)
 		}
-		if !strings.Contains(out, connectTrustHint(caFP)) {
+		if !strings.Contains(out, connectTrustHint(caFP, "", "")) {
 			t.Fatalf("missing hint:\n%s", out)
 		}
 		assertSkipVerifyOff(t)
@@ -103,7 +103,7 @@ func TestConnectPresentedChain(t *testing.T) {
 
 	t.Run("quiet failure stays a short error", func(t *testing.T) {
 		out, err := captureConnectOut(t, func() error {
-			return connect(u, nil, ConnectOptions{})
+			return connect(u, nil, ConnectOptions{}, "", "")
 		})
 		if err == nil || err.Error() != u.String()+": unknown authority" {
 			t.Fatalf("err = %v", err)
@@ -115,13 +115,13 @@ func TestConnectPresentedChain(t *testing.T) {
 
 	t.Run("json failure includes presented_chain", func(t *testing.T) {
 		out, err := captureConnectOut(t, func() error {
-			return connect(u, nil, ConnectOptions{Format: "json"})
+			return connect(u, nil, ConnectOptions{Format: "json"}, "", "")
 		})
 		if err == nil || err.Error() != u.String()+": unknown authority" {
 			t.Fatalf("err = %v", err)
 		}
 		verbose, verr := captureConnectOut(t, func() error {
-			return connect(u, nil, ConnectOptions{Format: "JSON", Verbose: true})
+			return connect(u, nil, ConnectOptions{Format: "JSON", Verbose: true}, "", "")
 		})
 		if verr == nil || verr.Error() != err.Error() {
 			t.Fatalf("verbose json err = %v", verr)
@@ -157,7 +157,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		selfSrv := newChainServer(t, cert.tlsCert)
 		selfURL := mustConnectURL(t, selfSrv.URL)
 		out, err := captureConnectOut(t, func() error {
-			return connect(selfURL, nil, ConnectOptions{Verbose: true})
+			return connect(selfURL, nil, ConnectOptions{Verbose: true}, "", "")
 		})
 		if err == nil || !strings.Contains(err.Error(), "unknown authority") {
 			t.Fatalf("err = %v", err)
@@ -166,11 +166,11 @@ func TestConnectPresentedChain(t *testing.T) {
 		if !strings.Contains(out, "self.example"+connectNotInStoreMark) || !strings.Contains(out, "2032-05-06") || !strings.Contains(out, fp[:16]) {
 			t.Fatalf("stdout =\n%s", out)
 		}
-		if !strings.Contains(out, connectTrustHint(fp)) {
+		if !strings.Contains(out, connectTrustHint(fp, "", "")) {
 			t.Fatalf("missing hint:\n%s", out)
 		}
 		js, jerr := captureConnectOut(t, func() error {
-			return connect(selfURL, nil, ConnectOptions{Format: "json"})
+			return connect(selfURL, nil, ConnectOptions{Format: "json"}, "", "")
 		})
 		if jerr == nil {
 			t.Fatal("expected json failure")
@@ -185,7 +185,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		okSrv := newChainServer(t, cert.tlsCert)
 		okURL := mustConnectURL(t, okSrv.URL)
 		out, err := captureConnectOut(t, func() error {
-			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{Verbose: true})
+			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{Verbose: true}, "", "")
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -201,7 +201,7 @@ func TestConnectPresentedChain(t *testing.T) {
 			t.Fatalf("success output changed:\n%s", out)
 		}
 		plain, perr := captureConnectOut(t, func() error {
-			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{})
+			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{}, "", "")
 		})
 		if perr != nil {
 			t.Fatal(perr)
@@ -213,7 +213,7 @@ func TestConnectPresentedChain(t *testing.T) {
 			t.Fatalf("summary = %q", plain)
 		}
 		js, jerr := captureConnectOut(t, func() error {
-			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{Format: "json", Verbose: true})
+			return connect(okURL, []*x509.Certificate{cert.cert}, ConnectOptions{Format: "json", Verbose: true}, "", "")
 		})
 		if jerr != nil {
 			t.Fatal(jerr)
@@ -228,7 +228,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		expSrv := newChainServer(t, expired.tlsCert)
 		expURL := mustConnectURL(t, expSrv.URL)
 		out, err := captureConnectOut(t, func() error {
-			return connect(expURL, []*x509.Certificate{expired.cert}, ConnectOptions{Verbose: true})
+			return connect(expURL, []*x509.Certificate{expired.cert}, ConnectOptions{Verbose: true}, "", "")
 		})
 		if err == nil || err.Error() != expURL.String()+": certificate expired 2015-04-12" {
 			t.Fatalf("err = %v", err)
@@ -241,7 +241,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		hostSrv := newChainServer(t, host.tlsCert)
 		hostURL := mustConnectURL(t, hostSrv.URL)
 		hout, herr := captureConnectOut(t, func() error {
-			return connect(hostURL, []*x509.Certificate{host.cert}, ConnectOptions{Verbose: true})
+			return connect(hostURL, []*x509.Certificate{host.cert}, ConnectOptions{Verbose: true}, "", "")
 		})
 		if herr == nil || herr.Error() != hostURL.String()+": hostname mismatch" {
 			t.Fatalf("err = %v", herr)
@@ -256,7 +256,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		cu := mustConnectURL(t, closed.URL)
 		closed.Close()
 		out, err := captureConnectOut(t, func() error {
-			return connect(cu, nil, ConnectOptions{Verbose: true, Format: "json"})
+			return connect(cu, nil, ConnectOptions{Verbose: true, Format: "json"}, "", "")
 		})
 		if err == nil {
 			t.Fatal("expected dial error")

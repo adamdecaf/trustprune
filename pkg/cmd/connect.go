@@ -89,7 +89,7 @@ func ConnectWithPlatformStore(uri *url.URL, opts ConnectOptions) error {
 	if err != nil {
 		return fmt.Errorf("problem getting certs: %w", err)
 	}
-	return connect(uri, certs, opts)
+	return connect(uri, certs, opts, "", "")
 }
 
 func ConnectWithAppStore(uri *url.URL, app string, opts ConnectOptions) error {
@@ -107,10 +107,10 @@ func ConnectWithAppStoreFile(uri *url.URL, app, storePath string, opts ConnectOp
 	if err != nil {
 		return fmt.Errorf("problem getting certs for %q: %w", app, err)
 	}
-	return connect(uri, certs, opts)
+	return connect(uri, certs, opts, app, storePath)
 }
 
-func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error {
+func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions, app, storePath string) error {
 	// Reject a bad format before any dial. The CLI also checks this and
 	// turns it into a usage error.
 	format, err := NormalizeConnectFormat(opts.Format)
@@ -139,7 +139,7 @@ func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error
 	resp, err := client.Do(req)
 	if err != nil {
 		if connectVerificationFailed(err) {
-			if perr := connectPrintPresented(uri, roots, opts, format, err); perr != nil {
+			if perr := connectPrintPresented(uri, roots, opts, format, err, app, storePath); perr != nil {
 				return fmt.Errorf("%s: %w", uri.String(), perr)
 			}
 		}
@@ -169,7 +169,7 @@ type presentedChain struct {
 // call this. The chain is taken from handshakeErr when it carries
 // UnverifiedCertificates. A read-only probe is used only if that list is
 // empty. The probe never decides whether connect succeeded.
-func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string, handshakeErr error) error {
+func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string, handshakeErr error, app, storePath string) error {
 	if format != connectFormatJSON && !opts.Verbose {
 		return nil
 	}
@@ -188,7 +188,7 @@ func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOp
 	if len(presented.certs) == 0 {
 		return nil
 	}
-	out, err := formatConnectPresentedText(presented.certs, roots)
+	out, err := formatConnectPresentedText(presented.certs, roots, app, storePath)
 	if err != nil {
 		return err
 	}
@@ -285,7 +285,7 @@ func presentedChainFromError(err error) presentedChain {
 // is the last missing certificate (closest to the root). allowlist only
 // keeps or removes certificates already in the store; after the CA is
 // installed, its SHA-256 can go under fingerprints in an allowlist file.
-func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error) {
+func formatConnectPresentedText(chain, roots []*x509.Certificate, app, storePath string) (string, error) {
 	if len(chain) == 0 {
 		return "", errors.New("no presented certificate chain")
 	}
@@ -318,7 +318,7 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error
 	b.WriteString("presented chain:\n")
 	b.WriteString(alignTable(headers, rows))
 	if hintFP != "" {
-		b.WriteString(connectTrustHint(hintFP))
+		b.WriteString(connectTrustHint(hintFP, app, storePath))
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
@@ -326,8 +326,24 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error
 
 // connectTrustHint tells the user how to install a CA that was not in the
 // selected store. allowlist does not add a missing certificate.
-func connectTrustHint(fp string) string {
-	return "to add a missing CA, run: trustprune add --file <cert>\nafter it is in the store, include sha256 " + fp + " under fingerprints in an allowlist file so a later allowlist run keeps it"
+func connectTrustHint(fp, app, storePath string) string {
+	return "to add a missing CA, run: " + connectAddHintCmd(app, storePath) + "\nafter it is in the store, include sha256 " + fp + " under fingerprints in an allowlist file so a later allowlist run keeps it"
+}
+
+func connectAddHintCmd(app, storePath string) string {
+	cmd := "trustprune add --file <cert>"
+	app = strings.TrimSpace(app)
+	if app != "" {
+		cmd += " --app " + app
+	}
+	storePath = strings.TrimSpace(storePath)
+	if storePath != "" {
+		if strings.ContainsAny(storePath, " \t") {
+			storePath = strconv.Quote(storePath)
+		}
+		cmd += " --store " + storePath
+	}
+	return cmd
 }
 
 // connectFailJSON is the document written by connect --format json when

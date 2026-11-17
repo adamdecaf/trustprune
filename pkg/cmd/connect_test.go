@@ -811,7 +811,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("marks missing certs and hints the root-most", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil)
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -820,7 +820,7 @@ func TestFormatConnectPresented(t *testing.T) {
 			"INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256\n" +
 			"0      leaf.example (not in store)  ca.example  2030-01-01  " + leafFP[:16] + "\n" +
 			"1      ca.example (not in store)    ca.example  2031-03-04  " + caFP[:16] + "\n" +
-			connectTrustHint(caFP) + "\n"
+			connectTrustHint(caFP, "", "") + "\n"
 		if got != want {
 			t.Fatalf("text =\n%s\nwant\n%s", got, want)
 		}
@@ -834,7 +834,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("leaf in store still marks the CA", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf})
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf}, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -844,14 +844,26 @@ func TestFormatConnectPresented(t *testing.T) {
 		if !strings.Contains(got, "ca.example (not in store)") {
 			t.Fatalf("CA should be marked:\n%s", got)
 		}
-		if !strings.HasSuffix(got, connectTrustHint(caFP)+"\n") {
+		if !strings.HasSuffix(got, connectTrustHint(caFP, "", "")+"\n") {
 			t.Fatalf("hint = %q", got[strings.LastIndex(got, "to add"):])
+		}
+	})
+
+	t.Run("hint includes app and store", func(t *testing.T) {
+		t.Parallel()
+		got := connectTrustHint(caFP, "java", "/tmp/custom cacerts")
+		if !strings.Contains(got, "trustprune add --file <cert> --app java --store \"/tmp/custom cacerts\"") {
+			t.Fatalf("hint = %q", got)
+		}
+		plain := connectTrustHint(caFP, "", "")
+		if strings.Contains(plain, "--app") || strings.Contains(plain, "--store") {
+			t.Fatalf("platform hint should omit app and store: %q", plain)
 		}
 	})
 
 	t.Run("all in store has no hint", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf, ca})
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf, ca}, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -910,7 +922,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("nil cert", func(t *testing.T) {
 		t.Parallel()
-		if _, err := formatConnectPresentedText([]*x509.Certificate{leaf, nil}, nil); err == nil || !strings.Contains(err.Error(), "certificate 1 is nil") {
+		if _, err := formatConnectPresentedText([]*x509.Certificate{leaf, nil}, nil, "", ""); err == nil || !strings.Contains(err.Error(), "certificate 1 is nil") {
 			t.Fatalf("text err = %v", err)
 		}
 		if _, err := formatConnectPresentedJSON("https://x", []*x509.Certificate{nil}, tls.VersionTLS12, nil); err == nil || !strings.Contains(err.Error(), "certificate 0 is nil") {
@@ -926,7 +938,7 @@ func TestConnectUnknownFormatDoesNotDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = connect(u, nil, ConnectOptions{Format: "nope"})
+	err = connect(u, nil, ConnectOptions{Format: "nope"}, "", "")
 	if err == nil || err.Error() != `unknown format "nope" (formats: json, text)` {
 		t.Fatalf("connect() error = %v", err)
 	}
