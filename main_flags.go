@@ -176,7 +176,7 @@ func flagConnectVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "verbose",
 		Aliases:     []string{"v"},
-		Usage:       "print the verified certificate chain",
+		Usage:       "print the certificate chain, including the chain the server presented when verification fails",
 		HideDefault: true,
 		Local:       true,
 	}

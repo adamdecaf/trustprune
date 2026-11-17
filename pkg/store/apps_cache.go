@@ -108,7 +108,7 @@ func ReadFreshAppStatuses() (statuses []Status, ok bool) {
 
 // FormatAppsHelpLine returns the APPS help line. With a fresh cache it shows
 // each supported app and whether it was found, e.g.
-// "chrome (found), firefox (not found), foxit (guide only), java (found)".
+// "acrobat (not found), chrome (found), firefox (not found), foxit (guide only), java (found)".
 // When the cache is missing or stale it falls back to the static supported
 // list. It never runs detection, so -help stays fast on a cold start.
 func FormatAppsHelpLine() string {

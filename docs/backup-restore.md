@@ -31,10 +31,11 @@ Parent directory (created as needed):
 | Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
-| Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
+| Chrome / Firefox / poppler / okular (NSS) | `chrome/<unix-timestamp>/`, `firefox/<unix-timestamp>/`, `poppler/<unix-timestamp>/`, or `okular/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `--app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `--app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
+| Acrobat `--app acrobat` | `acrobat/<unix-timestamp>/addressbook.acrodata` plus a `source` file recording the live path. The bytes are copied unchanged |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly). Files named `source` or ending in `.source` are source sidecars, not backups, and are skipped.
 
@@ -61,7 +62,7 @@ If the swap rename itself fails after the live tree was moved aside, the previou
 
 ## NSS: full file set
 
-NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile set exist:
+NSS backups for Chrome (Linux), Firefox, poppler, and okular copy whichever members of the profile set exist:
 
 | Style | Files |
 |-------|-------|
@@ -127,6 +128,24 @@ Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolutio
 Restore with no backup refuses before any filesystem write (dry-run included). Explicit `--backup` is honored and still names the backup source.
 
 `--bundle <pem>` on `list`, `backup`, `restore`, and `allowlist` uses that PEM and skips `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro defaults, and git. On `allowlist`, `--file` remains the allowlist. On `restore`, `--backup` remains the backup source. With `--bundle` and no `--backup`, restore picks the newest backup whose `source` matches that PEM (backups with no `source` file are skipped). A backup recorded for a different path is refused before any write unless `--force`. Backups with no `source` file can still be applied with an explicit `--backup`. Discovery restore (no `--bundle`) of a PEM uses the newest backup recorded for that file and also accepts a legacy backup with no `source`; a backup recorded for a different bundle is refused unless `--force`. Allowlist uses the same selection. Automatic restore of a discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup (directory mirrors have no `source` file). Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`. If discovery cannot resolve a path, only backups with no `source` file match.
+
+## Acrobat (`--app acrobat`)
+
+Backup copies the newest per-user `addressbook.acrodata` into `~/.trustprune/acrobat/<unix-timestamp>/addressbook.acrodata` (or `~/Library/trustprune/acrobat/...` on Darwin) and writes a `source` file in that directory recording the live path. The file is opaque: the copy is byte for byte, with no certificate parse. Backup directories use exclusive `Mkdir` and bump the unix-second on collision.
+
+Restore writes that copy back with the same atomic sibling-temp install as `--app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). A backup recorded for a different path is refused before any write unless `--force`. Restore with no backup returns an error before any filesystem write (dry-run included). The live address book has to exist; a missing file is `addressbook.acrodata not found`.
+
+Backup and restore refuse while a process image named Acrobat, AcroRd32, or AdobeReader is running. They do not create a backup directory in that case. `--dry-run` prints the copy plan and does not write, and it still refuses when one of those processes is running.
+
+`list` prints a read-only report of the AATL, EUTL, and Windows store trust settings and does not parse the file. When Acrobat is not installed it prints `acrobat: not installed` and exits 0. Listing address book entries read-only was not attempted. The file is treated as opaque.
+
+`allowlist` does not edit the file. With no backup it returns the usual no-backup error. With a backup it prints the pruning guide. See [Platforms](platforms.md#acrobat).
+
+## Okular (`--app okular`)
+
+When the effective signature backend is NSS, backups are the same NSS profile set as poppler, under `okular/<unix-timestamp>/`, with a `source` file recording the directory. Restore and allowlist use that recorded path the same way as firefox and poppler.
+
+When the backend is GPG, `backup`, `restore`, and `allowlist` report the GPG backend and exit 1. They do not create a backup directory.
 
 ## Foxit (`--app foxit`)
 

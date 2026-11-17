@@ -496,7 +496,7 @@ func NSSAllowlistBackupError(s Store, app string) error {
 
 // nssAllowlistTarget is the NSS app and directory allowlist must have a
 // backup of. A wrapped store (tests) still exposes the path through GetInfo
-// for firefox and poppler.
+// for firefox, poppler, and okular.
 func nssAllowlistTarget(s Store, app string) (nssType, storePath string, ok bool) {
 	app = strings.ToLower(strings.TrimSpace(app))
 	if ns, isNSS := s.(nssStore); isNSS {
@@ -507,7 +507,7 @@ func nssAllowlistTarget(s Store, app string) (nssType, storePath string, ok bool
 		}
 		return nssType, storePath, nssType != "" && storePath != ""
 	}
-	if app != "firefox" && app != "poppler" {
+	if app != "firefox" && app != "poppler" && app != "okular" {
 		return "", "", false
 	}
 	info := s.GetInfo()

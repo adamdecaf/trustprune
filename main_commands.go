@@ -93,7 +93,7 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file allowlist.yaml --app java --store /path/to/cacerts
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb
 
-  NSS allowlist (firefox, poppler, and Linux chrome) refuses when this directory
+  NSS allowlist (firefox, poppler, okular, and Linux chrome) refuses when this directory
   has no backup of its own and the newest backup was recorded for a different
   directory. Back up that store, or pass --force.
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb --force
@@ -255,7 +255,7 @@ Explicit http:// is rejected. If --app is provided then the certificates for tha
 application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts), --app certifi (cacert.pem), and --app poppler (NSS db).
-  -v, --verbose prints the verified chain after the one-line summary. It has no effect with --format json.
+  -v, --verbose prints the verified chain after the one-line summary. When verification fails it prints the chain the server presented. It has no effect with --format json.
   --format text (default) or json. An unknown format is a usage error.
 
   Bare host, one-line success:
@@ -270,6 +270,13 @@ application are loaded and used for the connection.
 
   Failure:
     ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+
+  -v after a verification failure prints the chain from that failed handshake (same columns).
+  A subject ending in " (not in store)" is missing from the selected store.
+  allowlist only keeps or removes certificates already in the store; it does not add a missing CA.
+  Add a missing CA with add --file. After it is in the store, include its sha256 under fingerprints in an allowlist file so a later allowlist run keeps it.
+    to add a missing CA, run: trustprune add --file <cert>
+    after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
@@ -481,6 +488,11 @@ func listCommand(st *runState) *cli.Command {
   List certificates from an application
     trustprune list --app firefox
 
+  Acrobat prints a read-only report of AATL, EUTL, and Windows store trust
+  settings. It does not list address book entries. When Acrobat is not
+  installed the line is "acrobat: not installed" and the exit code is 0.
+    trustprune list --app acrobat
+
   List certificates from a file (no --app). --file here is not a store path.
     trustprune list --file <path>
 
@@ -613,7 +625,7 @@ func restoreCommand(st *runState) *cli.Command {
     trustprune restore --app openssl --bundle /path/to/ca-bundle.pem --backup <backup-dir>
     trustprune restore --app openssl --bundle /other/ca-bundle.pem --backup <backup-dir> --force
 
-  NSS (firefox, poppler, and chrome on Linux): backups record the profile directory.
+  NSS (firefox, poppler, okular, and chrome on Linux): backups record the profile directory.
   Restore into a different profile, or from a backup with no recorded profile,
   is refused before any write unless --force.
     trustprune restore --app firefox

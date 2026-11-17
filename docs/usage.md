@@ -10,7 +10,7 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: certifi, chrome, firefox, foxit, java, openssl, poppler, ssl)`.
+Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -51,7 +51,15 @@ ssl       not-found  -
 linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
 
-STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file.
+STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file. For Acrobat, PATH is `addressbook.acrodata` when that file is found. Acrobat backup and restore copy the file. `list` prints a read-only trust settings report. `add`, `allowlist`, and `connect` print a pruning guide.
+
+## Acrobat
+
+`--app acrobat` finds the newest per-user `addressbook.acrodata` on Windows and macOS. `trustprune apps` reports `found` and that path. `backup` and `restore` copy the file unchanged. They refuse while a process named Acrobat, AcroRd32, or AdobeReader is running. `list` prints a read-only report of the AATL download, the EUTL download, and Windows store trust (`iMSStoreTrusted`). It does not parse the address book. When no registry key, plist, or address book is found, `list` prints `acrobat: not installed` and exits 0. `add`, `allowlist`, and `connect` print where Acrobat trust comes from and do not edit the file. `--dry-run` on backup and restore prints the copy plan and does not write. `--store` is rejected.
+
+The file lives under `%APPDATA%\Adobe\Acrobat\<ver>\Security` on Windows and `~/Library/Application Support/Adobe/Acrobat/<ver>/Security` on macOS. `DC` is newer than a numbered folder. A higher number is newer (`2024`, then `11.0`, then `10.0`). Linux is not probed.
+
+Trusted Identities in that address book are where AATL and EUTL certificates are loaded. Remove a root in **Preferences > Signatures > Identities & Trusted Certificates > More > Trusted Certificates**. Turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. On Windows, Windows Integration can also trust the Windows certificate store. The address book format is **unverified**. Listing address book entries read-only was not attempted. The file is treated as opaque. `list` reads the settings from `HKCU\Software\Adobe\{Adobe Acrobat,Acrobat Reader}\<ver>\Security\cDigSig` on Windows and from `~/Library/Preferences/com.adobe.Acrobat.Pro.plist` or `com.adobe.Reader.plist` on macOS (`/usr/bin/defaults read`). It does not write the registry or a plist. Paths and the full steps are in [Platforms](platforms.md#acrobat).
 
 ## Foxit
 
@@ -81,6 +89,7 @@ trustprune list --app java --store /path/to/cacerts
 trustprune list --app certifi --store /path/to/venv/.../cacert.pem
 trustprune list --app poppler
 trustprune list --app poppler --store /path/to/nssdb
+trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
@@ -138,7 +147,7 @@ For **java**, **certifi**, and **poppler**, `--store` is the store to restore in
 
 For **openssl**, `--bundle <pem>` is the live PEM to restore into. `--backup` stays the backup source; automatic selection runs only when `--backup` is not set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `--force`. Without `--bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `--force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`.
 
-For **firefox**, **poppler**, and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
+For **firefox**, **poppler**, **okular**, and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
 
 ```bash
 trustprune restore
@@ -161,7 +170,7 @@ trustprune restore --app java --dry-run
 | `--store <path>` | Java/certifi/poppler: store to restore into |
 | `--backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to restore into. `--backup` remains the backup source |
-| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, poppler, openssl `--bundle`, and NSS firefox/chrome). Also allows an NSS backup that has no recorded profile. |
+| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, poppler, openssl `--bundle`, and NSS firefox/chrome/okular). Also allows an NSS backup that has no recorded profile. |
 | `--dry-run` | Print the plan without writing |
 
 
@@ -269,9 +278,26 @@ Evince and Papers are not `--app` values.
 
 The [platforms page](platforms.md) has the same coverage with the source links.
 
+## Okular (`--app okular`)
+
+Okular's poppler generator trusts an NSS database or a GPG (gpgsm) store. `--app okular` reads `okular-generator-popplerrc` group `[Signatures]`. It merges matching files from `$XDG_CONFIG_DIRS` (default `/etc/xdg` on Unix) with the user file last (`$XDG_CONFIG_HOME/okular-generator-popplerrc` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/okular-generator-popplerrc`), so the user file overrides each key. That lookup follows KConfig convention. Flatpak, Snap, and other sandboxed config locations are **unverified**.
+
+The effective signature backend is `SignatureBackend` if that key is set, otherwise `POPPLER_SIGNATURE_BACKEND`, otherwise NSS, which is poppler's usual compiled default (NSS is built first). A prebuilt trustprune binary cannot read the host poppler compile-time default; if that default is GPG, set `SignatureBackend` or `POPPLER_SIGNATURE_BACKEND`. Keys marked `[$e]` are environment-expanded; if `SignatureBackend` cannot be expanded to NSS or GPG, trustprune refuses NSS operations. `list` shows which DB or backend was used (verbose table `PATH`, JSON `path`; a GPG backend is reported in the error and as PATH `GPG`).
+
+When the backend is **NSS**: `UseDefaultCertDB=false` uses `DBCertificatePath` as the NSS directory. A `file://` URL is converted to a filesystem path, including percent-encoded characters. Otherwise the directory is the same lookup as [`--app poppler`](#pdfsig--poppler---app-poppler). `apps` marks okular found only when that directory contains a regular non-empty `cert9.db`. Backup, restore, add, and allowlist use the same NSS code as poppler, including the recorded-profile restore and allowlist guards.
+
+When the backend is **GPG**: `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` report that the backend is GPG and exit 1 without reading or writing a gpgsm store. `apps` shows `guide only` with PATH `GPG`. `--dry-run` does not plan a change.
+
+```bash
+trustprune list --app okular
+trustprune list --app okular -v
+trustprune backup --app okular
+trustprune allowlist --app okular --file allowlist.yaml --dry-run
+```
+
 ## allowlist
 
-Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
+Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, okular, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
 
 Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
 
@@ -424,10 +450,31 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 `chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` uses the same UTC date as the text line.
 
-Failures are one short line:
+A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
+
+The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
 
 ```text
-ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+presented chain:
+INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256
+0      leaf.example (not in store)  ca.example  2030-01-01  <16 hex>
+1      ca.example (not in store)    ca.example  2031-03-04  <16 hex>
+to add a missing CA, run: trustprune add --file <cert>
+after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
+ERROR: https://untrusted.example: unknown authority
+```
+
+`--format json` on a verification failure prints one object before that `ERROR:` line. `verified` is false. `presented_chain` uses the same fields as `chain` (`subject`, `issuer`, `not_after`, full `sha256`) plus `in_store`. `-v` does not change the JSON. Success output does not include `presented_chain`.
+
+```json
+{
+  "url": "https://untrusted.example",
+  "tls_version": "tls1.3",
+  "verified": false,
+  "presented_chain": [
+    {"subject": "leaf.example", "issuer": "ca.example", "not_after": "2030-01-01", "sha256": "<64 hex>", "in_store": false}
+  ]
+}
 ```
 
 | Flag | Meaning |
@@ -435,7 +482,7 @@ ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 | `--app <name>` | Use that application's certificates for the TLS handshake |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
 | `--url <url>` | URL or bare host to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
-| `-v`, `--verbose` | Print the verified chain after the one-line summary. Ignored with `--format json` |
+| `-v`, `--verbose` | Print the verified chain after the one-line summary. On a verification failure, print the chain the server presented. Ignored with `--format json` |
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 
 ## diff
