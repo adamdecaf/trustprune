@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -448,9 +449,10 @@ func TestLibreSSL_DirBackupRestoreRemoveUsesCerthash(t *testing.T) {
 	if _, err := os.Stat(removed); err != nil {
 		t.Fatalf("restored file missing: %v", err)
 	}
+	resolved := mustEvalSymlinks(t, dir)
 	log := readCallLog(t, logPath)
-	if !strings.Contains(log, "certhash "+dir) {
-		t.Fatalf("restore log %q, want certhash %s", log, dir)
+	if !strings.Contains(log, "certhash "+resolved) {
+		t.Fatalf("restore log %q, want certhash %s", log, resolved)
 	}
 
 	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
@@ -465,7 +467,7 @@ func TestLibreSSL_DirBackupRestoreRemoveUsesCerthash(t *testing.T) {
 		t.Fatalf("after remove len=%d want 1", len(left))
 	}
 	log = readCallLog(t, logPath)
-	if strings.Count(log, "certhash "+dir) < 2 {
+	if strings.Count(log, "certhash "+resolved) < 2 {
 		t.Fatalf("remove should certhash again, log %q", log)
 	}
 }
@@ -492,8 +494,8 @@ func TestLibreSSL_AddDirCerthashWithoutCRehash(t *testing.T) {
 		t.Fatalf("after add len=%d want %d", len(got), len(certs)+len(extra))
 	}
 	log := readCallLog(t, logPath)
-	if !strings.Contains(log, "certhash "+dir) {
-		t.Fatalf("log %q want certhash %s", log, dir)
+	if !strings.Contains(log, "certhash "+mustEvalSymlinks(t, dir)) {
+		t.Fatalf("log %q want certhash %s", log, mustEvalSymlinks(t, dir))
 	}
 	if strings.Contains(log, "unexpected") {
 		t.Fatalf("unexpected command: %s", log)
@@ -512,7 +514,7 @@ func TestLibreSSL_CerthashFailureOnAdd(t *testing.T) {
 		t.Fatal("expected certhash failure")
 	}
 	log := readCallLog(t, logPath)
-	if !strings.Contains(log, "certhash "+dir) {
+	if !strings.Contains(log, "certhash "+mustEvalSymlinks(t, dir)) {
 		t.Fatalf("log %q", log)
 	}
 }
@@ -543,7 +545,7 @@ func TestLibreSSL_CerthashFailureRollsBackRestore(t *testing.T) {
 			t.Fatalf("leftover %s: %v", leftover, statErr)
 		}
 	}
-	if !strings.Contains(readCallLog(t, logPath), "certhash "+dir) {
+	if !strings.Contains(readCallLog(t, logPath), "certhash "+mustEvalSymlinks(t, dir)) {
 		t.Fatalf("log %q", readCallLog(t, logPath))
 	}
 }
@@ -578,7 +580,7 @@ func TestLibreSSL_DryRunPrintsCerthash(t *testing.T) {
 	// A backup dry-run does not create a backup, so restore cannot preview
 	// the directory swap. Add and remove must name certhash.
 	out := buf.String()
-	want := "then run " + bin + " certhash " + dir
+	want := "then run " + bin + " certhash " + mustEvalSymlinks(t, dir)
 	if strings.Count(out, want) < 2 {
 		t.Fatalf("dry-run plan %q, want %q twice", out, want)
 	}
@@ -615,7 +617,7 @@ func TestOpenSSLStore_DryRunRehashUnchangedWithoutLibreSSL(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	want := "then run " + rehash + " " + dir
+	want := "then run " + rehash + " " + mustEvalSymlinks(t, dir)
 	if !strings.Contains(out, want) {
 		t.Fatalf("plan %q, want %q", out, want)
 	}
@@ -650,6 +652,27 @@ func writeFakeSSL(t *testing.T, version string, versionExit, certhashExit int) (
 	t.Helper()
 	dir := t.TempDir()
 	logPath = filepath.Join(dir, "calls.log")
+	if runtime.GOOS == "windows" {
+		bin = filepath.Join(dir, "openssl.cmd")
+		script := fmt.Sprintf("@echo off\r\n"+
+			"set \"LOG=%s\"\r\n"+
+			"if /I \"%%~1\"==\"version\" (\r\n"+
+			"  >>\"%%LOG%%\" echo version\r\n"+
+			"  echo %s\r\n"+
+			"  exit /b %d\r\n"+
+			")\r\n"+
+			"if /I \"%%~1\"==\"certhash\" (\r\n"+
+			"  >>\"%%LOG%%\" echo certhash %%~2\r\n"+
+			"  exit /b %d\r\n"+
+			")\r\n"+
+			">>\"%%LOG%%\" echo unexpected %%*\r\n"+
+			"exit /b 1\r\n",
+			logPath, version, versionExit, certhashExit)
+		if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return bin, logPath
+	}
 	bin = filepath.Join(dir, "openssl")
 	script := fmt.Sprintf(`#!/bin/sh
 log=%s
