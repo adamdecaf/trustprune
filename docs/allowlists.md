@@ -216,9 +216,9 @@ GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
 
 `github.com/adamdecaf/trustprune/pkg/certpool` returns an `*x509.CertPool` with an allowlist applied.
 
-`CertPool` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. Tests and programs with their own source use `FromCertificates`. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
+`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads an allowlist file and returns `New`. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. Tests and programs with their own source use `FromCertificates`. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
 
-The system store is only read. `CertPool` lists certificates and returns a new pool. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
+The system store is only read. `New` and `FromFile` list certificates and return a new pool. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
 
 ```go
 package main
@@ -238,7 +238,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	pool, err := certpool.CertPool(al)
+	pool, err := certpool.New(al)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -256,6 +256,15 @@ func main() {
 		log.Fatal(err)
 	}
 	defer resp.Body.Close()
+}
+```
+
+`FromFile` reads the allowlist file and applies it:
+
+```go
+pool, err := certpool.FromFile("allowlist.yaml")
+if err != nil {
+	log.Fatal(err)
 }
 ```
 

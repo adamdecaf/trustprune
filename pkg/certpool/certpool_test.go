@@ -20,7 +20,10 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"errors"
 	"math/big"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
@@ -29,6 +32,43 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/certpool"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
+
+func TestFromFile_missing(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing.yaml")
+	pool, err := certpool.FromFile(path)
+	if err == nil {
+		t.Fatal("expected an error for a missing allowlist file")
+	}
+	if pool != nil {
+		t.Fatal("pool should be nil when reading the allowlist fails")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestFromFile_valid(t *testing.T) {
+	al := allowlist.Allowlist{Countries: []string{"US"}}
+	path := filepath.Join(t.TempDir(), "allowlist.yaml")
+	if err := al.ToFile(path); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := certpool.FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := certpool.New(al)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || want == nil {
+		t.Fatal("nil pool")
+	}
+	if !got.Equal(want) {
+		t.Fatal("FromFile pool did not match New for the same allowlist")
+	}
+}
 
 func TestFromCertificates_keepsMatches(t *testing.T) {
 	keepFP := mustCert(t, "Keep By Fingerprint", "US", 1)

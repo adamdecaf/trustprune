@@ -24,14 +24,14 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-// CertPool returns an x509.CertPool which has had an allowlist applied.
+// New returns an x509.CertPool which has had an allowlist applied.
 // The initial set of certificates comes from the system's store.
 //
 // The store is only read. Certificates are listed with the platform
 // store and filtered with allowlist.Allowlist.Matches. The returned pool
 // is never nil when err is nil. An allowlist that matches nothing yields
 // an empty pool.
-func CertPool(al allowlist.Allowlist) (*x509.CertPool, error) {
+func New(al allowlist.Allowlist) (*x509.CertPool, error) {
 	certs, err := store.Platform().List(&store.ListOptions{
 		Trusted: true,
 	})
@@ -39,6 +39,21 @@ func CertPool(al allowlist.Allowlist) (*x509.CertPool, error) {
 		return nil, fmt.Errorf("list system certificates: %w", err)
 	}
 	return FromCertificates(al, certs), nil
+}
+
+// FromFile reads an allowlist file at path and returns New applied to it.
+// The system store is only read. The returned pool is never nil when err
+// is nil. An allowlist that matches nothing yields an empty pool.
+func FromFile(path string) (*x509.CertPool, error) {
+	al, err := allowlist.FromFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read allowlist %s: %w", path, err)
+	}
+	pool, err := New(al)
+	if err != nil {
+		return nil, fmt.Errorf("apply allowlist %s: %w", path, err)
+	}
+	return pool, nil
 }
 
 // FromCertificates returns an x509.CertPool which has had an allowlist
