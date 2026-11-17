@@ -852,12 +852,28 @@ func TestFormatConnectPresented(t *testing.T) {
 	t.Run("hint includes app and store", func(t *testing.T) {
 		t.Parallel()
 		got := connectTrustHint(caFP, "java", "/tmp/custom cacerts")
-		if !strings.Contains(got, "trustprune add --file <cert> --app java --store \"/tmp/custom cacerts\"") {
+		wantCmd := "trustprune add --file <cert> --app java --store " + connectShellQuote("/tmp/custom cacerts")
+		if !strings.Contains(got, wantCmd) {
 			t.Fatalf("hint = %q", got)
 		}
 		plain := connectTrustHint(caFP, "", "")
 		if strings.Contains(plain, "--app") || strings.Contains(plain, "--store") {
 			t.Fatalf("platform hint should omit app and store: %q", plain)
+		}
+		if connectShellQuote("$HOME/certs") != `'$HOME/certs'` {
+			t.Fatalf("dollar quote: %q", connectShellQuote("$HOME/certs"))
+		}
+		if connectShellQuote("it's") != `'it'"'"'s'` {
+			t.Fatalf("quote quote: %q", connectShellQuote("it's"))
+		}
+		if connectShellQuote("/tmp/a;rm -rf /") != `'/tmp/a;rm -rf /'` {
+			t.Fatalf("semicolon quote: %q", connectShellQuote("/tmp/a;rm -rf /"))
+		}
+		for _, path := range []string{"$HOME/certs", "it's", "/tmp/a;rm -rf /"} {
+			h := connectAddHintCmd("java", path)
+			if !strings.Contains(h, "--store "+connectShellQuote(path)) {
+				t.Fatalf("path %q hint %q", path, h)
+			}
 		}
 	})
 

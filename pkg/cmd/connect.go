@@ -338,12 +338,15 @@ func connectAddHintCmd(app, storePath string) string {
 	}
 	storePath = strings.TrimSpace(storePath)
 	if storePath != "" {
-		if strings.ContainsAny(storePath, " \t") {
-			storePath = strconv.Quote(storePath)
-		}
-		cmd += " --store " + storePath
+		cmd += " --store " + connectShellQuote(storePath)
 	}
 	return cmd
+}
+
+// connectShellQuote quotes s for POSIX shells so a copied hint does not
+// expand variables or run metacharacters.
+func connectShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
 }
 
 // connectFailJSON is the document written by connect --format json when
