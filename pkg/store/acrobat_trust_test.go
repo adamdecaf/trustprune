@@ -300,3 +300,156 @@ func TestAcrobatDefaultsTrustSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestAcrobatMacintoshPrefNames(t *testing.T) {
+	text := `
+{
+    DC = {
+        Security = {
+            DigSig = {
+                AdobeDownload = {
+                    LoadSettingsFromURL = 1;
+                };
+                EUTLDownload = {
+                    LoadSettingsFromURL = 0;
+                };
+            };
+            ASPKI = {
+                MSCAPI_DirectoryProvider = {
+                    MSStoreTrusted = 96;
+                };
+            };
+        };
+    };
+}
+`
+	root, err := parseDefaultsPlist(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	products := acrobatProductsFromDefaults(acrobatProductAcrobat, "com.adobe.Acrobat.Pro.plist", root)
+	if len(products) != 1 {
+		t.Fatalf("products=%d", len(products))
+	}
+	p := products[0]
+	if !p.AATL.Found || p.AATL.Raw != 1 || p.AATL.Key != `cAdobeDownload\bLoadSettingsFromURL` {
+		t.Fatalf("AATL=%+v", p.AATL)
+	}
+	if !p.EUTL.Found || p.EUTL.Raw != 0 || p.EUTL.Key != `cEUTLDownload\bLoadSettingsFromURL` {
+		t.Fatalf("EUTL=%+v", p.EUTL)
+	}
+	if !p.MSStore.Found || p.MSStore.Raw != 0x60 || p.MSStore.Key != `cASPKI\cMSCAPI_DirectoryProvider\iMSStoreTrusted` {
+		t.Fatalf("MSStore=%+v", p.MSStore)
+	}
+}
+
+func TestAcrobatWindowsPrefNameCase(t *testing.T) {
+	security := map[string]any{
+		"cdigsig": map[string]any{
+			"cadobedownload": map[string]any{
+				"bloadsettingsfromurl": uint64(1),
+			},
+			"ceutldownload": map[string]any{
+				"BLOADSETTINGSFROMURL": uint64(0),
+			},
+			"ccustomdownload": map[string]any{
+				"imsstoretrusted": uint64(0x62),
+			},
+		},
+	}
+	p := acrobatProductFromSecurity(acrobatProductAcrobat, "DC", "HKCU\\example", security)
+	if !p.AATL.Found || p.AATL.Raw != 1 || p.AATL.Key != `cAdobeDownload\bLoadSettingsFromURL` {
+		t.Fatalf("AATL=%+v", p.AATL)
+	}
+	if !p.EUTL.Found || p.EUTL.Raw != 0 || p.EUTL.Key != `cEUTLDownload\bLoadSettingsFromURL` {
+		t.Fatalf("EUTL=%+v", p.EUTL)
+	}
+	if !p.MSStore.Found || p.MSStore.Raw != 0x62 || p.MSStore.Key != `cCustomDownload\iMSStoreTrusted` {
+		t.Fatalf("MSStore=%+v", p.MSStore)
+	}
+}
+
+func TestAcrobatTypedMacintoshArray(t *testing.T) {
+	text := `
+{
+    DC = {
+        Security = {
+            cDigSig = {
+                cAdobeDownload = {
+                    bLoadSettingsFromURL = ( 0, 1 );
+                };
+                cEUTLDownload = {
+                    bLoadSettingsFromURL = ( 0, 0 );
+                };
+                cCustomDownload = {
+                    iMSStoreTrusted = ( 1, 98 );
+                };
+            };
+        };
+    };
+}
+`
+	root, err := parseDefaultsPlist(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	products := acrobatProductsFromDefaults(acrobatProductAcrobat, "com.adobe.Acrobat.Pro.plist", root)
+	if len(products) != 1 {
+		t.Fatalf("products=%d", len(products))
+	}
+	p := products[0]
+	if !p.AATL.Found || p.AATL.Raw != 1 || p.AATL.Key != `cAdobeDownload\bLoadSettingsFromURL` {
+		t.Fatalf("AATL=%+v", p.AATL)
+	}
+	if !p.EUTL.Found || p.EUTL.Raw != 0 {
+		t.Fatalf("EUTL=%+v", p.EUTL)
+	}
+	if !p.MSStore.Found || p.MSStore.Raw != 0x62 {
+		t.Fatalf("MSStore=%+v", p.MSStore)
+	}
+
+	// Type 0 is boolean: a non-0/1 value is not a trust setting.
+	if v, ok := asAcrobatUint([]any{uint64(0), uint64(96)}); ok {
+		t.Fatalf("boolean type with 96 should be rejected, got %d", v)
+	}
+}
+
+func TestAcrobatDataBlobIsNotATrustSetting(t *testing.T) {
+	text := `
+{
+    DC = {
+        Security = {
+            cDigSig = {
+                bLoadSettingsFromURL = <01>;
+            };
+        };
+    };
+}
+`
+	root, err := parseDefaultsPlist(text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	products := acrobatProductsFromDefaults(acrobatProductAcrobat, "plist", root)
+	if len(products) != 1 {
+		t.Fatalf("products=%d", len(products))
+	}
+	if products[0].AATL.Found {
+		t.Fatalf("data blob should not be a trust setting: %+v", products[0].AATL)
+	}
+	dc, ok := asAcrobatMap(root["DC"])
+	if !ok {
+		t.Fatalf("DC=%T", root["DC"])
+	}
+	sec, ok := asAcrobatMap(dc["Security"])
+	if !ok {
+		t.Fatalf("Security=%T", dc["Security"])
+	}
+	dig, ok := asAcrobatMap(sec["cDigSig"])
+	if !ok {
+		t.Fatalf("cDigSig=%T", sec["cDigSig"])
+	}
+	if _, isData := dig["bLoadSettingsFromURL"].(acrobatPlistData); !isData {
+		t.Fatalf("want acrobatPlistData, got %T %v", dig["bLoadSettingsFromURL"], dig["bLoadSettingsFromURL"])
+	}
+}

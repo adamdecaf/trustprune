@@ -73,7 +73,7 @@ When no registry key, no plist, and no address book are found, the report is one
 
 `add`, `allowlist`, and `connect` print a guide and exit 1. They do not parse the address book. `allowlist` still requires a backup first; once one exists, it prints the guide and does not edit the file.
 
-Trust comes from Trusted Identities in `addressbook.acrodata`. AATL and EUTL downloads load certificates into that same file. Remove a root in the app: **Preferences > Trust Manager**, or **Preferences > Signatures > Identities & Trusted Certificates**. Delete the certificate or clear its trust, then turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. The download interval is **unverified**.
+Trust comes from Trusted Identities in `addressbook.acrodata`. AATL and EUTL downloads load certificates into that same file. Remove a root in the app: **Preferences > Signatures > Identities & Trusted Certificates > More > Trusted Certificates**. Delete the certificate or clear its trust, then turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. The download interval is **unverified**.
 
 On Windows, Windows Integration can also trust roots in the Windows certificate store. Turning it off stops that path. A copy already in the address book stays.
 

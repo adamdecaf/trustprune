@@ -23,7 +23,7 @@ import (
 // parseDefaultsPlist parses the old-style plist text printed by
 // `/usr/bin/defaults read`. It accepts dictionaries, arrays, quoted
 // strings, integers (including 0x), booleans, and hex data blobs.
-// Data blobs are kept as strings and are not trust settings.
+// Data blobs are a distinct type and are not trust settings.
 func parseDefaultsPlist(text string) (map[string]any, error) {
 	p := &defaultsParser{s: text}
 	p.skip()
@@ -200,7 +200,11 @@ func (p *defaultsParser) parseString() (string, error) {
 	return "", fmt.Errorf("defaults: unterminated string")
 }
 
-func (p *defaultsParser) parseData() (string, error) {
+// acrobatPlistData is a defaults-read hex blob (`<01>`). It must not be
+// treated as a numeric trust setting.
+type acrobatPlistData string
+
+func (p *defaultsParser) parseData() (acrobatPlistData, error) {
 	p.i++ // <
 	start := p.i
 	for p.i < len(p.s) && p.s[p.i] != '>' {
@@ -211,7 +215,7 @@ func (p *defaultsParser) parseData() (string, error) {
 	}
 	s := p.s[start:p.i]
 	p.i++ // >
-	return s, nil
+	return acrobatPlistData(s), nil
 }
 
 func (p *defaultsParser) parseToken() (any, error) {

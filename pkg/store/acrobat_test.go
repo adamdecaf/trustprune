@@ -341,6 +341,9 @@ func TestAcrobatBackupRestoreRoundTrip(t *testing.T) {
 	if strings.TrimSpace(string(recorded)) != acrobatCanonicalPath(dc) {
 		t.Fatalf("source %q", recorded)
 	}
+	if _, err := os.Stat(filepath.Join(latest, acrobatAddressBookFilename+".partial")); !os.IsNotExist(err) {
+		t.Fatalf("backup left a partial file: %v", err)
+	}
 	live, err := os.ReadFile(v11)
 	if err != nil {
 		t.Fatal(err)
@@ -595,5 +598,32 @@ func TestAcrobatRestoreRefusesDifferentPath(t *testing.T) {
 	}
 	if !bytes.Equal(got, []byte("from-2024")) {
 		t.Fatalf("2024 was overwritten: %q", got)
+	}
+}
+
+func TestLocateAcrobatStatPermissionError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permission bits")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root can stat mode 000 paths")
+	}
+
+	home := t.TempDir()
+	search := acrobatSearch{goos: "darwin", home: home}
+	root := filepath.Join(home, "Library", "Application Support")
+	dc := filepath.Join(root, "Adobe", "Acrobat", "DC", "Security", acrobatAddressBookFilename)
+	v11 := filepath.Join(root, "Adobe", "Acrobat", "11.0", "Security", acrobatAddressBookFilename)
+	writeAcrobatFile(t, dc, []byte("dc"))
+	writeAcrobatFile(t, v11, []byte("11"))
+	sec := filepath.Dir(dc)
+	if err := os.Chmod(sec, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sec, 0o755) })
+
+	_, err := search.find()
+	if err == nil || !strings.Contains(err.Error(), "acrobat: stat") || !errors.Is(err, os.ErrPermission) {
+		t.Fatalf("want a permission error from the DC candidate, got %v", err)
 	}
 }

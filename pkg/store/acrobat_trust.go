@@ -232,6 +232,7 @@ func sortAcrobatTrustProducts(ps []acrobatTrustProduct) {
 // dictionary. security may be nil. Integers, numeric strings, and bools
 // are accepted. The first matching location wins.
 func acrobatProductFromSecurity(product, version, source string, security map[string]any) acrobatTrustProduct {
+	security = normalizeAcrobatPrefsMap(security)
 	var dig map[string]any
 	if security != nil {
 		dig, _ = asAcrobatMap(security["cDigSig"])
@@ -338,7 +339,134 @@ func asAcrobatMap(v any) (map[string]any, bool) {
 	return m, true
 }
 
+// acrobatKeyCanon maps case-insensitive Windows names and unprefixed
+// Macintosh PrefRef names onto the Windows-prefixed keys the shared
+// lookup uses.
+var acrobatKeyCanon = map[string]string{
+	"cdigsig":                   "cDigSig",
+	"digsig":                    "cDigSig",
+	"cadobedownload":            "cAdobeDownload",
+	"adobedownload":             "cAdobeDownload",
+	"bloadsettingsfromurl":      "bLoadSettingsFromURL",
+	"loadsettingsfromurl":       "bLoadSettingsFromURL",
+	"ceutldownload":             "cEUTLDownload",
+	"eutldownload":              "cEUTLDownload",
+	"ccustomdownload":           "cCustomDownload",
+	"customdownload":            "cCustomDownload",
+	"imsstoretrusted":           "iMSStoreTrusted",
+	"msstoretrusted":            "iMSStoreTrusted",
+	"caspki":                    "cASPKI",
+	"aspki":                     "cASPKI",
+	"cmscapi_directoryprovider": "cMSCAPI_DirectoryProvider",
+	"mscapi_directoryprovider":  "cMSCAPI_DirectoryProvider",
+}
+
+func acrobatCanonicalKey(name string) (canon string, rank int) {
+	name = strings.TrimSpace(name)
+	canon, ok := acrobatKeyCanon[strings.ToLower(name)]
+	if !ok {
+		return name, 2
+	}
+	if name == canon {
+		return canon, 0
+	}
+	return canon, 1
+}
+
+func normalizeAcrobatPrefsMap(security map[string]any) map[string]any {
+	if security == nil {
+		return nil
+	}
+	m, ok := normalizeAcrobatPrefs(security).(map[string]any)
+	if !ok {
+		return security
+	}
+	return m
+}
+
+func normalizeAcrobatPrefs(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok || m == nil {
+		return v
+	}
+	type cand struct {
+		rank int
+		val  any
+	}
+	best := make(map[string]cand, len(m))
+	for k, val := range m {
+		ck, rank := acrobatCanonicalKey(k)
+		val = normalizeAcrobatPrefs(val)
+		if prev, ok := best[ck]; !ok || rank < prev.rank {
+			best[ck] = cand{rank: rank, val: val}
+		}
+	}
+	out := make(map[string]any, len(best))
+	for k, c := range best {
+		out[k] = c.val
+	}
+	return out
+}
+
 func asAcrobatUint(v any) (uint64, bool) {
+	if arr, ok := v.([]any); ok {
+		return acrobatTypedArrayUint(arr)
+	}
+	return acrobatScalarUint(v)
+}
+
+// acrobatTypedArrayUint decodes a Macintosh typed preference
+// (`defaults read` prints `(0, 1)`). Type 0 is boolean and only 0 or 1
+// is accepted. Type 1 is integer. Other type codes are not trust settings.
+func acrobatTypedArrayUint(arr []any) (uint64, bool) {
+	if len(arr) != 2 {
+		return 0, false
+	}
+	typ, ok := acrobatScalarUint(arr[0])
+	if !ok {
+		return 0, false
+	}
+	switch typ {
+	case 0:
+		return acrobatBooleanUint(arr[1])
+	case 1:
+		return acrobatScalarUint(arr[1])
+	default:
+		return 0, false
+	}
+}
+
+func acrobatBooleanUint(v any) (uint64, bool) {
+	switch n := v.(type) {
+	case bool:
+		if n {
+			return 1, true
+		}
+		return 0, true
+	case uint64:
+		if n <= 1 {
+			return n, true
+		}
+	case int:
+		if n == 0 || n == 1 {
+			return uint64(n), true
+		}
+	case int64:
+		if n == 0 || n == 1 {
+			return uint64(n), true
+		}
+	case string:
+		switch strings.ToLower(strings.TrimSpace(n)) {
+		case "1", "true", "yes":
+			return 1, true
+		case "0", "false", "no":
+			return 0, true
+		}
+	}
+	return 0, false
+}
+
+func acrobatScalarUint(v any) (uint64, bool) {
 	switch n := v.(type) {
 	case uint64:
 		return n, true

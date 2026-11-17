@@ -168,7 +168,13 @@ func (s acrobatSearch) find() (string, error) {
 		}
 		full := filepath.Join(root, ent.Name(), "Security", acrobatAddressBookFilename)
 		fi, err := os.Stat(full)
-		if err != nil || !fi.Mode().IsRegular() {
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+			return "", fmt.Errorf("acrobat: stat %s: %w", full, err)
+		}
+		if !fi.Mode().IsRegular() {
 			continue
 		}
 		class, nums := acrobatVersionClass(ent.Name())
@@ -423,7 +429,12 @@ func (acrobatStore) Backup() error {
 		return err
 	}
 	dst := filepath.Join(dir, acrobatAddressBookFilename)
-	if err := file.CopyFile(path, dst); err != nil {
+	tmp := dst + ".partial"
+	if err := file.CopyFile(path, tmp); err != nil {
+		_ = os.RemoveAll(dir)
+		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
+	}
+	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.RemoveAll(dir)
 		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
 	}
