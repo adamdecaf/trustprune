@@ -120,10 +120,10 @@ Path discovery matches `docs/usage.md`: `--store` overrides the bundle on `list`
 
 ## OpenSSL (`--app openssl`)
 
-Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolution (first existing wins): `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro/Homebrew defaults, then `git config --get http.sslCAInfo`. Darwin `/etc/ssl/cert.pem` is never chosen as the openssl default; that file is `--app ssl`.
+Manages curl/git/OpenSSL and LibreSSL CA bundles and cert directories. Path resolution (first existing wins): `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, LibreSSL locations when LibreSSL is present (Homebrew `.../etc/libressl/cert.pem` then `.../etc/libressl/certs` under `/usr/local` and `/opt/homebrew`, then OpenBSD/Alpine `/etc/ssl/cert.pem`), distro/Homebrew OpenSSL defaults, then `git config --get http.sslCAInfo`. LibreSSL is present when a Homebrew `libressl` `openssl` binary exists or `openssl version` starts with `LibreSSL`. Darwin `/usr/bin/openssl` does not count. Darwin `/etc/ssl/cert.pem` is never chosen as the openssl default; that file is `--app ssl`.
 
 - **PEM file** (for example `/etc/ssl/certs/ca-certificates.crt`): backup copies into `openssl/<unix-timestamp>/ca-bundle.pem` and writes a `source` file recording the bundle path. Restore and other writers use the same atomic sibling-temp install as `--app ssl`. An empty allowlist result is refused.
-- **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then runs `c_rehash` if that binary is available. `--bundle` does not select a directory.
+- **Cert directory** (for example Homebrew `/usr/local/etc/openssl/certs` or LibreSSL `.../etc/libressl/certs`): backup mirrors the directory. Restore stages into `<dir>.restore-tmp`, moves the live dir aside to `<dir>.restore-old`, then swaps. Remove deletes cert files that do not match the allowlist, then rehashes. LibreSSL runs `<openssl> certhash <dir>`. Otherwise `c_rehash` runs when that binary is available. `--bundle` does not select a directory.
 
 Restore with no backup refuses before any filesystem write (dry-run included). Explicit `--backup` is honored and still names the backup source.
 

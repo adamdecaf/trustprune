@@ -229,8 +229,9 @@ Path resolution uses the first existing of:
 
 1. `SSL_CERT_FILE` (if set)
 2. `CURL_CA_BUNDLE` (if set)
-3. Distro/Homebrew defaults (`/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew `.../etc/openssl/certs` and `openssl@3` / `openssl@1.1` variants)
-4. `git config --get http.sslCAInfo` (best-effort; git errors are ignored)
+3. LibreSSL, when it is present, ahead of OpenSSL paths. Present means a Homebrew LibreSSL binary exists (`/usr/local/opt/libressl/bin/openssl` on Intel, `/opt/homebrew/opt/libressl/bin/openssl` on Apple Silicon) or `openssl version` starts with `LibreSSL`. Darwin `/usr/bin/openssl` is Apple's LibreSSL and does not count. Candidates, in order: `/usr/local/etc/libressl/cert.pem`, `/opt/homebrew/etc/libressl/cert.pem`, `/usr/local/etc/libressl/certs`, `/opt/homebrew/etc/libressl/certs`, then the OpenBSD/Alpine bundle `/etc/ssl/cert.pem`.
+4. Distro/Homebrew OpenSSL defaults (`/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew `.../etc/openssl/certs` and `openssl@3` / `openssl@1.1` variants)
+5. `git config --get http.sslCAInfo` (best-effort; git errors are ignored)
 
 Darwin `/etc/ssl/cert.pem` is **not** selected as an openssl default. Use `--app ssl` for that file.
 
@@ -248,7 +249,7 @@ trustprune restore --app openssl --bundle /path/to/ca-bundle.pem
 
 `--bundle <pem>` skips path discovery and must name an existing PEM file. It does not select a hashed cert directory. On allowlist, `--file` is still the allowlist. On restore, `--backup` is the backup source; a backup taken from a different PEM is refused unless `--force`.
 
-A PEM file is rewritten like `--app ssl` (atomic install, refuse empty bundle). Backups of a PEM file record its path in `source`. A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and `c_rehash` runs after add (required) and after remove/restore when the binary is present. Directory rehash is unchanged; pass the PEM file to `--bundle` when you want that file rather than the discovered directory.
+A PEM file is rewritten like `--app ssl` (atomic install, refuse empty bundle). Backups of a PEM file record its path in `source`. A cert directory lists `*.pem`/`*.crt`, backups mirror the directory, remove deletes non-matching cert files, and rehash runs after add (required) and after remove/restore when a tool is present. LibreSSL runs `<openssl> certhash <dir>` with the binary above. Otherwise `c_rehash` is used (`/usr/bin/c_rehash`, Homebrew openssl prefixes). Pass the PEM file to `--bundle` when you want that file rather than the discovered directory.
 
 
 ## pdfsig / poppler (`--app poppler`)

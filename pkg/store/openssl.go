@@ -60,6 +60,10 @@ var (
 	// gitHTTPSSLCAInfo is best-effort `git config --get http.sslCAInfo`.
 	// Tests replace it so a developer gitconfig cannot leak into path lookup.
 	gitHTTPSSLCAInfo = lookupGitHTTPSSLCAInfo
+
+	// cRehashLookPath resolves c_rehash on PATH after openSSLRehashPaths.
+	// Tests replace it.
+	cRehashLookPath = exec.LookPath
 )
 
 type opensslStore struct {
@@ -160,15 +164,17 @@ func (s opensslStore) addToDir(dir string, certs []*x509.Certificate) error {
 	if DryRun() {
 		details := reportDryRunCerts("add", certs)
 		if len(certs) > 0 {
-			if bin := findCRehash(); bin != "" {
-				details = append(details, fmt.Sprintf("then run %s %s", bin, dir))
+			if cmd := rehashCommandDisplay(dir); cmd != "" {
+				details = append(details, "then run "+cmd)
 			}
 		}
 		reportDryRun("add certificates to", "openssl", dir, details...)
 		return nil
 	}
-	if len(certs) > 0 && findCRehash() == "" {
-		return errors.New("unable to find openssl c_rehash binary")
+	if len(certs) > 0 {
+		if _, _, ok := rehashInvoke(dir); !ok {
+			return errors.New("unable to find openssl c_rehash binary")
+		}
 	}
 	for i := range certs {
 		fp := certutil.GetHexSHA256Fingerprint(*certs[i])
@@ -279,13 +285,17 @@ func (s opensslStore) GetInfo() *Info {
 	if path, err := s.certPath(); err == nil {
 		info.Path = path
 	}
-	out, err := exec.Command("openssl", "version").CombinedOutput()
+	bin := "openssl"
+	if libre := findLibreSSLBin(); libre != "" {
+		bin = libre
+	}
+	out, err := opensslVersionOutput(bin)
 	if err != nil {
 		return info
 	}
 
 	// 'LibreSSL 2.2.7' or 'OpenSSL 1.0.2g  1 Mar 2016'
-	parts := strings.Split(string(out), " ")
+	parts := strings.Split(out, " ")
 	info.Name = strings.TrimSpace(parts[0])
 	if len(parts) > 1 {
 		info.Version = strings.TrimSpace(parts[1])
@@ -389,8 +399,8 @@ func (s opensslStore) removeFromDir(dir string, al allowlist.Allowlist) error {
 	}
 	var extras []string
 	if DryRun() && !AllowlistCountOnly() {
-		if bin := findCRehash(); bin != "" {
-			extras = append(extras, fmt.Sprintf("then run %s %s", bin, dir))
+		if cmd := rehashCommandDisplay(dir); cmd != "" {
+			extras = append(extras, "then run "+cmd)
 		}
 	}
 	if finishAllowlist(al, "openssl", dir, keptCerts, allRemoved, rawKeep, extras, details) {
@@ -553,8 +563,8 @@ func (s opensslStore) restoreDir(src, dst string) error {
 			return err
 		}
 		details := restoreFileDetails(src, dst, names)
-		if bin := findCRehash(); bin != "" {
-			details = append(details, fmt.Sprintf("then run %s %s", bin, dst))
+		if cmd := rehashCommandDisplay(dst); cmd != "" {
+			details = append(details, "then run "+cmd)
 		}
 		reportDryRun("restore", "openssl", dst, details...)
 		return nil
@@ -917,12 +927,13 @@ func opensslCertFiles(dir string) ([]string, error) {
 	return out, nil
 }
 
-// findCertPath returns the first existing OpenSSL CA location.
+// findCertPath returns the first existing OpenSSL / LibreSSL CA location.
 //
-// Order: explicit store path, SSL_CERT_FILE, CURL_CA_BUNDLE, openSSLCertPaths,
-// then git http.sslCAInfo. Darwin /etc/ssl/cert.pem is never chosen as a
-// default (that file is -app ssl); an explicit SSL_CERT_FILE / CURL_CA_BUNDLE
-// still wins if the user set it.
+// Order: explicit store path, SSL_CERT_FILE, CURL_CA_BUNDLE, LibreSSL
+// candidates when a LibreSSL binary is present, openSSLCertPaths, then git
+// http.sslCAInfo. Darwin /etc/ssl/cert.pem is never chosen as a default
+// (that file is -app ssl). On other OSes that path is a LibreSSL candidate
+// only. An explicit SSL_CERT_FILE / CURL_CA_BUNDLE still wins if set.
 func (s opensslStore) findCertPath() (string, error) {
 	if s.path != "" {
 		if file.Exists(s.path) {
@@ -935,6 +946,16 @@ func (s opensslStore) findCertPath() (string, error) {
 		p := strings.TrimSpace(raw)
 		if p != "" && file.Exists(p) {
 			return p, nil
+		}
+	}
+	if findLibreSSLBin() != "" {
+		for _, p := range libreSSLCertPaths {
+			if skipLibreSSLCertPath(p) {
+				continue
+			}
+			if libreSSLPathExists(p) {
+				return p, nil
+			}
 		}
 	}
 	for i := range openSSLCertPaths {
@@ -976,22 +997,22 @@ func findCRehash() string {
 			return openSSLRehashPaths[i]
 		}
 	}
-	if p, err := exec.LookPath("c_rehash"); err == nil {
+	if p, err := cRehashLookPath("c_rehash"); err == nil {
 		return p
 	}
 	return ""
 }
 
 func (s opensslStore) rehash(dir string, required bool) error {
-	bin := findCRehash()
-	if bin == "" {
+	bin, args, ok := rehashInvoke(dir)
+	if !ok {
 		if required {
 			return errors.New("unable to find openssl c_rehash binary")
 		}
 		return nil
 	}
 
-	cmd := exec.Command(bin, dir)
+	cmd := exec.Command(bin, args...) // #nosec G204 -- bin is c_rehash or a discovered LibreSSL openssl; args are certhash and the cert dir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if debug {
