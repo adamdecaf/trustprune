@@ -156,7 +156,7 @@ jobs:
           name: trustprune-linux-amd64
           path: bin/trustprune-linux-amd64
           if-no-files-found: error
-          retention-days: 1
+          retention-days: 30
 
   # Native tests. Add a runner OS to expand platform coverage.
   # CGO=0 matches the shipped static binary. Extra rows cover Darwin

@@ -57,15 +57,13 @@ jobs:
 
           branch="automation/go-${latest}"
           echo "branch=${branch}" >> "$GITHUB_OUTPUT"
-          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
-            echo "Branch ${branch} already exists; skipping"
-            echo "bump=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
             echo "PR for ${branch} already exists; skipping"
             echo "bump=false" >> "$GITHUB_OUTPUT"
             exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch ${branch} already exists without a PR; will reuse it"
           fi
           echo "bump=true" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
@@ -81,18 +79,27 @@ jobs:
           BRANCH: ${{ steps.detect.outputs.branch }}
         run: |
           set -euo pipefail
-          git checkout -b "$BRANCH"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
           go mod edit -go="$LATEST"
           go mod tidy
           git add go.mod go.sum
-          if git diff --cached --quiet; then
-            echo "No changes after go mod edit/tidy; skipping"
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Bump Go to ${LATEST}"
-          git push origin "$BRANCH"
+          if git diff --cached --quiet; then
+            if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+              echo "No changes after go mod edit/tidy; skipping"
+              exit 0
+            fi
+            echo "No new changes after go mod edit/tidy; reusing existing branch for PR creation"
+          else
+            git commit -m "Bump Go to ${LATEST}"
+            git push origin "$BRANCH"
+          fi
           body=$(printf '%s\n\n%s\n' \
             "Update the \`go\` directive from ${CURRENT} to ${LATEST} (latest stable from https://go.dev/VERSION?m=text) and run \`go mod tidy\`." \
             "PRs opened by GITHUB_TOKEN do not trigger CI on their own, so a maintainer must close/reopen or push to run checks.")
