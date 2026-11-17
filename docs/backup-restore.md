@@ -31,7 +31,7 @@ Parent directory (created as needed):
 | Linux platform | `linux/<unix-timestamp>/` — mirror of the live CA **directory** (`/usr/share/ca-certificates`, Fedora/RHEL/Rocky `/etc/pki/ca-trust/source`, or Arch `/etc/ca-certificates/trust-source`) |
 | Darwin platform | `darwin/<unix-timestamp>/login.keychain/<sha256>.crt` — PEM exports of login-keychain certs |
 | Java | `java/cacerts-<unix-timestamp>.bck` plus a `.source` sidecar recording the keystore path |
-| Chrome / Firefox (NSS) | `chrome/<unix-timestamp>/` or `firefox/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
+| Chrome / Firefox / poppler / okular (NSS) | `chrome/<unix-timestamp>/`, `firefox/<unix-timestamp>/`, `poppler/<unix-timestamp>/`, or `okular/<unix-timestamp>/` — full profile file set plus a `source` file recording the profile directory (see below) |
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `--app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `--app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
@@ -62,7 +62,7 @@ If the swap rename itself fails after the live tree was moved aside, the previou
 
 ## NSS: full file set
 
-NSS backups for Chrome (Linux) and Firefox copy whichever members of the profile set exist:
+NSS backups for Chrome (Linux), Firefox, poppler, and okular copy whichever members of the profile set exist:
 
 | Style | Files |
 |-------|-------|
@@ -140,6 +140,12 @@ Backup and restore refuse while a process image named Acrobat, AcroRd32, or Adob
 `list` prints a read-only report of the AATL, EUTL, and Windows store trust settings and does not parse the file. When Acrobat is not installed it prints `acrobat: not installed` and exits 0. Listing address book entries read-only was not attempted. The file is treated as opaque.
 
 `allowlist` does not edit the file. With no backup it returns the usual no-backup error. With a backup it prints the pruning guide. See [Platforms](platforms.md#acrobat).
+
+## Okular (`--app okular`)
+
+When the effective signature backend is NSS, backups are the same NSS profile set as poppler, under `okular/<unix-timestamp>/`, with a `source` file recording the directory. Restore and allowlist use that recorded path the same way as firefox and poppler.
+
+When the backend is GPG, `backup`, `restore`, and `allowlist` report the GPG backend and exit 1. They do not create a backup directory.
 
 ## Foxit (`--app foxit`)
 

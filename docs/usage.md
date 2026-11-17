@@ -10,7 +10,7 @@ Flags are per-command. Only flags a command actually uses are accepted (`trustpr
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, openssl, poppler, ssl)`.
+Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -89,6 +89,7 @@ trustprune list --app java --store /path/to/cacerts
 trustprune list --app certifi --store /path/to/venv/.../cacert.pem
 trustprune list --app poppler
 trustprune list --app poppler --store /path/to/nssdb
+trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
@@ -146,7 +147,7 @@ For **java**, **certifi**, and **poppler**, `--store` is the store to restore in
 
 For **openssl**, `--bundle <pem>` is the live PEM to restore into. `--backup` stays the backup source; automatic selection runs only when `--backup` is not set. PEM backups record that path; restoring a backup into a different PEM is refused before any write unless `--force`. Without `--bundle`, automatic restore follows discovery. A discovered PEM uses the newest backup recorded for that file, or a legacy backup with no `source`; a backup recorded for a different PEM is refused unless `--force`. A discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup. Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`.
 
-For **firefox**, **poppler**, and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
+For **firefox**, **poppler**, **okular**, and Linux **chrome** (NSS), backup records the profile directory in a `source` file inside the backup. Restoring into a different profile is refused before any write unless `--force`. A backup with no recorded profile (an older release, or a legacy single file) is refused the same way unless `--force`. The `source` file is not copied onto the live profile and is never selected as a backup.
 
 ```bash
 trustprune restore
@@ -169,7 +170,7 @@ trustprune restore --app java --dry-run
 | `--store <path>` | Java/certifi/poppler: store to restore into |
 | `--backup <path>` | Explicit backup to restore from (directory or file, depending on the store) |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to restore into. `--backup` remains the backup source |
-| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, poppler, openssl `--bundle`, and NSS firefox/chrome). Also allows an NSS backup that has no recorded profile. |
+| `--force` | Allow restoring a backup into a different store path than it was taken from (java, certifi, poppler, openssl `--bundle`, and NSS firefox/chrome/okular). Also allows an NSS backup that has no recorded profile. |
 | `--dry-run` | Print the plan without writing |
 
 
@@ -277,9 +278,26 @@ Evince and Papers are not `--app` values.
 
 The [platforms page](platforms.md) has the same coverage with the source links.
 
+## Okular (`--app okular`)
+
+Okular's poppler generator trusts an NSS database or a GPG (gpgsm) store. `--app okular` reads `okular-generator-popplerrc` group `[Signatures]`. It merges matching files from `$XDG_CONFIG_DIRS` (default `/etc/xdg` on Unix) with the user file last (`$XDG_CONFIG_HOME/okular-generator-popplerrc` when `XDG_CONFIG_HOME` is an absolute path, otherwise `~/.config/okular-generator-popplerrc`), so the user file overrides each key. That lookup follows KConfig convention. Flatpak, Snap, and other sandboxed config locations are **unverified**.
+
+The effective signature backend is `SignatureBackend` if that key is set, otherwise `POPPLER_SIGNATURE_BACKEND`, otherwise NSS, which is poppler's usual compiled default (NSS is built first). A prebuilt trustprune binary cannot read the host poppler compile-time default; if that default is GPG, set `SignatureBackend` or `POPPLER_SIGNATURE_BACKEND`. Keys marked `[$e]` are environment-expanded; if `SignatureBackend` cannot be expanded to NSS or GPG, trustprune refuses NSS operations. `list` shows which DB or backend was used (verbose table `PATH`, JSON `path`; a GPG backend is reported in the error and as PATH `GPG`).
+
+When the backend is **NSS**: `UseDefaultCertDB=false` uses `DBCertificatePath` as the NSS directory. A `file://` URL is converted to a filesystem path, including percent-encoded characters. Otherwise the directory is the same lookup as [`--app poppler`](#pdfsig--poppler---app-poppler). `apps` marks okular found only when that directory contains a regular non-empty `cert9.db`. Backup, restore, add, and allowlist use the same NSS code as poppler, including the recorded-profile restore and allowlist guards.
+
+When the backend is **GPG**: `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` report that the backend is GPG and exit 1 without reading or writing a gpgsm store. `apps` shows `guide only` with PATH `GPG`. `--dry-run` does not plan a change.
+
+```bash
+trustprune list --app okular
+trustprune list --app okular -v
+trustprune backup --app okular
+trustprune allowlist --app okular --file allowlist.yaml --dry-run
+```
+
 ## allowlist
 
-Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
+Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, okular, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist and a built-in denylist of known-distrusted roots and their public keys, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
 
 Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
 

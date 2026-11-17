@@ -17,7 +17,6 @@ package store
 import (
 	"crypto/x509"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -81,21 +80,7 @@ func (s popplerStore) Remove(al allowlist.Allowlist) error {
 // requireCert9 is the single gate for poppler operations. systemHasCert9
 // matches the database pdfsig will open: a regular, non-empty cert9.db.
 func (s popplerStore) requireCert9() error {
-	dir := s.foundCertdbLocation
-	if dir == "" {
-		return fmt.Errorf("poppler: no NSS database found (looked in %s); run Firefox once or create one with certutil -N -d sql:%s", dir, dir)
-	}
-	fi, err := os.Stat(filepath.Join(dir, "cert9.db"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("poppler: no NSS database found (looked in %s); run Firefox once or create one with certutil -N -d sql:%s", dir, dir)
-		}
-		return fmt.Errorf("poppler: checking NSS database in %s: %w", dir, err)
-	}
-	if !fi.Mode().IsRegular() || fi.Size() == 0 {
-		return fmt.Errorf("poppler: no NSS database found (looked in %s); run Firefox once or create one with certutil -N -d sql:%s", dir, dir)
-	}
-	return nil
+	return requireNSSCert9("poppler", s.foundCertdbLocation)
 }
 
 func popplerNSSDir() string {
