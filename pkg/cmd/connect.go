@@ -139,7 +139,7 @@ func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error
 	resp, err := client.Do(req)
 	if err != nil {
 		if connectVerificationFailed(err) {
-			if perr := connectPrintPresented(uri, roots, opts, format); perr != nil {
+			if perr := connectPrintPresented(uri, roots, opts, format, err); perr != nil {
 				return fmt.Errorf("%s: %w", uri.String(), perr)
 			}
 		}
@@ -166,12 +166,17 @@ type presentedChain struct {
 // connectPrintPresented writes the chain the server sent when verification
 // failed. Text output requires Verbose. JSON always includes presented_chain
 // and ignores Verbose. A dial that is not a verification failure does not
-// call this. The read-only handshake never decides whether connect succeeded.
-func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string) error {
+// call this. The chain is taken from handshakeErr when it carries
+// UnverifiedCertificates. A read-only probe is used only if that list is
+// empty. The probe never decides whether connect succeeded.
+func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string, handshakeErr error) error {
 	if format != connectFormatJSON && !opts.Verbose {
 		return nil
 	}
-	presented, _ := readPresentedCertificates(u)
+	presented := presentedChainFromError(handshakeErr)
+	if len(presented.certs) == 0 {
+		presented, _ = readPresentedCertificates(u)
+	}
 	if format == connectFormatJSON {
 		out, err := formatConnectPresentedJSON(u.String(), presented.certs, presented.version, roots)
 		if err != nil {
@@ -261,12 +266,25 @@ func connectVerificationFailed(err error) bool {
 	return errors.As(err, &invalid)
 }
 
+// presentedChainFromError returns the leaf-first peer chain from a
+// *tls.CertificateVerificationError. The TLS version is left unset because
+// that error does not include it. An empty result means the caller may try
+// a read-only probe.
+func presentedChainFromError(err error) presentedChain {
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) && len(ver.UnverifiedCertificates) > 0 {
+		return presentedChain{certs: append([]*x509.Certificate(nil), ver.UnverifiedCertificates...)}
+	}
+	return presentedChain{}
+}
+
 // formatConnectPresentedText prints the presented chain, leaf first, with
 // the same columns as the verified chain. A certificate missing from roots
 // has connectNotInStoreMark on its subject. When any certificate is missing,
-// a hint names allowlist --file and that certificate's full SHA-256. The
-// hint fingerprint is the last missing certificate (closest to the root).
-// allowlist has no fingerprint flag; the value goes in the allowlist file.
+// a hint tells the user to add that CA with add --file. The hint fingerprint
+// is the last missing certificate (closest to the root). allowlist only
+// keeps or removes certificates already in the store; after the CA is
+// installed, its SHA-256 can go under fingerprints in an allowlist file.
 func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error) {
 	if len(chain) == 0 {
 		return "", errors.New("no presented certificate chain")
@@ -306,11 +324,10 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error
 	return b.String(), nil
 }
 
-// connectTrustHint tells the user how to allowlist a CA that was not in
-// the selected store: add its SHA-256 under fingerprints in an allowlist
-// file, then run allowlist with --file.
+// connectTrustHint tells the user how to install a CA that was not in the
+// selected store. allowlist does not add a missing certificate.
 func connectTrustHint(fp string) string {
-	return "to trust a CA, add sha256 " + fp + " to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>"
+	return "to add a missing CA, run: trustprune add --file <cert>\nafter it is in the store, include sha256 " + fp + " under fingerprints in an allowlist file so a later allowlist run keeps it"
 }
 
 // connectFailJSON is the document written by connect --format json when

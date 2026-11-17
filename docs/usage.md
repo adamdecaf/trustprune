@@ -430,16 +430,17 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 `chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` uses the same UTC date as the text line.
 
-A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). A refused connection or other dial error stays the short line only.
+A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
 
-The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names the allowlist command and the full SHA-256 of the last missing certificate (closest to the root). `allowlist` takes `--file`. There is no fingerprint flag. Put that SHA-256 in the allowlist file under `fingerprints`.
+The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
 
 ```text
 presented chain:
 INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256
 0      leaf.example (not in store)  ca.example  2030-01-01  <16 hex>
 1      ca.example (not in store)    ca.example  2031-03-04  <16 hex>
-to trust a CA, add sha256 <64 hex> to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>
+to add a missing CA, run: trustprune add --file <cert>
+after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
 ERROR: https://untrusted.example: unknown authority
 ```
 

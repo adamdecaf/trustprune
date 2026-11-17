@@ -147,7 +147,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if doc.PresentedChain[0].Issuer == "" || doc.PresentedChain[0].NotAfter == "" {
 			t.Fatalf("missing fields: %+v", doc.PresentedChain[0])
 		}
-		if strings.Contains(out, "INDEX") || strings.Contains(out, "to trust a CA") {
+		if strings.Contains(out, "INDEX") || strings.Contains(out, "to add a missing CA") {
 			t.Fatalf("json included text table:\n%s", out)
 		}
 	})
@@ -197,7 +197,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if !strings.HasPrefix(out, "ok "+okURL.String()+" ") || !strings.HasSuffix(out, table) {
 			t.Fatalf("stdout =\n%s", out)
 		}
-		if strings.Contains(out, "presented chain:") || strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to trust a CA") || strings.Contains(out, "presented_chain") {
+		if strings.Contains(out, "presented chain:") || strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to add a missing CA") || strings.Contains(out, "presented_chain") {
 			t.Fatalf("success output changed:\n%s", out)
 		}
 		plain, perr := captureConnectOut(t, func() error {
@@ -233,7 +233,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if err == nil || err.Error() != expURL.String()+": certificate expired 2015-04-12" {
 			t.Fatalf("err = %v", err)
 		}
-		if strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to trust a CA") || !strings.Contains(out, "old.example") {
+		if strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to add a missing CA") || !strings.Contains(out, "old.example") {
 			t.Fatalf("stdout =\n%s", out)
 		}
 

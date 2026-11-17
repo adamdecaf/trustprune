@@ -845,7 +845,7 @@ func TestFormatConnectPresented(t *testing.T) {
 			t.Fatalf("CA should be marked:\n%s", got)
 		}
 		if !strings.HasSuffix(got, connectTrustHint(caFP)+"\n") {
-			t.Fatalf("hint = %q", got[strings.LastIndex(got, "to trust"):])
+			t.Fatalf("hint = %q", got[strings.LastIndex(got, "to add"):])
 		}
 	})
 
@@ -855,7 +855,7 @@ func TestFormatConnectPresented(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to trust a CA") {
+		if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to add a missing CA") {
 			t.Fatalf("store certs were marked:\n%s", got)
 		}
 		if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") {
@@ -976,5 +976,25 @@ func assertConnectJSON(t *testing.T, got string, want connectJSON) {
 	}
 	if got != string(enc)+"\n" {
 		t.Fatalf("json =\n%s\nwant\n%s\n", got, string(enc)+"\n")
+	}
+}
+
+func TestPresentedChainFromError(t *testing.T) {
+	t.Parallel()
+	leaf := &x509.Certificate{Subject: pkix.Name{CommonName: "leaf.example"}}
+	ca := &x509.Certificate{Subject: pkix.Name{CommonName: "ca.example"}}
+	err := fmt.Errorf("head https://leaf.example: %w", &tls.CertificateVerificationError{
+		UnverifiedCertificates: []*x509.Certificate{leaf, ca},
+		Err:                    errors.New("unknown authority"),
+	})
+	got := presentedChainFromError(err)
+	if len(got.certs) != 2 || got.certs[0] != leaf || got.certs[1] != ca {
+		t.Fatalf("certs=%v", got.certs)
+	}
+	if got.version != 0 {
+		t.Fatalf("version should be unset, got %d", got.version)
+	}
+	if certs := presentedChainFromError(errors.New("connection refused")).certs; len(certs) != 0 {
+		t.Fatalf("non-verification error: %v", certs)
 	}
 }
