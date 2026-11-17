@@ -76,11 +76,11 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 
 	started := time.Now()
 	var stats *gen.ScanStats
-	scanned := false
 	if opts.Stats {
 		stats = &gen.ScanStats{}
+		// Report after at least one TLS dial, including on a later error or panic.
 		defer func() {
-			if !scanned {
+			if stats.Snapshot().Attempted == 0 {
 				return
 			}
 			stats.SetWall(time.Since(started))
@@ -111,9 +111,6 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 	}
 
 	// Generate allowlist and write to file.
-	// scanned is set before the call so a panic or error still reports
-	// whatever the dials recorded.
-	scanned = true
 	authorities, err := gen.FindCAsWithStats(accum, nil, stats)
 	if err != nil {
 		return err

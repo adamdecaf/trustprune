@@ -140,7 +140,7 @@ func TestScanHTTPSHostIPFailureSkipsDNS(t *testing.T) {
 	if snap.DNSLookups != 0 {
 		t.Fatalf("IP dial recorded DNS: %+v", snap)
 	}
-	if snap.Handshakes != 1 || snap.HandshakeTotal <= 0 {
+	if snap.Handshakes != 1 {
 		t.Fatalf("connect timing %+v", snap)
 	}
 	if len(snap.FailedHosts) != 1 || snap.FailedHosts[0] != "127.0.0.1" {

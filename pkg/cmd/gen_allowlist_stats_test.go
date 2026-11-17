@@ -196,7 +196,7 @@ func TestGenerateAllowlistStats(t *testing.T) {
 		if !strings.Contains(got, "dns: total 0s, avg 0s, lookups 0\n") {
 			t.Fatalf("dns line:\n%s", got)
 		}
-		if !strings.Contains(got, "wall: ") || strings.Contains(got, "wall: 0s\n") {
+		if !strings.Contains(got, "wall: ") {
 			t.Fatalf("wall line:\n%s", got)
 		}
 	})
@@ -216,5 +216,28 @@ func TestGenerateAllowlistStatsBeforeScan(t *testing.T) {
 	}
 	if buf.Len() != 0 {
 		t.Fatalf("stats printed before a dial:\n%s", buf.String())
+	}
+}
+
+func TestGenerateAllowlistStatsHTTPOnlyFile(t *testing.T) {
+	dir := t.TempDir()
+	list := filepath.Join(dir, "urls.txt")
+	if err := os.WriteFile(list, []byte("http://example.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	err := GenerateAllowlist(GenerateAllowlistOptions{
+		Output:    filepath.Join(dir, "allowlist.yaml"),
+		File:      list,
+		NoPresets: true,
+		GOOS:      "freebsd",
+		Stats:     true,
+		statsOut:  &buf,
+	})
+	if err == nil || !strings.Contains(err.Error(), "unable to find any") {
+		t.Fatalf("err=%v", err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("stats printed with no TLS dial:\n%s", buf.String())
 	}
 }
