@@ -156,7 +156,7 @@ func acrobatRegReadTree(k registry.Key, path string, depth int) (map[string]any,
 			return nil, fmt.Errorf("acrobat: read HKCU\\%s %s: %w", path, name, err)
 		}
 		if ok {
-			out[acrobatCanonicalName(name)] = v
+			out[acrobatRegCanonicalName(name)] = v
 		}
 	}
 	if depth == 0 {
@@ -186,7 +186,7 @@ func acrobatRegReadTree(k registry.Key, path string, depth int) (map[string]any,
 		if cerr != nil {
 			return nil, fmt.Errorf("acrobat: close HKCU\\%s: %w", childPath, cerr)
 		}
-		out[acrobatCanonicalName(name)] = child
+		out[acrobatRegCanonicalName(name)] = child
 	}
 	return out, nil
 }
@@ -210,4 +210,9 @@ func acrobatRegInteger(k registry.Key, name string) (uint64, bool, error) {
 		return n, ok, nil
 	}
 	return 0, false, err
+}
+
+func acrobatRegCanonicalName(name string) string {
+	canon, _ := acrobatCanonicalKey(name)
+	return canon
 }

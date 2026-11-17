@@ -373,11 +373,6 @@ func acrobatCanonicalKey(name string) (canon string, rank int) {
 	return canon, 1
 }
 
-func acrobatCanonicalName(name string) string {
-	canon, _ := acrobatCanonicalKey(name)
-	return canon
-}
-
 func normalizeAcrobatPrefsMap(security map[string]any) map[string]any {
 	if security == nil {
 		return nil
