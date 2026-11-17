@@ -17,6 +17,7 @@ package store
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -625,5 +626,66 @@ func TestLocateAcrobatStatPermissionError(t *testing.T) {
 	_, err := search.find()
 	if err == nil || !strings.Contains(err.Error(), "acrobat: stat") || !errors.Is(err, os.ErrPermission) {
 		t.Fatalf("want a permission error from the DC candidate, got %v", err)
+	}
+}
+
+func TestAcrobatRestoreRejectsIncompleteBackup(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+
+	appData := t.TempDir()
+	dc := acrobatBook(appData, "DC")
+	live := []byte("live-address-book")
+	writeAcrobatFile(t, dc, live)
+	setAcrobatFixture(t, acrobatSearch{goos: "windows", appData: appData}, func() (bool, error) {
+		return false, nil
+	})
+
+	parent := filepath.Join(primaryBackupParent(home), acrobatBackupDir)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	s := AcrobatStore()
+	cases := []struct {
+		name        string
+		withSidecar bool
+		withPartial bool
+	}{
+		{name: "interrupted during copy", withPartial: true},
+		{name: "interrupted after sidecar, before publish", withSidecar: true, withPartial: true},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := filepath.Join(parent, fmt.Sprintf("%d", 2000000000+i))
+			if err := os.Mkdir(dir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if tc.withPartial {
+				if err := os.WriteFile(filepath.Join(dir, acrobatAddressBookFilename+".partial"), []byte("partial"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.withSidecar {
+				if err := writeAcrobatBackupSource(dir, dc); err != nil {
+					t.Fatal(err)
+				}
+			}
+			err := s.Restore("")
+			if err == nil {
+				t.Fatal("expected restore of an incomplete backup to fail")
+			}
+			if !strings.Contains(err.Error(), "has no "+acrobatAddressBookFilename) {
+				t.Fatalf("error: %v", err)
+			}
+			got, rerr := os.ReadFile(dc)
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if !bytes.Equal(got, live) {
+				t.Fatalf("live address book was overwritten: %q", got)
+			}
+		})
 	}
 }

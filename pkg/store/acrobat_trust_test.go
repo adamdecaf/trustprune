@@ -453,3 +453,27 @@ func TestAcrobatDataBlobIsNotATrustSetting(t *testing.T) {
 		t.Fatalf("want acrobatPlistData, got %T %v", dig["bLoadSettingsFromURL"], dig["bLoadSettingsFromURL"])
 	}
 }
+
+func TestAcrobatPrefSubkeyWinsCaseCollision(t *testing.T) {
+	// A canonical value name and a differently cased subkey of the same
+	// setting: the subkey replaces the value, as the Windows reader does.
+	security := map[string]any{
+		"cDigSig": map[string]any{
+			"cAdobeDownload": uint64(1),
+			"cadobedownload": map[string]any{
+				"bLoadSettingsFromURL": uint64(0),
+			},
+			"cEUTLDownload": uint64(1),
+			"CEUTLDOWNLOAD": map[string]any{
+				"bLoadSettingsFromURL": uint64(0),
+			},
+		},
+	}
+	p := acrobatProductFromSecurity(acrobatProductAcrobat, "DC", "example", security)
+	if !p.AATL.Found || p.AATL.Raw != 0 || p.AATL.Key != `cAdobeDownload\bLoadSettingsFromURL` {
+		t.Fatalf("AATL should come from the subkey, got %+v", p.AATL)
+	}
+	if !p.EUTL.Found || p.EUTL.Raw != 0 || p.EUTL.Key != `cEUTLDownload\bLoadSettingsFromURL` {
+		t.Fatalf("EUTL should come from the subkey, got %+v", p.EUTL)
+	}
+}

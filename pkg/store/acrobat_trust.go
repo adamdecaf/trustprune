@@ -373,6 +373,11 @@ func acrobatCanonicalKey(name string) (canon string, rank int) {
 	return canon, 1
 }
 
+func acrobatCanonicalName(name string) string {
+	canon, _ := acrobatCanonicalKey(name)
+	return canon
+}
+
 func normalizeAcrobatPrefsMap(security map[string]any) map[string]any {
 	if security == nil {
 		return nil
@@ -397,6 +402,10 @@ func normalizeAcrobatPrefs(v any) any {
 	for k, val := range m {
 		ck, rank := acrobatCanonicalKey(k)
 		val = normalizeAcrobatPrefs(val)
+		if _, isMap := val.(map[string]any); !isMap {
+			// A subkey replaces a value of the same canonical name.
+			rank += 10
+		}
 		if prev, ok := best[ck]; !ok || rank < prev.rank {
 			best[ck] = cand{rank: rank, val: val}
 		}

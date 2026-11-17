@@ -434,13 +434,15 @@ func (acrobatStore) Backup() error {
 		_ = os.RemoveAll(dir)
 		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
 	}
-	if err := os.Rename(tmp, dst); err != nil {
-		_ = os.RemoveAll(dir)
-		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
-	}
+	// Record the source path before publishing the address book so an
+	// interrupted backup never has the final file without a sidecar.
 	if err := writeAcrobatBackupSource(dir, path); err != nil {
 		_ = os.RemoveAll(dir)
 		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.RemoveAll(dir)
+		return fmt.Errorf("backup %s to %s: %w", path, dst, err)
 	}
 	return nil
 }
