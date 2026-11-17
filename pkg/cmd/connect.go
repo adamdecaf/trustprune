@@ -16,12 +16,14 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -43,16 +45,26 @@ const (
 	connectDateLayout = "2006-01-02"
 )
 
-// ConnectOptions controls output from a successful connect.
-// The zero value prints only the one-line summary.
+// ConnectOptions controls output from connect.
+// The zero value prints only the one-line summary on success, and only the
+// short error on failure.
 type ConnectOptions struct {
 	// Verbose prints the verified chain after the summary line.
+	// When verification fails, it prints the chain the server presented.
 	// It has no effect when Format is json.
 	Verbose bool
 	// Format is "text" (the default) or "json".
 	// Empty means text. Matching is case-insensitive.
 	Format string
 }
+
+// connectNotInStoreMark is appended to a presented-chain subject when that
+// certificate's SHA-256 is not in the store selected for the handshake.
+const connectNotInStoreMark = " (not in store)"
+
+// errPresentedChainOnly is returned from the read-only handshake so that
+// dial never succeeds. Callers use it only to obtain PeerCertificates.
+var errPresentedChainOnly = errors.New("presented chain captured for display")
 
 // NormalizeConnectFormat accepts text (the default, including "") and json.
 // Matching is case-insensitive. Any other value is an error that lists the
@@ -77,7 +89,7 @@ func ConnectWithPlatformStore(uri *url.URL, opts ConnectOptions) error {
 	if err != nil {
 		return fmt.Errorf("problem getting certs: %w", err)
 	}
-	return connect(uri, certs, opts)
+	return connect(uri, certs, opts, "", "")
 }
 
 func ConnectWithAppStore(uri *url.URL, app string, opts ConnectOptions) error {
@@ -95,13 +107,14 @@ func ConnectWithAppStoreFile(uri *url.URL, app, storePath string, opts ConnectOp
 	if err != nil {
 		return fmt.Errorf("problem getting certs for %q: %w", app, err)
 	}
-	return connect(uri, certs, opts)
+	return connect(uri, certs, opts, app, storePath)
 }
 
-func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error {
+func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions, app, storePath string) error {
 	// Reject a bad format before any dial. The CLI also checks this and
 	// turns it into a usage error.
-	if _, err := NormalizeConnectFormat(opts.Format); err != nil {
+	format, err := NormalizeConnectFormat(opts.Format)
+	if err != nil {
 		return err
 	}
 
@@ -125,6 +138,11 @@ func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error
 
 	resp, err := client.Do(req)
 	if err != nil {
+		if connectVerificationFailed(err) {
+			if perr := connectPrintPresented(uri, roots, opts, format, err, app, storePath); perr != nil {
+				return fmt.Errorf("%s: %w", uri.String(), perr)
+			}
+		}
 		return shortConnectError(uri.String(), err, connectLeaf(err))
 	}
 	if resp.Body != nil {
@@ -137,6 +155,272 @@ func connect(uri *url.URL, roots []*x509.Certificate, opts ConnectOptions) error
 	}
 	fmt.Print(out)
 	return nil
+}
+
+// presentedChain is the leaf-first certificate list from a read-only handshake.
+type presentedChain struct {
+	certs   []*x509.Certificate
+	version uint16
+}
+
+// connectPrintPresented writes the chain the server sent when verification
+// failed. Text output requires Verbose. JSON always includes presented_chain
+// and ignores Verbose. A dial that is not a verification failure does not
+// call this. The chain is taken from handshakeErr when it carries
+// UnverifiedCertificates. A read-only probe is used only if that list is
+// empty. The probe never decides whether connect succeeded.
+func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string, handshakeErr error, app, storePath string) error {
+	if format != connectFormatJSON && !opts.Verbose {
+		return nil
+	}
+	presented := presentedChainFromError(handshakeErr)
+	if len(presented.certs) == 0 {
+		presented, _ = readPresentedCertificates(u)
+	}
+	if format == connectFormatJSON {
+		out, err := formatConnectPresentedJSON(u.String(), presented.certs, presented.version, roots)
+		if err != nil {
+			return err
+		}
+		fmt.Print(out)
+		return nil
+	}
+	if len(presented.certs) == 0 {
+		return nil
+	}
+	out, err := formatConnectPresentedText(presented.certs, roots, app, storePath)
+	if err != nil {
+		return err
+	}
+	fmt.Print(out)
+	return nil
+}
+
+// readPresentedCertificates dials once with InsecureSkipVerify so
+// VerifyConnection can read PeerCertificates. VerifyConnection always
+// returns an error. That dial is not a successful connect.
+func readPresentedCertificates(u *url.URL) (presentedChain, error) {
+	addr, err := connectDialAddr(u)
+	if err != nil {
+		return presentedChain{}, err
+	}
+	var got presentedChain
+	d := &tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: 30 * time.Second},
+		Config: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: u.Hostname(),
+			// Skip the default check only so VerifyConnection runs and can
+			// record PeerCertificates. The callback always fails the handshake.
+			InsecureSkipVerify: true, //nolint:gosec // G402: read-only handshake; VerifyConnection always returns an error
+			VerifyConnection: func(cs tls.ConnectionState) error {
+				got.certs = append([]*x509.Certificate(nil), cs.PeerCertificates...)
+				got.version = cs.Version
+				return errPresentedChainOnly
+			},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	conn, dialErr := d.DialContext(ctx, "tcp", addr)
+	if conn != nil {
+		_ = conn.Close()
+	}
+	if len(got.certs) == 0 {
+		if dialErr != nil {
+			return presentedChain{}, dialErr
+		}
+		return presentedChain{}, errors.New("server presented no certificates")
+	}
+	return got, nil
+}
+
+func connectDialAddr(u *url.URL) (string, error) {
+	host := u.Hostname()
+	if host == "" {
+		return "", errors.New("missing host")
+	}
+	port := u.Port()
+	if port == "" {
+		port = "443"
+	}
+	return net.JoinHostPort(host, port), nil
+}
+
+// connectVerificationFailed reports errors from certificate verification.
+// Dial failures, DNS errors, and refused connections are not included.
+func connectVerificationFailed(err error) bool {
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) {
+		return true
+	}
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) {
+		return true
+	}
+	var host x509.HostnameError
+	if errors.As(err, &host) {
+		return true
+	}
+	var invalid x509.CertificateInvalidError
+	return errors.As(err, &invalid)
+}
+
+// presentedChainFromError returns the leaf-first peer chain from a
+// *tls.CertificateVerificationError. The TLS version is left unset because
+// that error does not include it. An empty result means the caller may try
+// a read-only probe.
+func presentedChainFromError(err error) presentedChain {
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) && len(ver.UnverifiedCertificates) > 0 {
+		return presentedChain{certs: append([]*x509.Certificate(nil), ver.UnverifiedCertificates...)}
+	}
+	return presentedChain{}
+}
+
+// formatConnectPresentedText prints the presented chain, leaf first, with
+// the same columns as the verified chain. A certificate missing from roots
+// has connectNotInStoreMark on its subject. When any certificate is missing,
+// a hint tells the user to add that CA with add --file. The hint fingerprint
+// is the last missing certificate (closest to the root). allowlist only
+// keeps or removes certificates already in the store; after the CA is
+// installed, its SHA-256 can go under fingerprints in an allowlist file.
+func formatConnectPresentedText(chain, roots []*x509.Certificate, app, storePath string) (string, error) {
+	if len(chain) == 0 {
+		return "", errors.New("no presented certificate chain")
+	}
+	inStore := connectStoreFingerprints(roots)
+	headers := []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256"}
+	rows := make([][]string, len(chain))
+	var hintFP string
+	for i, cert := range chain {
+		if cert == nil {
+			return "", fmt.Errorf("presented chain certificate %d is nil", i)
+		}
+		full, err := connectSHA256(cert)
+		if err != nil {
+			return "", fmt.Errorf("presented chain certificate %d: %w", i, err)
+		}
+		subject := connectName(cert.Subject)
+		if _, ok := inStore[full]; !ok {
+			subject += connectNotInStoreMark
+			hintFP = full
+		}
+		rows[i] = []string{
+			strconv.Itoa(i),
+			subject,
+			connectName(cert.Issuer),
+			cert.NotAfter.UTC().Format(connectDateLayout),
+			full[:16],
+		}
+	}
+	var b strings.Builder
+	b.WriteString("presented chain:\n")
+	b.WriteString(alignTable(headers, rows))
+	if hintFP != "" {
+		b.WriteString(connectTrustHint(hintFP, app, storePath))
+		b.WriteByte('\n')
+	}
+	return b.String(), nil
+}
+
+// connectTrustHint tells the user how to install a CA that was not in the
+// selected store. allowlist does not add a missing certificate.
+func connectTrustHint(fp, app, storePath string) string {
+	return "to add a missing CA, run: " + connectAddHintCmd(app, storePath) + "\nafter it is in the store, include sha256 " + fp + " under fingerprints in an allowlist file so a later allowlist run keeps it"
+}
+
+func connectAddHintCmd(app, storePath string) string {
+	cmd := "trustprune add --file <cert>"
+	app = strings.TrimSpace(app)
+	if app != "" {
+		cmd += " --app " + app
+	}
+	if strings.TrimSpace(storePath) != "" {
+		cmd += " --store " + connectShellQuote(storePath)
+	}
+	return cmd
+}
+
+// connectShellQuote quotes s for POSIX shells so a copied hint does not
+// expand variables or run metacharacters.
+func connectShellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+// connectFailJSON is the document written by connect --format json when
+// verification fails. Success output does not use this type.
+type connectFailJSON struct {
+	URL            string                 `json:"url"`
+	TLSVersion     string                 `json:"tls_version,omitempty"`
+	Verified       bool                   `json:"verified"`
+	PresentedChain []connectPresentedCert `json:"presented_chain"`
+}
+
+// connectPresentedCert is one certificate the server sent, leaf first.
+// Fields match the verified chain entries, plus in_store.
+type connectPresentedCert struct {
+	Subject  string `json:"subject"`
+	Issuer   string `json:"issuer"`
+	NotAfter string `json:"not_after"`
+	SHA256   string `json:"sha256"`
+	InStore  bool   `json:"in_store"`
+}
+
+// formatConnectPresentedJSON formats a verification failure. verified is
+// false. presented_chain is leaf-first and may be empty when the server
+// certificates could not be read. sha256 is the full fingerprint. in_store
+// is false when the certificate is not in the selected store. The result
+// ends with a newline. Verbose is not an input.
+func formatConnectPresentedJSON(rawURL string, chain []*x509.Certificate, version uint16, roots []*x509.Certificate) (string, error) {
+	inStore := connectStoreFingerprints(roots)
+	entries := make([]connectPresentedCert, len(chain))
+	for i, cert := range chain {
+		if cert == nil {
+			return "", fmt.Errorf("presented chain certificate %d is nil", i)
+		}
+		sum, err := connectSHA256(cert)
+		if err != nil {
+			return "", fmt.Errorf("presented chain certificate %d: %w", i, err)
+		}
+		_, ok := inStore[sum]
+		entries[i] = connectPresentedCert{
+			Subject:  connectName(cert.Subject),
+			Issuer:   connectName(cert.Issuer),
+			NotAfter: cert.NotAfter.UTC().Format(connectDateLayout),
+			SHA256:   sum,
+			InStore:  ok,
+		}
+	}
+	doc := connectFailJSON{
+		URL:            rawURL,
+		Verified:       false,
+		PresentedChain: entries,
+	}
+	if ver, err := connectTLSVersion(version); err == nil {
+		doc.TLSVersion = ver
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// connectStoreFingerprints is the set of full SHA-256 fingerprints in the
+// store selected for the handshake.
+func connectStoreFingerprints(roots []*x509.Certificate) map[string]struct{} {
+	set := make(map[string]struct{}, len(roots))
+	for _, cert := range roots {
+		fp, err := connectSHA256(cert)
+		if err != nil {
+			continue
+		}
+		set[fp] = struct{}{}
+	}
+	return set
 }
 
 // formatConnectResult renders a successful handshake.

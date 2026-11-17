@@ -430,10 +430,31 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 `chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` uses the same UTC date as the text line.
 
-Failures are one short line:
+A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
+
+The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
 
 ```text
-ERROR: https://expired.badssl.com: certificate expired 2015-04-12
+presented chain:
+INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256
+0      leaf.example (not in store)  ca.example  2030-01-01  <16 hex>
+1      ca.example (not in store)    ca.example  2031-03-04  <16 hex>
+to add a missing CA, run: trustprune add --file <cert>
+after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
+ERROR: https://untrusted.example: unknown authority
+```
+
+`--format json` on a verification failure prints one object before that `ERROR:` line. `verified` is false. `presented_chain` uses the same fields as `chain` (`subject`, `issuer`, `not_after`, full `sha256`) plus `in_store`. `-v` does not change the JSON. Success output does not include `presented_chain`.
+
+```json
+{
+  "url": "https://untrusted.example",
+  "tls_version": "tls1.3",
+  "verified": false,
+  "presented_chain": [
+    {"subject": "leaf.example", "issuer": "ca.example", "not_after": "2030-01-01", "sha256": "<64 hex>", "in_store": false}
+  ]
+}
 ```
 
 | Flag | Meaning |
@@ -441,7 +462,7 @@ ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 | `--app <name>` | Use that application's certificates for the TLS handshake |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery (same override as `list` / `backup` / `restore`) |
 | `--url <url>` | URL or bare host to connect to, instead of the positional argument (e.g. `--url https://example.com`) |
-| `-v`, `--verbose` | Print the verified chain after the one-line summary. Ignored with `--format json` |
+| `-v`, `--verbose` | Print the verified chain after the one-line summary. On a verification failure, print the chain the server presented. Ignored with `--format json` |
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 
 ## diff

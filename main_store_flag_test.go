@@ -321,3 +321,16 @@ func envWithHome(home string) []string {
 	}
 	return append(out, "HOME="+home, "USERPROFILE="+home)
 }
+
+func TestPreservedStorePath(t *testing.T) {
+	t.Parallel()
+	if got := preservedStorePath(" /tmp/custom cacerts "); got != " /tmp/custom cacerts " {
+		t.Fatalf("nonblank path was trimmed: %q", got)
+	}
+	if got := preservedStorePath("   "); got != "" {
+		t.Fatalf("whitespace-only path should be unset: %q", got)
+	}
+	if got := preservedStorePath(""); got != "" {
+		t.Fatalf("empty path should stay empty: %q", got)
+	}
+}
