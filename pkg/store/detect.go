@@ -165,6 +165,11 @@ func detectOkular() Status {
 		st.Path = okularBackendGPG
 		return st
 	}
+	if oks.backend == okularBackendUnresolved {
+		st.Found = true
+		st.GuideOnly = true
+		return st
+	}
 	if systemHasCert9(oks.foundCertdbLocation) {
 		st.Found = true
 		st.Path = oks.foundCertdbLocation

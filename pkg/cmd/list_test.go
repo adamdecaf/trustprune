@@ -97,6 +97,7 @@ func TestListCertsForAppOkularReportsBackend(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CONFIG_DIRS", t.TempDir())
 	t.Setenv("POPPLER_SIGNATURE_BACKEND", "")
 	t.Setenv("APPDATA", "")
 	t.Setenv("MOZ_LEGACY_HOME", "")

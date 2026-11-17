@@ -18,30 +18,41 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"unicode"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
 const (
-	okularAppName        = "okular"
-	okularConfigFileName = "okular-generator-popplerrc"
-	okularSignaturesGrp  = "Signatures"
-	okularBackendNSS     = "NSS"
-	okularBackendGPG     = "GPG"
+	okularAppName           = "okular"
+	okularConfigFileName    = "okular-generator-popplerrc"
+	okularSignaturesGrp     = "Signatures"
+	okularBackendNSS        = "NSS"
+	okularBackendGPG        = "GPG"
+	okularBackendUnresolved = "unresolved"
 )
 
-// OkularCompiledSignatureBackend is poppler's DEFAULT_SIGNATURE_BACKEND,
-// used when SignatureBackend is unset and POPPLER_SIGNATURE_BACKEND is unset.
-// Poppler compiles NSS first. Tests may set this to "GPG".
+// OkularCompiledSignatureBackend is used when SignatureBackend is unset and
+// POPPLER_SIGNATURE_BACKEND is unset. It is NSS, matching poppler's usual
+// compiled default (NSS is built first). A prebuilt trustprune binary cannot
+// read the host poppler compile-time default; set SignatureBackend or
+// POPPLER_SIGNATURE_BACKEND when that default is GPG. Tests may set this to
+// "GPG".
 var OkularCompiledSignatureBackend = okularBackendNSS
 
 // ErrOkularGPG is returned for every Okular operation when the effective
 // signature backend is GPG. trustprune does not read or write gpgsm stores.
 var ErrOkularGPG = errors.New("okular: signature backend is GPG; trustprune does not list, back up, or change GPG (gpgsm) stores")
+
+// ErrOkularUnresolvedBackend is returned when a [$e] SignatureBackend value
+// cannot be expanded to NSS or GPG. The store does not fall back to NSS.
+var ErrOkularUnresolvedBackend = errors.New("okular: SignatureBackend could not be expanded; refusing NSS operations")
 
 // OkularStore returns the store Okular's poppler generator uses for PDF
 // signatures. The effective backend is SignatureBackend in
@@ -73,22 +84,29 @@ func (s okularStore) gpg() bool {
 	return s.backend == okularBackendGPG
 }
 
-func (s okularStore) refuseGPG() error {
-	if s.gpg() {
+func (s okularStore) refuseNonNSS() error {
+	switch s.backend {
+	case okularBackendGPG:
 		return ErrOkularGPG
+	case okularBackendUnresolved:
+		return ErrOkularUnresolvedBackend
+	default:
+		return nil
 	}
-	return nil
 }
 
 func (s okularStore) GetInfo() *Info {
 	if s.gpg() {
 		return &Info{Name: titleASCII(okularAppName), Path: okularBackendGPG}
 	}
+	if s.backend == okularBackendUnresolved {
+		return &Info{Name: titleASCII(okularAppName)}
+	}
 	return s.nssStore.GetInfo()
 }
 
 func (s okularStore) List(opts *ListOptions) ([]*x509.Certificate, error) {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return nil, err
 	}
 	if err := s.requireCert9(); err != nil {
@@ -98,7 +116,7 @@ func (s okularStore) List(opts *ListOptions) ([]*x509.Certificate, error) {
 }
 
 func (s okularStore) Add(certs []*x509.Certificate) error {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return err
 	}
 	if err := s.requireCert9(); err != nil {
@@ -108,7 +126,7 @@ func (s okularStore) Add(certs []*x509.Certificate) error {
 }
 
 func (s okularStore) Backup() error {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return err
 	}
 	if err := s.requireCert9(); err != nil {
@@ -118,7 +136,7 @@ func (s okularStore) Backup() error {
 }
 
 func (s okularStore) Remove(al allowlist.Allowlist) error {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return err
 	}
 	if err := s.requireCert9(); err != nil {
@@ -128,14 +146,14 @@ func (s okularStore) Remove(al allowlist.Allowlist) error {
 }
 
 func (s okularStore) GetLatestBackup() (string, error) {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return "", err
 	}
 	return s.nssStore.GetLatestBackup()
 }
 
 func (s okularStore) Restore(where string) error {
-	if err := s.refuseGPG(); err != nil {
+	if err := s.refuseNonNSS(); err != nil {
 		return err
 	}
 	return s.nssStore.Restore(where)
@@ -152,9 +170,9 @@ func resolveOkular(home string, getenv func(string) string, defaultNSS func() st
 	if getenv == nil {
 		getenv = func(string) string { return "" }
 	}
-	settings := readOkularSignatures(okularConfigPath(home, getenv))
+	settings := readOkularSignatures(home, getenv)
 	backend = okularEffectiveBackend(settings, getenv)
-	if backend == okularBackendGPG {
+	if backend == okularBackendGPG || backend == okularBackendUnresolved {
 		return backend, ""
 	}
 	return backend, okularNSSDir(settings, defaultNSS)
@@ -172,21 +190,82 @@ func okularConfigPath(home string, getenv func(string) string) string {
 	return filepath.Join(home, ".config", okularConfigFileName)
 }
 
-func readOkularSignatures(path string) map[string]string {
-	if path == "" {
-		return nil
+// okularSystemConfigDirs returns XDG_CONFIG_DIRS in documented preference
+// order (first is highest among system dirs). An unset or empty value defaults
+// to /etc/xdg on non-Windows systems.
+func okularSystemConfigDirs(getenv func(string) string) []string {
+	raw := ""
+	if getenv != nil {
+		raw = strings.TrimSpace(getenv("XDG_CONFIG_DIRS"))
 	}
-	// #nosec G703 -- path is the user's KConfig file under XDG or ~/.config
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return nil
+	if raw == "" {
+		if runtime.GOOS == "windows" {
+			return nil
+		}
+		return []string{"/etc/xdg"}
 	}
-	return parseKConfigSection(string(b), okularSignaturesGrp)
+	var dirs []string
+	for _, d := range strings.Split(raw, string(os.PathListSeparator)) {
+		d = strings.TrimSpace(d)
+		if d != "" && filepath.IsAbs(d) {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
+}
+
+// okularConfigSearchPaths is lowest precedence first: XDG_CONFIG_DIRS in
+// reverse, then the user file from okularConfigPath.
+func okularConfigSearchPaths(home string, getenv func(string) string) []string {
+	dirs := okularSystemConfigDirs(getenv)
+	paths := make([]string, 0, len(dirs)+1)
+	for i := len(dirs) - 1; i >= 0; i-- {
+		paths = append(paths, filepath.Join(dirs[i], okularConfigFileName))
+	}
+	if user := okularConfigPath(home, getenv); user != "" {
+		paths = append(paths, user)
+	}
+	return paths
+}
+
+func readOkularSignatures(home string, getenv func(string) string) map[string]string {
+	out := make(map[string]string)
+	unresolved := make(map[string]bool)
+	for _, path := range okularConfigSearchPaths(home, getenv) {
+		// #nosec G703 -- path is a KConfig file under XDG or ~/.config
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		part, partUnresolved := parseKConfigSection(string(b), okularSignaturesGrp, getenv)
+		for k, v := range part {
+			out[k] = v
+			if partUnresolved[k] {
+				unresolved[k] = true
+			} else {
+				delete(unresolved, k)
+			}
+		}
+	}
+	if len(unresolved) > 0 {
+		if out == nil {
+			out = make(map[string]string)
+		}
+		for k := range unresolved {
+			out[k] = okularBackendUnresolved
+		}
+	}
+	return out
 }
 
 func okularEffectiveBackend(settings map[string]string, getenv func(string) string) string {
-	if v := strings.TrimSpace(settings["SignatureBackend"]); v != "" {
-		return canonicalOkularBackend(v)
+	if v, ok := settings["SignatureBackend"]; ok {
+		if v == okularBackendUnresolved {
+			return okularBackendUnresolved
+		}
+		if strings.TrimSpace(v) != "" {
+			return canonicalOkularBackend(v)
+		}
 	}
 	if getenv != nil {
 		if v := strings.TrimSpace(getenv("POPPLER_SIGNATURE_BACKEND")); v != "" {
@@ -225,14 +304,46 @@ func okularNSSDir(settings map[string]string, defaultNSS func() string) string {
 		}
 		return defaultNSS()
 	}
-	return strings.TrimSpace(settings["DBCertificatePath"])
+	path := strings.TrimSpace(settings["DBCertificatePath"])
+	if path == okularBackendUnresolved {
+		return ""
+	}
+	return okularLocalFilePath(path)
+}
+
+// okularLocalFilePath converts a file URL the way Okular does
+// (QUrl(...).toLocalFile()), including percent-encoded characters.
+// Plain filesystem paths are returned unchanged.
+func okularLocalFilePath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "file") {
+		return raw
+	}
+	p := u.Path
+	if p == "" && u.Opaque != "" {
+		p = u.Opaque
+	}
+	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && unicode.IsLetter(rune(p[1])) && p[2] == ':' {
+		p = p[1:]
+	}
+	if p == "" {
+		return raw
+	}
+	return p
 }
 
 // parseKConfigSection reads a KConfig INI file and returns keys from section.
-// Group and key suffixes such as [$i] and [$e] are stripped. Comments and
-// other sections are ignored.
-func parseKConfigSection(content, section string) map[string]string {
+// Group and key suffixes such as [$i] and [$e] are stripped. Values whose key
+// listed [$e] are environment-expanded. Comments and other sections are ignored.
+// unresolved marks keys whose [$e] value could not be expanded to a concrete
+// string (including an unset variable).
+func parseKConfigSection(content, section string, getenv func(string) string) (map[string]string, map[string]bool) {
 	out := make(map[string]string)
+	unresolved := make(map[string]bool)
 	content = strings.TrimPrefix(content, "\ufeff")
 	current := ""
 	for _, line := range strings.Split(content, "\n") {
@@ -256,15 +367,111 @@ func parseKConfigSection(content, section string) map[string]string {
 			continue
 		}
 		key = strings.TrimSpace(key)
+		expandable := false
 		if i := strings.Index(key, "[$"); i >= 0 {
+			expandable = strings.Contains(key[i:], "e")
 			key = strings.TrimSpace(key[:i])
 		}
 		if key == "" {
 			continue
 		}
-		out[key] = kconfigValue(strings.TrimSpace(val))
+		val = kconfigValue(strings.TrimSpace(val))
+		if expandable {
+			expanded, ok := kconfigExpand(val, getenv)
+			if !ok {
+				unresolved[key] = true
+				out[key] = val
+				continue
+			}
+			val = expanded
+		}
+		out[key] = val
+		delete(unresolved, key)
 	}
-	return out
+	return out, unresolved
+}
+
+// kconfigExpand expands $VAR and ${VAR} the way KConfig [$e] does.
+// "$$" is a literal dollar. An unset or empty variable, or a malformed
+// reference, is not a successful expansion.
+func kconfigExpand(v string, getenv func(string) string) (string, bool) {
+	if !strings.Contains(v, "$") {
+		return v, true
+	}
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	var b strings.Builder
+	i := 0
+	for i < len(v) {
+		if v[i] != '$' {
+			b.WriteByte(v[i])
+			i++
+			continue
+		}
+		if i+1 < len(v) && v[i+1] == '$' {
+			b.WriteByte('$')
+			i += 2
+			continue
+		}
+		name, next, ok := kconfigEnvName(v, i+1)
+		if !ok {
+			return v, false
+		}
+		val := getenv(name)
+		if val == "" {
+			return v, false
+		}
+		b.WriteString(val)
+		i = next
+	}
+	return b.String(), true
+}
+
+func kconfigEnvName(v string, i int) (name string, next int, ok bool) {
+	if i >= len(v) {
+		return "", i, false
+	}
+	if v[i] == '{' {
+		end := strings.IndexByte(v[i+1:], '}')
+		if end < 0 {
+			return "", i, false
+		}
+		name = v[i+1 : i+1+end]
+		if !kconfigEnvNameOK(name) {
+			return "", i, false
+		}
+		return name, i + 2 + end, true
+	}
+	start := i
+	if !isEnvFirst(v[i]) {
+		return "", i, false
+	}
+	i++
+	for i < len(v) && isEnvRest(v[i]) {
+		i++
+	}
+	return v[start:i], i, true
+}
+
+func kconfigEnvNameOK(name string) bool {
+	if name == "" || !isEnvFirst(name[0]) {
+		return false
+	}
+	for i := 1; i < len(name); i++ {
+		if !isEnvRest(name[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func isEnvFirst(b byte) bool {
+	return b == '_' || (b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z')
+}
+
+func isEnvRest(b byte) bool {
+	return isEnvFirst(b) || (b >= '0' && b <= '9')
 }
 
 func kconfigValue(v string) string {

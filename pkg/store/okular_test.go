@@ -17,6 +17,7 @@ package store
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -32,6 +33,7 @@ func isolateOkularHome(t *testing.T) string {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CONFIG_DIRS", t.TempDir())
 	t.Setenv("POPPLER_SIGNATURE_BACKEND", "")
 	t.Setenv("APPDATA", "")
 	t.Setenv("MOZ_LEGACY_HOME", "")
@@ -63,6 +65,7 @@ func mustOkularStore(t *testing.T) okularStore {
 }
 
 func TestForAppOkular(t *testing.T) {
+	isolateOkularHome(t)
 	s, err := ForApp("okular")
 	if err != nil {
 		t.Fatal(err)
@@ -234,9 +237,12 @@ func TestOkularNoCert9FailsBeforeCertutil(t *testing.T) {
 
 func TestParseKConfigSection(t *testing.T) {
 	const body = "\ufeff# comment\n[General]\nfoo=bar\n[Signatures][$i]\nSignatureBackend[$e]=NSS\nUseDefaultCertDB=false\nDBCertificatePath=\"/tmp/db\"\n; ignored\n"
-	got := parseKConfigSection(body, "Signatures")
+	got, unresolved := parseKConfigSection(body, "Signatures", nil)
 	if got["SignatureBackend"] != "NSS" || got["UseDefaultCertDB"] != "false" || got["DBCertificatePath"] != "/tmp/db" {
 		t.Fatalf("got %#v", got)
+	}
+	if len(unresolved) != 0 {
+		t.Fatalf("unresolved %#v, want none", unresolved)
 	}
 	if _, ok := got["foo"]; ok {
 		t.Fatalf("leaked General key: %#v", got)
@@ -251,5 +257,103 @@ func TestOkularSignatureBackendWinsOverEnv(t *testing.T) {
 	s := mustOkularStore(t)
 	if s.backend != okularBackendNSS {
 		t.Fatalf("backend=%q, want NSS (setting beats env)", s.backend)
+	}
+}
+
+func TestOkularFileURLCertificatePath(t *testing.T) {
+	home := isolateOkularHome(t)
+	custom := filepath.Join(t.TempDir(), "okular nssdb")
+	if err := os.MkdirAll(custom, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(custom, "cert9.db"), []byte("certdb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	u := url.URL{Scheme: "file", Path: custom}
+	writeOkularRC(t, home, fmt.Sprintf("[Signatures]\nSignatureBackend=NSS\nUseDefaultCertDB=false\nDBCertificatePath=%s\n", u.String()))
+
+	s := mustOkularStore(t)
+	info := s.GetInfo()
+	if info == nil || info.Path != custom {
+		t.Fatalf("GetInfo()=%#v, want decoded path %q", info, custom)
+	}
+}
+
+func TestOkularSystemConfigDirsGPG(t *testing.T) {
+	isolateOkularHome(t)
+	sys := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sys, okularConfigFileName), []byte("[Signatures]\nSignatureBackend=GPG\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_DIRS", sys)
+
+	s := mustOkularStore(t)
+	assertOkularGPG(t, s)
+}
+
+func TestOkularUserConfigOverridesSystem(t *testing.T) {
+	home := isolateOkularHome(t)
+	custom := filepath.Join(t.TempDir(), "system-nssdb")
+	if err := os.MkdirAll(custom, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(custom, "cert9.db"), []byte("certdb"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sys := t.TempDir()
+	if err := os.WriteFile(filepath.Join(sys, okularConfigFileName), []byte("[Signatures]\nSignatureBackend=GPG\nUseDefaultCertDB=false\nDBCertificatePath="+custom+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_CONFIG_DIRS", sys)
+	writeOkularRC(t, home, "[Signatures]\nSignatureBackend=NSS\n")
+
+	s := mustOkularStore(t)
+	if s.backend != okularBackendNSS {
+		t.Fatalf("backend=%q, want NSS (user overrides system)", s.backend)
+	}
+	info := s.GetInfo()
+	if info == nil || info.Path != custom {
+		t.Fatalf("GetInfo()=%#v, want system DB path %q kept when the user file omits it", info, custom)
+	}
+}
+
+func TestOkularExpandableBackendFromEnv(t *testing.T) {
+	home := isolateOkularHome(t)
+	t.Setenv("BACKEND", "GPG")
+	writeOkularRC(t, home, "[Signatures]\nSignatureBackend[$e]=$BACKEND\n")
+
+	s := mustOkularStore(t)
+	assertOkularGPG(t, s)
+}
+
+func TestOkularUnexpandedBackendRefusesNSS(t *testing.T) {
+	home := isolateOkularHome(t)
+	t.Setenv("BACKEND", "")
+	writeOkularRC(t, home, "[Signatures]\nSignatureBackend[$e]=$BACKEND\n")
+
+	s := mustOkularStore(t)
+	if s.backend != okularBackendUnresolved {
+		t.Fatalf("backend=%q, want unresolved", s.backend)
+	}
+	if _, err := s.List(nil); !errors.Is(err, ErrOkularUnresolvedBackend) {
+		t.Fatalf("List: %v", err)
+	}
+	if err := s.Backup(); !errors.Is(err, ErrOkularUnresolvedBackend) {
+		t.Fatalf("Backup: %v", err)
+	}
+	detected := detectOkular()
+	if !detected.Found || !detected.GuideOnly {
+		t.Fatalf("detectOkular()=%#v, want guide only", detected)
+	}
+}
+
+func TestOkularLocalFilePath(t *testing.T) {
+	dir := t.TempDir()
+	got := okularLocalFilePath((&url.URL{Scheme: "file", Path: dir}).String())
+	if got != dir {
+		t.Fatalf("file URL %q, want %q", got, dir)
+	}
+	if okularLocalFilePath(dir) != dir {
+		t.Fatalf("plain path changed: %q", okularLocalFilePath(dir))
 	}
 }
