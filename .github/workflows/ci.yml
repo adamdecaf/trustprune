@@ -59,7 +59,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
-          go-version: stable
+          go-version-file: go.mod
       - name: Lint
         run: make lint
 
@@ -78,12 +78,13 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
-          go-version: stable
+          go-version-file: go.mod
       - name: Enforce store/cmd coverage floors
         run: make coverage-floor
 
   # Compile every GOOS/GOARCH we ship. Add a pair here to cover a new
-  # target without waiting on a hosted runner for that OS.
+  # target without waiting on a hosted runner for that OS. The six
+  # targets compile in parallel.
   build:
     name: cross-compile
     needs: changes
@@ -96,7 +97,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
-          go-version: stable
+          go-version-file: go.mod
       - name: Cross-compile
         run: |
           set -euo pipefail
@@ -109,20 +110,59 @@ jobs:
             windows/amd64
             windows/arm64
           '
+          pids=()
           for spec in $targets; do
-            export GOOS=${spec%/*} GOARCH=${spec#*/} CGO_ENABLED=0
-            out="bin/trustprune-${GOOS}-${GOARCH}"
-            if [ "$GOOS" = windows ]; then
+            goos=${spec%/*}
+            goarch=${spec#*/}
+            out="bin/trustprune-${goos}-${goarch}"
+            if [ "$goos" = windows ]; then
               out="${out}.exe"
             fi
             echo "building $out"
-            go build -trimpath -o "$out" .
+            GOOS="$goos" GOARCH="$goarch" CGO_ENABLED=0 go build -trimpath -o "$out" . &
+            pids+=("$!")
           done
+          status=0
+          for pid in "${pids[@]}"; do
+            if ! wait "$pid"; then
+              status=1
+            fi
+          done
+          exit "$status"
+
+  # One linux/amd64 binary for all distro jobs. Distro tests look for
+  # bin/trustprune-linux-amd64; building it once avoids repeating compile
+  # in every matrix row.
+  build-linux:
+    name: build-linux
+    needs: changes
+    if: needs.changes.outputs.go == 'true' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version-file: go.mod
+      - name: Build linux binary
+        run: |
+          mkdir -p bin
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o bin/trustprune-linux-amd64 .
+          chmod +x bin/trustprune-linux-amd64
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: trustprune-linux-amd64
+          path: bin/trustprune-linux-amd64
+          if-no-files-found: error
+          retention-days: 30
 
   # Native tests. Add a runner OS to expand platform coverage.
   # CGO=0 matches the shipped static binary. Extra rows cover Darwin
   # cgo roots (Security.framework) and the race detector. ubuntu-24.04-arm
   # and windows-11-arm cover free GitHub-hosted arm64 (issue #302).
+  # go vet runs on cgo=0 rows only (once per OS); cgo=1 and race rows skip it.
   test:
     name: test (${{ matrix.os }}, cgo=${{ matrix.cgo }})
     needs: changes
@@ -154,12 +194,16 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
-          go-version: stable
-      - name: Vet and unit tests
+          go-version-file: go.mod
+      - name: Vet
+        if: matrix.cgo == '0'
+        env:
+          CGO_ENABLED: ${{ matrix.cgo }}
+        run: go vet ./...
+      - name: Unit tests
         env:
           CGO_ENABLED: ${{ matrix.cgo }}
         run: |
-          go vet ./...
           extra=()
           if [ "${{ matrix.race }}" = "true" ]; then
             extra+=(-race)
@@ -191,10 +235,11 @@ jobs:
 
   # Linux distro coverage via Docker. Add a suite name + Dockerfile under
   # test/envs/ to expand. Suites run in parallel so a slow image pull does
-  # not block the others.
+  # not block the others. Short suites share a job (docker-smoke+gentoo,
+  # browsers) so each Test* still runs once with fewer runners.
   distro:
     name: distro (${{ matrix.name }})
-    needs: changes
+    needs: [changes, build-linux]
     if: needs.changes.outputs.go == 'true' || github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -214,28 +259,25 @@ jobs:
             run: TestFedora
           - name: arch
             run: TestArch
-          - name: gentoo
-            run: TestGentoo
-          - name: docker-smoke
-            run: TestDocker
-          - name: firefox
-            run: TestFirefox
-          - name: chrome
-            run: TestChrome
+          - name: docker-smoke+gentoo
+            run: 'TestDocker|TestGentoo'
+          - name: browsers
+            run: 'TestFirefox|TestChrome'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
-          go-version: stable
-      - name: Build linux binary
-        run: |
-          mkdir -p bin
-          CGO_ENABLED=0 go build -trimpath -o "bin/trustprune-linux-$(go env GOARCH)" .
-          chmod +x "bin/trustprune-linux-$(go env GOARCH)"
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: trustprune-linux-amd64
+          path: bin
+      - name: Make linux binary executable
+        run: chmod +x bin/trustprune-linux-amd64
       - name: Distro tests
-        run: go test -count=1 -timeout 15m ./test/ -run ${{ matrix.run }}
+        run: go test -count=1 -timeout 15m ./test/ -run '${{ matrix.run }}'
 
   # FreeBSD via QEMU (vmactions/freebsd-vm). Installs the same Go version as
   # go.mod into the guest and runs unit + CLI tests under an empty HOME so
@@ -257,7 +299,8 @@ jobs:
           prepare: |
             set -e
             pkg install -y curl ca_root_nss
-            curl -fsSL "https://go.dev/dl/go1.27.0.freebsd-amd64.tar.gz" | tar -C /usr/local -xzf -
+            gover=$(awk '/^go /{print $2}' go.mod)
+            curl -fsSL "https://go.dev/dl/go${gover}.freebsd-amd64.tar.gz" | tar -C /usr/local -xzf -
           run: |
             set -e
             export PATH=/usr/local/go/bin:$PATH

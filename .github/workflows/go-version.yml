@@ -1,0 +1,106 @@
+name: Go version
+
+on:
+  schedule:
+    # Weekly Monday morning UTC, offset from midnight.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+# PRs opened by GITHUB_TOKEN do not trigger CI on their own, so a
+# maintainer must close/reopen or push to run checks.
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    name: bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: true
+      - name: Detect newer Go
+        id: detect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          latest_raw=$(curl -fsSL "https://go.dev/VERSION?m=text" | head -n1)
+          case "$latest_raw" in
+            go[0-9]*) ;;
+            *) echo "unexpected VERSION response: ${latest_raw}" >&2; exit 1 ;;
+          esac
+          latest=${latest_raw#go}
+          current=$(awk '/^go /{print $2; exit}' go.mod)
+          if [ -z "$current" ]; then
+            echo "could not read go directive from go.mod" >&2
+            exit 1
+          fi
+          echo "go.mod=${current} latest=${latest}"
+          echo "latest=${latest}" >> "$GITHUB_OUTPUT"
+          echo "current=${current}" >> "$GITHUB_OUTPUT"
+
+          if [ "$current" = "$latest" ]; then
+            echo "Already on latest stable Go ${latest}"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          newest=$(printf '%s\n%s\n' "$current" "$latest" | sort -V | tail -n1)
+          if [ "$newest" != "$latest" ]; then
+            echo "go.mod (${current}) is not older than stable ${latest}; skipping"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          branch="automation/go-${latest}"
+          echo "branch=${branch}" >> "$GITHUB_OUTPUT"
+          if [ -n "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')" ]; then
+            echo "PR for ${branch} already exists; skipping"
+            echo "bump=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then
+            echo "Branch ${branch} already exists without a PR; will reuse it"
+          fi
+          echo "bump=true" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        if: steps.detect.outputs.bump == 'true'
+        with:
+          go-version: ${{ steps.detect.outputs.latest }}
+      - name: Bump go.mod and open PR
+        if: steps.detect.outputs.bump == 'true'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LATEST: ${{ steps.detect.outputs.latest }}
+          CURRENT: ${{ steps.detect.outputs.current }}
+          BRANCH: ${{ steps.detect.outputs.branch }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            git fetch origin "$BRANCH"
+            git checkout -B "$BRANCH" "origin/$BRANCH"
+          else
+            git checkout -b "$BRANCH"
+          fi
+          go mod edit -go="$LATEST"
+          go mod tidy
+          git add go.mod go.sum
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --cached --quiet; then
+            if ! git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+              echo "No changes after go mod edit/tidy; skipping"
+              exit 0
+            fi
+            echo "No new changes after go mod edit/tidy; reusing existing branch for PR creation"
+          else
+            git commit -m "Bump Go to ${LATEST}"
+            git push origin "$BRANCH"
+          fi
+          body=$(printf '%s\n\n%s\n' \
+            "Update the \`go\` directive from ${CURRENT} to ${LATEST} (latest stable from https://go.dev/VERSION?m=text) and run \`go mod tidy\`." \
+            "PRs opened by GITHUB_TOKEN do not trigger CI on their own, so a maintainer must close/reopen or push to run checks.")
+          gh pr create --title "Bump Go to ${LATEST}" --head "$BRANCH" --body "$body"
