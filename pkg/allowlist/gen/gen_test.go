@@ -119,7 +119,7 @@ func TestGen__getChain(t *testing.T) {
 	}
 	for i := range cases {
 		u, _ := url.Parse(cases[i])
-		c := getChain(u, nil)
+		c := getChain(u, nil, nil)
 		if len(c) == 0 {
 			t.Error("expected cert chain")
 		}

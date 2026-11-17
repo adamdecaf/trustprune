@@ -215,6 +215,15 @@ func flagGenAllowlistVerbose() *cli.BoolFlag {
 	}
 }
 
+func flagGenAllowlistStats() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "stats",
+		Usage:       "print connection and timing stats to stderr",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 func flagDryRun() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "dry-run",

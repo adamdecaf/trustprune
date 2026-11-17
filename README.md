@@ -174,6 +174,8 @@ trustprune gen-allowlist --out allowlist.yaml --presets linux
 trustprune gen-allowlist --out allowlist.yaml --from firefox
 trustprune gen-allowlist --out allowlist.yaml --from browsers
 trustprune gen-allowlist --out allowlist.yaml --file urls.txt
+trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets --stats
+# --stats prints connection and timing details to stderr. Omit it and that block is not printed.
 # --out is required: without it, gen-allowlist prints "ERROR: required flag --out not set" and exits with status 2
 # Apply the result with the existing allowlist command (optionally a PEM bundle):
 #   trustprune allowlist --file allowlist.yaml

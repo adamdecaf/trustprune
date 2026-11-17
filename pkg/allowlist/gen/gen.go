@@ -194,6 +194,14 @@ func (c chain) getLeaf() *x509.Certificate {
 // URLs are grouped by their full hostname and a connection is established
 // to retrieve a certificate, whose signer is looked up and retrieved.
 func FindCAs(urls []*url.URL, sysRoots *x509.CertPool) ([]*CA, error) {
+	return FindCAsWithStats(urls, sysRoots, nil)
+}
+
+// FindCAsWithStats is FindCAs. When stats is non-nil it records TLS
+// attempts, failures, hosts answered from a CA already recorded for
+// that name, and DNS and handshake timings. A nil stats keeps dialing
+// and output the same as FindCAs.
+func FindCAsWithStats(urls []*url.URL, sysRoots *x509.CertPool, stats *ScanStats) ([]*CA, error) {
 	// setup worker pool
 	workers := newgate(maxWorkers)
 
@@ -220,44 +228,56 @@ func FindCAs(urls []*url.URL, sysRoots *x509.CertPool) ([]*CA, error) {
 
 			workers.begin()
 			defer workers.done()
-			cas := authorities.findSigners(dnsName)
-			if len(cas) == 0 {
-				// We didn't find an existing CA, so we need to get one
-				chain := getChain(u, sysRoots)
-				if len(chain) == 0 {
-					// didn't find chain, but that's not a huge deal as
-					// the remote endpoint could be unreachable
-					fmt.Printf("WARNING: Unable to get certificates for %s\n", dnsName)
-					return
-				}
-
-				// With a new chain, find it's root and cache that
-				root := chain.getRoot(dnsName, sysRoots)
-				if root == nil {
-					return
-				}
-
-				ca, exists := authorities.find(root)
-				ca.addDNSName(dnsName)
-				if debug && !exists {
-					fmt.Printf("allowlist/gen: added %s root (%s)\n", dnsName, ca.Fingerprint[:16])
-				}
-			}
-
-			// remind people we're still here
-			if i >= 1000 && i%1000 == 0 {
+			// The progress line used to sit after the early returns, so a
+			// failed dial or a chain with no root did not print it.
+			if scanHTTPSHost(&authorities, u, dnsName, sysRoots, stats) && i >= 1000 && i%1000 == 0 {
 				fmt.Printf("Processed %d/%d urls\n", i, len(urls))
 			}
 		}(workers, urls[i], i)
 	}
 
 	wg.Wait()
+	stats.setRoots(len(authorities.items))
 	return authorities.items, nil
 }
 
-// Make as little of a connection as needed to get TLS handshake complete and
-// server certificates returned.
-func getChain(u *url.URL, roots *x509.CertPool) chain {
+// scanHTTPSHost records dnsName on a CA, dialing when no recorded CA
+// already signs it. The bool is true when the URL reached the progress
+// line: a recorded CA, or a new chain whose root was stored.
+func scanHTTPSHost(authorities *CAs, u *url.URL, dnsName string, sysRoots *x509.CertPool, stats *ScanStats) bool {
+	cas := authorities.findSigners(dnsName)
+	if len(cas) == 0 {
+		// We didn't find an existing CA, so we need to get one
+		chain := getChain(u, sysRoots, stats)
+		if len(chain) == 0 {
+			// didn't find chain, but that's not a huge deal as
+			// the remote endpoint could be unreachable
+			fmt.Printf("WARNING: Unable to get certificates for %s\n", dnsName)
+			return false
+		}
+
+		// With a new chain, find it's root and cache that
+		root := chain.getRoot(dnsName, sysRoots)
+		if root == nil {
+			return false
+		}
+
+		ca, exists := authorities.find(root)
+		ca.addDNSName(dnsName)
+		if debug && !exists {
+			fmt.Printf("allowlist/gen: added %s root (%s)\n", dnsName, ca.Fingerprint[:16])
+		}
+		return true
+	}
+	stats.noteReuse()
+	return true
+}
+
+// getChain makes as little of a connection as needed to finish the TLS
+// handshake and return the server certificates. A non-nil stats records
+// the attempt and DNS and connect+handshake timings. Nil stats dials
+// with tls.DialWithDialer and records nothing.
+func getChain(u *url.URL, roots *x509.CertPool, stats *ScanStats) chain {
 	cfg := &tls.Config{
 		InsecureSkipVerify: skipVerify,
 	}
@@ -281,14 +301,22 @@ func getChain(u *url.URL, roots *x509.CertPool) chain {
 	if debug {
 		fmt.Printf("allowlist/gen: getChain: getting chain for addr=%q\n", addr)
 	}
-	conn, err := tls.DialWithDialer(dialer, "tcp", addr, cfg)
+	var conn *tls.Conn
+	var err error
+	if stats == nil {
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, cfg)
+	} else {
+		conn, err = dialTLSStats(dialer, addr, cfg, stats)
+	}
 	if err != nil {
 		if debug {
 			fmt.Printf("allowlist/gen: getChain: error establishing tls conn with %q err=%v\n", addr, err)
 		}
+		stats.noteFailure(host)
 		return nil
 	}
 	defer func() { _ = conn.Close() }()
+	stats.noteSuccess()
 
 	return conn.ConnectionState().PeerCertificates
 }

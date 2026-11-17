@@ -396,7 +396,7 @@ func genAllowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "gen-allowlist",
 		Usage: "Create an allowlist from various sources",
-		UsageText: `trustprune gen-allowlist --out <where> [--hosts <hosts>] [--presets <names>] [--no-presets] [--file <file>] [--from <type>]
+		UsageText: `trustprune gen-allowlist --out <where> [--hosts <hosts>] [--presets <names>] [--no-presets] [--file <file>] [--from <type>] [--stats]
 
   Generate an allowlist and write it to the filesystem. (At wherever --out points to.)
   The --out extension chooses the format: .json writes JSON; .yaml or .yml writes YAML.
@@ -425,6 +425,9 @@ func genAllowlistCommand(st *runState) *cli.Command {
   Generate an allowlist from all browsers on a computer
     trustprune gen-allowlist --from browsers --out allowlist.yaml
 
+  Print connection and timing stats to stderr
+    trustprune gen-allowlist --out allowlist.yaml --hosts example.com --stats
+
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{
@@ -435,6 +438,7 @@ APPS
 			flagFile("newline-delimited https URLs or a Tranco-style rank,domain CSV", false),
 			flagFrom(),
 			flagGenAllowlistVerbose(),
+			flagGenAllowlistStats(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       genAllowlistBefore,
@@ -475,6 +479,7 @@ func genAllowlistAction(_ context.Context, c *cli.Command) error {
 		Presets:   presets,
 		NoPresets: c.Bool("no-presets"),
 		Verbose:   c.Bool("v"),
+		Stats:     c.Bool("stats"),
 	})
 }
 

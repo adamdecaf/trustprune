@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync"
 	"text/tabwriter"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/allowlist/gen"
@@ -58,6 +59,10 @@ type GenerateAllowlistOptions struct {
 	// Verbose prints full fingerprints in the summary table. The default
 	// summary keeps the first allowlistFingerprintPreview characters.
 	Verbose bool
+	// Stats prints connection and timing details after generation.
+	Stats bool
+	// statsOut receives the stats block. Nil writes to stderr.
+	statsOut io.Writer
 }
 
 func GenerateAllowlist(opts GenerateAllowlistOptions) error {
@@ -69,14 +74,33 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 		return err
 	}
 
+	started := time.Now()
+	var stats *gen.ScanStats
+	if opts.Stats {
+		stats = &gen.ScanStats{}
+		// Report after at least one TLS dial, including on a later error or panic.
+		defer func() {
+			if stats.Snapshot().Attempted == 0 {
+				return
+			}
+			stats.SetWall(time.Since(started))
+			writeAllowlistStats(opts.statsOut, stats.Snapshot())
+		}()
+	}
+
 	choiceURLs, err := urlsFromChoices(opts.From, opts.File)
 	if err != nil {
 		return err
 	}
-	accum, err := assembleAllowlistURLs(choiceURLs, opts)
+	raw, err := collectAllowlistURLs(choiceURLs, opts)
 	if err != nil {
 		return err
 	}
+	if stats != nil {
+		n, hosts := countAllowlistInput(raw)
+		stats.SetInput(n, hosts)
+	}
+	accum := dedupeURLs(raw)
 
 	if debug {
 		fmt.Printf("getting chains for %d urls\n", len(accum))
@@ -86,8 +110,8 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 		return errors.New("no urls found to generate allowlist from")
 	}
 
-	// Generate allowlist and write to file
-	authorities, err := gen.FindCAs(accum, nil)
+	// Generate allowlist and write to file.
+	authorities, err := gen.FindCAsWithStats(accum, nil, stats)
 	if err != nil {
 		return err
 	}
@@ -255,6 +279,16 @@ func urlsFromChoices(from, file string) ([]*url.URL, error) {
 // assembleAllowlistURLs merges URLs already collected from --from/--file
 // with --hosts and preset URLs. It does not dial TLS.
 func assembleAllowlistURLs(choiceURLs []*url.URL, opts GenerateAllowlistOptions) ([]*url.URL, error) {
+	raw, err := collectAllowlistURLs(choiceURLs, opts)
+	if err != nil {
+		return nil, err
+	}
+	return dedupeURLs(raw), nil
+}
+
+// collectAllowlistURLs is assembleAllowlistURLs before duplicate hosts
+// are collapsed. Stats count this list.
+func collectAllowlistURLs(choiceURLs []*url.URL, opts GenerateAllowlistOptions) ([]*url.URL, error) {
 	extra, err := hostAndPresetURLs(opts)
 	if err != nil {
 		return nil, err
@@ -262,7 +296,7 @@ func assembleAllowlistURLs(choiceURLs []*url.URL, opts GenerateAllowlistOptions)
 	out := make([]*url.URL, 0, len(choiceURLs)+len(extra))
 	out = append(out, choiceURLs...)
 	out = append(out, extra...)
-	return dedupeURLs(out), nil
+	return out, nil
 }
 
 func hostAndPresetURLs(opts GenerateAllowlistOptions) ([]*url.URL, error) {
