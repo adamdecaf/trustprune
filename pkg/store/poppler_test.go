@@ -257,6 +257,7 @@ func TestPopplerNSSOpens_UnavailableIsNotOpenFailure(t *testing.T) {
 	t.Cleanup(func() { cutil = orig })
 
 	dir := t.TempDir()
+	t.Setenv("PATH", dir) // no certutil on PATH either
 	cutil = crtutil{execPaths: []string{filepath.Join(dir, "missing-certutil")}}
 	ok, err := popplerNSSOpens(dir)
 	if ok || err == nil {
