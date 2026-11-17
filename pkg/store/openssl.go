@@ -660,7 +660,7 @@ func sameOpenSSLPath(recorded, dest string) bool {
 }
 
 func opensslBackupSourceFile(src string) string {
-	st, err := os.Stat(src)
+	st, err := os.Stat(src) // #nosec G703 -- src is a trustprune backup path or dest store
 	if err == nil && st.IsDir() {
 		return filepath.Join(src, opensslBackupSourceName)
 	}

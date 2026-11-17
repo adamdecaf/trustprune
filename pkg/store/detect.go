@@ -60,6 +60,8 @@ func DetectStatuses() []Status {
 
 func detectApp(name string) Status {
 	switch name {
+	case "acrobat":
+		return detectAcrobat()
 	case "certifi":
 		return detectCertifi()
 	case "chrome":
@@ -70,6 +72,8 @@ func detectApp(name string) Status {
 		return detectFoxit()
 	case "java":
 		return detectJava()
+	case "okular":
+		return detectOkular()
 	case "openssl":
 		return detectOpenSSL()
 	case "poppler":
@@ -148,6 +152,31 @@ func detectPoppler() Status {
 	// else is selected. That fallback is not proof a store exists. Found is a
 	// separate check: the selected directory must contain cert9.db.
 	return popplerDetectStatus(popplerNSSDir())
+}
+
+func detectOkular() Status {
+	s := OkularStore()
+	st := Status{Name: okularAppName}
+	oks, ok := s.(okularStore)
+	if !ok {
+		return st
+	}
+	if oks.gpg() {
+		st.Found = true
+		st.GuideOnly = true
+		st.Path = okularBackendGPG
+		return st
+	}
+	if oks.backend == okularBackendUnresolved {
+		st.Found = true
+		st.GuideOnly = true
+		return st
+	}
+	if systemHasCert9(oks.foundCertdbLocation) {
+		st.Found = true
+		st.Path = oks.foundCertdbLocation
+	}
+	return st
 }
 
 // popplerDetectStatus marks poppler found only when dir contains a regular

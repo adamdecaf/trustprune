@@ -20,9 +20,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
 func TestListOutCLI(t *testing.T) {
@@ -425,5 +428,39 @@ func TestAppsFormatIndependentOfList(t *testing.T) {
 	}
 	if strings.Contains(help.stdout, "observatory") || strings.Contains(help.stdout, "options: json, long") {
 		t.Fatalf("apps help advertises list formats:\n%s", help.stdout)
+	}
+}
+
+func TestListAcrobatTrustReportCLI(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	res := runCLI(t, bin, home, "list", "--app", "acrobat")
+	if res.code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if res.stderr != "" {
+		t.Fatalf("stderr=%q", res.stderr)
+	}
+	if runtime.GOOS == "windows" {
+		out := strings.TrimSpace(res.stdout)
+		if out != store.AcrobatNotInstalledReport && !strings.HasPrefix(res.stdout, "acrobat trust settings (read only):") {
+			t.Fatalf("stdout=%q", res.stdout)
+		}
+	} else if res.stdout != store.AcrobatNotInstalledReport+"\n" {
+		t.Fatalf("stdout=%q", res.stdout)
+	}
+
+	outPath := filepath.Join(t.TempDir(), "report.txt")
+	fileRun := runCLI(t, bin, home, "list", "--app", "acrobat", "--out", outPath)
+	if fileRun.code != 0 || fileRun.stdout != "" || fileRun.stderr != "" {
+		t.Fatalf("code=%d stdout=%q stderr=%q", fileRun.code, fileRun.stdout, fileRun.stderr)
+	}
+	// #nosec G304 -- output path under t.TempDir
+	got, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != res.stdout {
+		t.Fatalf("file=%q stdout=%q", got, res.stdout)
 	}
 }

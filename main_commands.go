@@ -93,7 +93,7 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file allowlist.yaml --app java --store /path/to/cacerts
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb
 
-  NSS allowlist (firefox, poppler, and Linux chrome) refuses when this directory
+  NSS allowlist (firefox, poppler, okular, and Linux chrome) refuses when this directory
   has no backup of its own and the newest backup was recorded for a different
   directory. Back up that store, or pass --force.
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb --force
@@ -480,6 +480,11 @@ func listCommand(st *runState) *cli.Command {
   List certificates from an application
     trustprune list --app firefox
 
+  Acrobat prints a read-only report of AATL, EUTL, and Windows store trust
+  settings. It does not list address book entries. When Acrobat is not
+  installed the line is "acrobat: not installed" and the exit code is 0.
+    trustprune list --app acrobat
+
   List certificates from a file (no --app). --file here is not a store path.
     trustprune list --file <path>
 
@@ -612,7 +617,7 @@ func restoreCommand(st *runState) *cli.Command {
     trustprune restore --app openssl --bundle /path/to/ca-bundle.pem --backup <backup-dir>
     trustprune restore --app openssl --bundle /other/ca-bundle.pem --backup <backup-dir> --force
 
-  NSS (firefox, poppler, and chrome on Linux): backups record the profile directory.
+  NSS (firefox, poppler, okular, and chrome on Linux): backups record the profile directory.
   Restore into a different profile, or from a backup with no recorded profile,
   is refused before any write unless --force.
     trustprune restore --app firefox
