@@ -536,6 +536,7 @@ func TestAcrobatGuideOnly(t *testing.T) {
 		"addressbook.acrodata",
 		"opaque",
 		"unverified",
+		"Listing address book entries read-only was not attempted",
 		"AATL",
 		"EUTL",
 		"Trust Manager",

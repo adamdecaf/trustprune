@@ -33,15 +33,18 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
-// ErrAcrobatGuideOnly is returned for Acrobat operations that would list or
-// edit trust. addressbook.acrodata is an opaque file: backup and restore copy
-// it, and pruning is this guide.
+// ErrAcrobatGuideOnly is returned for Acrobat operations that would edit
+// trust or list address book entries. list --app acrobat prints
+// AcrobatTrustReport instead. addressbook.acrodata is an opaque file:
+// backup and restore copy it, and pruning is this guide. Listing address
+// book entries read-only was not attempted.
 var ErrAcrobatGuideOnly = errors.New(acrobatGuideMessage)
 
-// acrobatGuideMessage is the pruning guide printed for --app acrobat.
-// Menu names match Adobe's Trust Manager and Trusted Identities preferences.
-// The address book format and the AATL download interval are unverified.
-const acrobatGuideMessage = `acrobat pruning is guide only: trustprune does not list or edit Acrobat trust. backup and restore copy addressbook.acrodata as an opaque file and do not parse it. The address book format is unverified.
+// acrobatGuideMessage is the pruning guide printed for add, allowlist, and
+// connect. Menu names match Adobe's Trust Manager and Trusted Identities
+// preferences. The address book format and the AATL download interval are
+// unverified.
+const acrobatGuideMessage = `acrobat pruning is guide only: trustprune does not edit Acrobat trust or list address book entries. list reports AATL, EUTL, and Windows store trust settings. backup and restore copy addressbook.acrodata as an opaque file and do not parse it. Listing address book entries read-only was not attempted. The address book format is unverified.
 Trust comes from Trusted Identities in that address book. AATL and EUTL downloads load certificates into the same file. On Windows, Windows Integration can also trust the Windows certificate store.
 Remove a root in Acrobat or Reader: Preferences > Trust Manager, or Preferences > Signatures > Identities & Trusted Certificates. Delete the certificate or clear its trust.
 Turn off AATL and EUTL downloads in Preferences > Trust Manager so an update does not add the certificate back. The download interval is unverified.
@@ -365,9 +368,11 @@ func acrobatBaseMatch(image string) bool {
 	return false
 }
 
-// AcrobatStore is the Adobe Acrobat / Reader address book. list, add, and
-// remove print the pruning guide. backup and restore copy addressbook.acrodata
-// as an opaque file and refuse while Acrobat is running.
+// AcrobatStore is the Adobe Acrobat / Reader address book. add and remove
+// print the pruning guide. The list command reports AATL, EUTL, and Windows
+// store trust settings and does not list address book entries. backup and
+// restore copy addressbook.acrodata as an opaque file and refuse while
+// Acrobat is running.
 func AcrobatStore() Store {
 	return acrobatStore{}
 }
@@ -381,6 +386,9 @@ func (acrobatStore) GetInfo() *Info {
 	return &Info{Name: "Acrobat", Path: st.Path}
 }
 
+// List reports no certificates. add, remove, and connect use this guide.
+// trustprune list --app acrobat prints AcrobatTrustReport instead and does
+// not parse the address book.
 func (acrobatStore) List(*ListOptions) ([]*x509.Certificate, error) {
 	return nil, ErrAcrobatGuideOnly
 }

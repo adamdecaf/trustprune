@@ -475,6 +475,11 @@ func listCommand(st *runState) *cli.Command {
   List certificates from an application
     trustprune list --app firefox
 
+  Acrobat prints a read-only report of AATL, EUTL, and Windows store trust
+  settings. It does not list address book entries. When Acrobat is not
+  installed the line is "acrobat: not installed" and the exit code is 0.
+    trustprune list --app acrobat
+
   List certificates from a file (no --app). --file here is not a store path.
     trustprune list --file <path>
 

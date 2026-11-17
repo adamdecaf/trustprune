@@ -137,6 +137,8 @@ Restore writes that copy back with the same atomic sibling-temp install as `--ap
 
 Backup and restore refuse while a process image named Acrobat, AcroRd32, or AdobeReader is running. They do not create a backup directory in that case. `--dry-run` prints the copy plan and does not write, and it still refuses when one of those processes is running.
 
+`list` prints a read-only report of the AATL, EUTL, and Windows store trust settings and does not parse the file. When Acrobat is not installed it prints `acrobat: not installed` and exits 0. Listing address book entries read-only was not attempted. The file is treated as opaque.
+
 `allowlist` does not edit the file. With no backup it returns the usual no-backup error. With a backup it prints the pruning guide. See [Platforms](platforms.md#acrobat).
 
 ## Foxit (`--app foxit`)

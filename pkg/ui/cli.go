@@ -16,6 +16,7 @@ package ui
 
 import (
 	"crypto/x509"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -46,6 +47,16 @@ func showCertsOnCliWithPrinter(certs []*x509.Certificate, cfg *Config, p printer
 	})
 	p.close()
 	return err
+}
+
+// WriteConfiguredText writes text and a trailing newline to stdout, or to
+// cfg.Outfile when that is set. Outfile uses the same staging as list output.
+// A set Outfile prints nothing on stdout.
+func WriteConfiguredText(cfg *Config, text string) error {
+	return writeToConfiguredOutput(cfg, func(w io.Writer) error {
+		_, err := fmt.Fprintln(w, text)
+		return err
+	})
 }
 
 // writeToConfiguredOutput runs write against stdout, or stages it beside
