@@ -413,7 +413,7 @@ presented chain:
 INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256
 0      leaf.example (not in store)  ca.example  2030-01-01  <16 hex>
 1      ca.example (not in store)    ca.example  2031-03-04  <16 hex>
-to trust a CA run: trustprune allowlist --file <path> sha256 <64 hex>
+to trust a CA, add sha256 <64 hex> to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>
 ERROR: https://untrusted.example: unknown authority
 ```
 

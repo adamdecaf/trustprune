@@ -123,7 +123,7 @@ func TestConnectFormatUsage(t *testing.T) {
 			"default: text",
 			"options: json, text",
 			"no effect with --format json",
-			"to trust a CA run: trustprune allowlist --file <path> sha256 <64 hex>",
+			"to trust a CA, add sha256 <64 hex> to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("connect help missing %q:\n%s", needle, res.stdout)
@@ -153,7 +153,7 @@ func TestConnectPresentedChainExitCode(t *testing.T) {
 		if !strings.Contains(res.stdout, "presented chain:") || !strings.Contains(res.stdout, connectNotInStoreSubject(cert)) {
 			t.Fatalf("stdout =\n%s", res.stdout)
 		}
-		if !strings.Contains(res.stdout, "to trust a CA run: trustprune allowlist --file <path> sha256 "+fp) {
+		if !strings.Contains(res.stdout, "to trust a CA, add sha256 "+fp+" to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>") {
 			t.Fatalf("missing hint:\n%s", res.stdout)
 		}
 		if !strings.Contains(res.stdout, "ERROR: "+srv.URL+": unknown authority") {

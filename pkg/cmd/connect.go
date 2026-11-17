@@ -306,11 +306,11 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate) (string, error
 	return b.String(), nil
 }
 
-// connectTrustHint is the one-line allowlist command for a CA that was not
-// in the selected store. --file is the allowlist flag. sha256 is the
-// fingerprint to put under fingerprints in that file, not a flag.
+// connectTrustHint tells the user how to allowlist a CA that was not in
+// the selected store: add its SHA-256 under fingerprints in an allowlist
+// file, then run allowlist with --file.
 func connectTrustHint(fp string) string {
-	return "to trust a CA run: trustprune allowlist --file <path> sha256 " + fp
+	return "to trust a CA, add sha256 " + fp + " to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>"
 }
 
 // connectFailJSON is the document written by connect --format json when

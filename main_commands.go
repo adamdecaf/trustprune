@@ -268,7 +268,7 @@ application are loaded and used for the connection.
   -v after a verification failure prints that presented chain (same columns).
   A subject ending in " (not in store)" is missing from the selected store.
   The hint uses allowlist --file. Put the sha256 value in that file under fingerprints.
-    to trust a CA run: trustprune allowlist --file <path> sha256 <64 hex>
+    to trust a CA, add sha256 <64 hex> to the fingerprints in an allowlist file and run: trustprune allowlist --file <path>
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
