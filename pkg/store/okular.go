@@ -228,9 +228,31 @@ func okularConfigSearchPaths(home string, getenv func(string) string) []string {
 	return paths
 }
 
-func readOkularSignatures(home string, getenv func(string) string) map[string]string {
-	out := make(map[string]string)
-	unresolved := make(map[string]bool)
+// okularSettings is a merged [Signatures] section. unresolved is kept
+// separate from values so a literal setting such as SignatureBackend=unresolved
+// is not treated as a failed [$e] expansion.
+type okularSettings struct {
+	values     map[string]string
+	unresolved map[string]bool
+}
+
+func (s okularSettings) hasUnresolved(key string) bool {
+	return s.unresolved[key]
+}
+
+func (s okularSettings) value(key string) (string, bool) {
+	if s.unresolved[key] {
+		return "", false
+	}
+	v, ok := s.values[key]
+	return v, ok
+}
+
+func readOkularSignatures(home string, getenv func(string) string) okularSettings {
+	out := okularSettings{
+		values:     make(map[string]string),
+		unresolved: make(map[string]bool),
+	}
 	for _, path := range okularConfigSearchPaths(home, getenv) {
 		// #nosec G703 -- path is a KConfig file under XDG or ~/.config
 		b, err := os.ReadFile(path)
@@ -239,30 +261,23 @@ func readOkularSignatures(home string, getenv func(string) string) map[string]st
 		}
 		part, partUnresolved := parseKConfigSection(string(b), okularSignaturesGrp, getenv)
 		for k, v := range part {
-			out[k] = v
+			out.values[k] = v
 			if partUnresolved[k] {
-				unresolved[k] = true
+				out.unresolved[k] = true
 			} else {
-				delete(unresolved, k)
+				delete(out.unresolved, k)
 			}
-		}
-	}
-	if len(unresolved) > 0 {
-		for k := range unresolved {
-			out[k] = okularBackendUnresolved
 		}
 	}
 	return out
 }
 
-func okularEffectiveBackend(settings map[string]string, getenv func(string) string) string {
-	if v, ok := settings["SignatureBackend"]; ok {
-		if v == okularBackendUnresolved {
-			return okularBackendUnresolved
-		}
-		if strings.TrimSpace(v) != "" {
-			return canonicalOkularBackend(v)
-		}
+func okularEffectiveBackend(settings okularSettings, getenv func(string) string) string {
+	if settings.hasUnresolved("SignatureBackend") {
+		return okularBackendUnresolved
+	}
+	if v, ok := settings.value("SignatureBackend"); ok && strings.TrimSpace(v) != "" {
+		return canonicalOkularBackend(v)
 	}
 	if getenv != nil {
 		if v := strings.TrimSpace(getenv("POPPLER_SIGNATURE_BACKEND")); v != "" {
@@ -281,8 +296,11 @@ func canonicalOkularBackend(v string) string {
 	}
 }
 
-func okularUseDefaultCertDB(settings map[string]string) bool {
-	v, ok := settings["UseDefaultCertDB"]
+func okularUseDefaultCertDB(settings okularSettings) bool {
+	if settings.hasUnresolved("UseDefaultCertDB") {
+		return true
+	}
+	v, ok := settings.value("UseDefaultCertDB")
 	if !ok {
 		return true
 	}
@@ -294,18 +312,18 @@ func okularUseDefaultCertDB(settings map[string]string) bool {
 	}
 }
 
-func okularNSSDir(settings map[string]string, defaultNSS func() string) string {
+func okularNSSDir(settings okularSettings, defaultNSS func() string) string {
 	if okularUseDefaultCertDB(settings) {
 		if defaultNSS == nil {
 			return ""
 		}
 		return defaultNSS()
 	}
-	path := strings.TrimSpace(settings["DBCertificatePath"])
-	if path == okularBackendUnresolved {
+	if settings.hasUnresolved("DBCertificatePath") {
 		return ""
 	}
-	return okularLocalFilePath(path)
+	path, _ := settings.value("DBCertificatePath")
+	return okularLocalFilePath(strings.TrimSpace(path))
 }
 
 // okularLocalFilePath converts a file URL the way Okular does

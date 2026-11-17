@@ -364,3 +364,16 @@ func TestOkularLocalFilePath(t *testing.T) {
 		t.Fatalf("plain path changed: %q", okularLocalFilePath(dir))
 	}
 }
+
+func TestOkularLiteralUnresolvedBackendIsNSS(t *testing.T) {
+	home := isolateOkularHome(t)
+	writeOkularRC(t, home, "[Signatures]\nSignatureBackend=unresolved\n")
+
+	s := mustOkularStore(t)
+	if s.backend != okularBackendNSS {
+		t.Fatalf("backend=%q, want NSS for a literal SignatureBackend=unresolved", s.backend)
+	}
+	if s.refuseNonNSS() != nil {
+		t.Fatalf("literal unresolved should not refuse NSS: %v", s.refuseNonNSS())
+	}
+}
