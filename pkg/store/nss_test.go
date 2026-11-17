@@ -162,6 +162,49 @@ func TestNSSNotifyToRestart_OnlyCert8(t *testing.T) {
 	}
 }
 
+func TestNSSNotifyRestart_CountOnlyOmitsNotice(t *testing.T) {
+	t.Cleanup(func() { SetAllowlistCountOnly(false) })
+
+	capture := func(fn func()) []byte {
+		t.Helper()
+		old := os.Stdout
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		os.Stdout = w
+		defer func() { os.Stdout = old }()
+		fn()
+		_ = w.Close()
+		out, err := io.ReadAll(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	cert8Dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cert8Dir, "cert8.db"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	s := nssStore{nssType: "firefox-test", foundCertdbLocation: cert8Dir, notify: &sync.Once{}}
+
+	SetAllowlistCountOnly(true)
+	out := capture(func() {
+		s.notifyToRestart()
+		s.notifyRestart()
+	})
+	if len(out) != 0 {
+		t.Fatalf("count-only should omit the restart notice, got %q", out)
+	}
+
+	SetAllowlistCountOnly(false)
+	out = capture(func() { s.notifyToRestart() })
+	if !bytes.Contains(out, []byte("Restart Firefox-test")) {
+		t.Fatalf("expected restart hint after count-only, got %q", out)
+	}
+}
+
 func TestNssStore_NormalizesCertDBFilePath(t *testing.T) {
 	dir := t.TempDir()
 	cert9 := filepath.Join(dir, "cert9.db")

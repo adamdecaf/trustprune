@@ -123,6 +123,9 @@ func containsCertdb(where string) bool {
 
 // notifyRestart prints a one-shot restart hint for the app using this store.
 func (s nssStore) notifyRestart() {
+	if AllowlistCountOnly() {
+		return
+	}
 	s.notify.Do(func() {
 		fmt.Printf("Restart %s to refresh certificate trust\n", titleASCII(s.nssType))
 	})
