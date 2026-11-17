@@ -6,7 +6,7 @@ nav_exclude: true
 
 # PDF readers and document-signing trust
 
-Research note for [#360](https://github.com/adamdecaf/trustprune/issues/360). Foxit install detection and the pruning guide are implemented ([#392](https://github.com/adamdecaf/trustprune/issues/392)); see [Platforms](../platforms.md#foxit). The other items on this page are not. Researched November 2026.
+Research note for [#360](https://github.com/adamdecaf/trustprune/issues/360). Foxit install detection and the pruning guide are implemented ([#392](https://github.com/adamdecaf/trustprune/issues/392)); see [Platforms](../platforms.md#foxit). Papers on an NSS backend is the poppler store and Evince has no signature validation ([platforms](../platforms.md)). The other items on this page are not. Researched November 2026.
 
 PDF readers validate signed PDFs against their own trust lists, separate from the TLS stores trustprune prunes today. A CA you remove from browser or OS TLS trust can still make a PDF signature show as valid. This page covers where each reader keeps that trust, and what trustprune could safely list, back up, or prune.
 
@@ -19,7 +19,7 @@ Anything marked **unverified** came from community sources, or could not be conf
 | pdfsig / poppler (NSS backend) | Linux, also Windows builds | An NSS DB, chosen in this order: `-nssdir`, the newest Firefox `*default*` profile, `/etc/pki/nssdb`, `~/.pki/nssdb`. Built-in roots come from `libnssckbi` | Firefox / NSS packages, `certutil` | **list, backup, prune** with the existing NSS code (`p,p,p`) | Choosing a different DB than poppler does |
 | pdfsig / poppler (GPG backend) | Linux | gpgsm keybox plus `trustlist.txt` in `$GNUPGHOME` (default `~/.gnupg`) | User / gpgsm | report only, at first | Text format that gpg-agent owns |
 | Okular | Linux, Windows | Uses poppler. Can set its own NSS DB in `okular-generator-popplerrc` (`[Signatures]` `UseDefaultCertDB`, `DBCertificatePath`, `SignatureBackend`) | Same as poppler | **list, backup, prune** via NSS when the effective backend is NSS and the configured DB is resolved | A custom DB path, or a GPG backend, that trustprune doesn't treat as NSS |
-| Evince / Papers | Linux | Evince: no signature validation found in current source. Papers: uses poppler with its default NSS DB when the effective backend is NSS | Same as poppler | Papers is covered by the poppler NSS store when the effective backend is NSS. Evince: nothing to prune | None for Evince |
+| Evince / Papers | Linux | Evince: no signature validation found in current source. Papers: poppler's default NSS DB when the effective backend is NSS; poppler's GPG store when the effective backend is GPG | Same as poppler | Documented on the [platforms page](../platforms.md). Papers NSS is `--app poppler`. Papers GPG is report-only. Evince: nothing to prune | None for Evince |
 | Adobe Acrobat / Reader | Windows, macOS | Per-user `addressbook.acrodata` (Trusted Identities, which AATL and EUTL download into). Windows store, if Windows Integration is on | AATL/EUTL download from Adobe; user or admin import | **backup, report settings**. List only if the format can be parsed. Prune: **guide only** | AATL/EUTL updates re-adding roots; corrupting the address book |
 | Foxit PDF Reader / Editor | Windows, macOS | A local trusted-certificate list (location **unverified**), plus FATL/EUTL downloads, plus the Windows store if Windows Integration is on | FATL/EUTL download from Foxit; user import | **guide only** (implemented): detect the install and print a pruning guide. No list or backup | Undocumented storage |
 
@@ -60,9 +60,9 @@ Okular's poppler generator reads `okular-generator-popplerrc`, group `[Signature
 
 ## Evince and Papers
 
-- **Evince:** current `master` (checked at `e822030`, Oct 2026) maps signature form fields (`ev-poppler.c`, `ev-form-field.c`) but has no call to poppler's signature validation, so there's no trust store to prune ([GNOME/evince](https://gitlab.gnome.org/GNOME/evince)). Older work to show signatures stalled ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)).
+- **Evince:** current `main` (checked at `e822030`, Oct 2026) maps signature form fields (`ev-poppler.c`, `ev-form-field.c`) but has no call to poppler's signature validation, so there's no trust store to prune ([GNOME/evince](https://gitlab.gnome.org/GNOME/evince)). Older work to show signatures stalled ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)).
 - **Papers** (GNOME's newer document viewer): validates with `poppler_form_field_signature_validate_sync` and sets only an NSS password callback, not an NSS dir (`libdocument/backend/pdf/pps-poppler.c` in [GNOME/papers](https://gitlab.gnome.org/GNOME/papers)). When the effective backend is NSS, it uses poppler's default DB order. When the effective backend is GPG, it follows poppler's GPG store instead. The [GNOME Discourse thread](https://discourse.gnome.org/t/digital-signature-in-papers/33495) imports user certificates into `~/.pki/nssdb`.
-- **What trustprune could do:** nothing new beyond the poppler stores, qualified by the effective backend. Document that Papers follows the poppler NSS store when the backend is NSS, is report-only when the backend is GPG, and that Evince doesn't validate signatures.
+- **Coverage:** documented on the [platforms page](../platforms.md) ([#391](https://github.com/adamdecaf/trustprune/issues/391)). Papers follows `--app poppler` when the effective backend is NSS. When the effective backend is GPG, Papers is report-only, like poppler's GPG backend: trustprune does not list or prune `trustlist.txt`. Evince has no signature validation. If Evince adds validation later, reopen #391.
 
 ## Adobe Acrobat and Reader
 
@@ -137,6 +137,7 @@ Ordered by user value and feasibility.
 4. **Evince/Papers: document coverage through poppler**
    Scope: docs only. Papers validates with poppler's default NSS DB when the effective backend is NSS, so sub-issue 1 covers that case. If the effective backend is GPG, it is report-only, like poppler's GPG backend. Evince has no signature validation today. Add a row to the platforms page.
    Acceptance: the platforms page says so, with source links, and qualifies Papers coverage by the effective backend. If Evince adds validation later, reopen.
+   Status: documented on the [platforms page](../platforms.md) ([#391](https://github.com/adamdecaf/trustprune/issues/391)).
 
 5. **Foxit: detection and a pruning guide** (implemented, [#392](https://github.com/adamdecaf/trustprune/issues/392))
    Scope: detect Foxit PDF Reader/Editor on Windows and macOS, and print where trust comes from (local Trusted Certificates, FATL/EUTL downloads, Windows Integration) with steps to remove a root and turn off FATL. Find the on-disk store before attempting list or backup.
