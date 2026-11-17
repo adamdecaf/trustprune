@@ -35,6 +35,7 @@ Parent directory (created as needed):
 | OpenSSL | `openssl/<unix-timestamp>/` — PEM bundle saved as `ca-bundle.pem` plus a `source` file recording the path, or a mirror of a hashed cert directory |
 | Darwin `--app ssl` | `ssl/<unix-timestamp>/cert.pem` — copy of `/etc/ssl/cert.pem` |
 | Python `--app certifi` | `certifi/<unix-timestamp>/cacert.pem` plus a `source` file recording the bundle path |
+| Acrobat `--app acrobat` | `acrobat/<unix-timestamp>/addressbook.acrodata` plus a `source` file recording the live path. The bytes are copied unchanged |
 
 `GetLatestBackup` picks the lexicographically largest entry in that store’s folder (timestamped names sort correctly). Files named `source` or ending in `.source` are source sidecars, not backups, and are skipped.
 
@@ -127,6 +128,16 @@ Manages curl/git/OpenSSL CA bundles and OpenSSL cert directories. Path resolutio
 Restore with no backup refuses before any filesystem write (dry-run included). Explicit `--backup` is honored and still names the backup source.
 
 `--bundle <pem>` on `list`, `backup`, `restore`, and `allowlist` uses that PEM and skips `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, distro defaults, and git. On `allowlist`, `--file` remains the allowlist. On `restore`, `--backup` remains the backup source. With `--bundle` and no `--backup`, restore picks the newest backup whose `source` matches that PEM (backups with no `source` file are skipped). A backup recorded for a different path is refused before any write unless `--force`. Backups with no `source` file can still be applied with an explicit `--backup`. Discovery restore (no `--bundle`) of a PEM uses the newest backup recorded for that file and also accepts a legacy backup with no `source`; a backup recorded for a different bundle is refused unless `--force`. Allowlist uses the same selection. Automatic restore of a discovered cert directory ignores PEM backups that record a `source` and uses the newest remaining backup (directory mirrors have no `source` file). Restore into a cert directory refuses a PEM bundle backup (one that has a `source` file), including an explicit `--backup`. If discovery cannot resolve a path, only backups with no `source` file match.
+
+## Acrobat (`--app acrobat`)
+
+Backup copies the newest per-user `addressbook.acrodata` into `~/.trustprune/acrobat/<unix-timestamp>/addressbook.acrodata` (or `~/Library/trustprune/acrobat/...` on Darwin) and writes a `source` file in that directory recording the live path. The file is opaque: the copy is byte for byte, with no certificate parse. Backup directories use exclusive `Mkdir` and bump the unix-second on collision.
+
+Restore writes that copy back with the same atomic sibling-temp install as `--app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination; refuse a leftover `.restore-old`). A backup recorded for a different path is refused before any write unless `--force`. Restore with no backup returns an error before any filesystem write (dry-run included). The live address book has to exist; a missing file is `addressbook.acrodata not found`.
+
+Backup and restore refuse while a process image named Acrobat, AcroRd32, or AdobeReader is running. They do not create a backup directory in that case. `--dry-run` prints the copy plan and does not write, and it still refuses when one of those processes is running.
+
+`allowlist` does not edit the file. With no backup it returns the usual no-backup error. With a backup it prints the pruning guide. See [Platforms](platforms.md#acrobat).
 
 ## Foxit (`--app foxit`)
 

@@ -33,7 +33,36 @@ Linux picks the first `cadir` whose bundle file exists, in this order: Fedora/RH
 | **Documented** | Evince / Papers | No `--app` name. **Papers** ([pps-poppler.c](https://gitlab.gnome.org/GNOME/papers/-/blob/18958ac9397bed07bb6c9a1d62331422c9fc0d95/libdocument/backend/pdf/pps-poppler.c) in [GNOME/papers](https://gitlab.gnome.org/GNOME/papers), checked at `18958ac9`, Nov 2026) calls `poppler_form_field_signature_validate_sync` and `poppler_set_nss_password_callback`. It leaves the NSS directory unset, so validation uses poppler's default database. The effective backend is `POPPLER_SIGNATURE_BACKEND` when that variable is set, otherwise the compile-time `DEFAULT_SIGNATURE_BACKEND` (the first backend built, with NSS first; [CryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/CryptoSignBackend.cc)). When that backend is NSS, `--app poppler` is the host store, including `--store` as `-nssdir`. A sandboxed Papers install (for example Flatpak) can use a different `XDG_CONFIG_HOME` and therefore a different NSS database than host `--app poppler`; confirm that install's database path before relying on pruning. When that backend is GPG, Papers uses poppler's GPG store (`$GNUPGHOME`, default `~/.gnupg`; [GPGMECryptoSignBackend.cc](https://gitlab.freedesktop.org/poppler/poppler/-/blob/master/poppler/GPGMECryptoSignBackend.cc)). That case is report-only, the same as poppler's GPG backend: trustprune does not list or prune `trustlist.txt`. **Evince** ([ev-poppler.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/backend/pdf/ev-poppler.c) and [ev-form-field.c](https://gitlab.gnome.org/GNOME/evince/-/blob/e822030005f22231052667d51398a84327004924/libdocument/ev-form-field.c) in [GNOME/evince](https://gitlab.gnome.org/GNOME/evince), `main` at `e822030`, Oct 2026) maps `POPPLER_FORM_FIELD_SIGNATURE` onto a form field and has no signature-validation call ([bug 614929](https://bugzilla.gnome.org/show_bug.cgi?id=614929)). | Papers with an NSS backend on the host: the same list, add, allowlist, backup, and restore as `poppler` (a root that exists only in `libnssckbi` is not listed and is not distrusted). Papers with a GPG backend: report only. Evince: nothing to prune. If Evince adds validation later, reopen [#391](https://github.com/adamdecaf/trustprune/issues/391). |
 | **Supported** | `openssl` | First existing path wins: `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, then `/etc/ssl/certs/ca-certificates.crt`, `/etc/pki/tls/certs/ca-bundle.crt`, Homebrew OpenSSL cert dirs (`/usr/local/etc/openssl/certs`, `/opt/homebrew/etc/openssl/certs`, and `openssl@3` / `openssl@1.1` variants), then `git config --get http.sslCAInfo` (best-effort). Darwin `/etc/ssl/cert.pem` is **not** an openssl default (use `--app ssl`). `--bundle <pem>` is an explicit PEM file and skips this search. Rehash: `c_rehash` when present (`/usr/bin/c_rehash`, Homebrew openssl prefixes). | list, add, allowlist (Remove), backup, restore, `--dry-run` for both PEM **files** (atomic sibling-temp install, refuse empty bundle) and OpenSSL **cert directories** (`*.pem`/`*.crt`, directory swap, `c_rehash` after add; rehash after remove/restore if available). `restore` / `restore --dry-run` with no backup exits 1 with `ERROR: no backup for openssl in …; run: trustprune backup --app openssl` (not a silent no-op). `--bundle <pem>` overrides discovery for list, backup, restore, and allowlist and must be an existing PEM file (cert directories stay on `--app openssl` without `--bundle`). PEM backups record that path in `source`. `--bundle` restore uses the newest backup recorded for that file and refuses a different path unless `--force`. Discovery restore (no `--bundle`) follows the discovered PEM (legacy backups with no `source` still match) and refuses a backup recorded for a different bundle unless `--force` |
 | **Supported (Darwin)** | `ssl` | `/etc/ssl/cert.pem` — the PEM bundle curl, git, python3, ruby, perl, and openssl CLI tools read on macOS. Apple's keychain blocks do not apply here ([eMudhra / HT149555](https://support.apple.com/en-us/149555)). Not available as a store on Linux/Windows. | list, add, allowlist (Remove), backup, restore, `--dry-run`; atomic sibling-temp install (copy aside to `.restore-old`, refuse leftover aside, exclusive backup dirs); list/add/allowlist parse negative-serial certs via a cryptobyte fallback (no GODEBUG); other unparsable PEM blocks get a stderr warning and are kept in original order on rewrite; warns when the live file differs from the last trustprune write (typical after a macOS update restores Apple's copy) |
+| **Partial** | `acrobat` | Newest per-user `addressbook.acrodata` under `%APPDATA%\Adobe\Acrobat\<ver>\Security` (Windows) or `~/Library/Application Support/Adobe/Acrobat/<ver>/Security` (macOS). `DC` is newer than a numbered folder (`2024`, then `11.0`, then `10.0`). `apps` PATH is that file. Linux is not probed. The file format is **unverified**. | `apps` reports `found` when the file exists. `backup` and `restore` copy it unchanged and refuse while Acrobat, AcroRd32, or AdobeReader is running. `list`, `add`, `allowlist`, and `connect` print the pruning guide and do not parse or edit the file. `--store` is rejected. Registry and plist settings are not read |
 | **Guide only** | `foxit` | Windows and macOS install of Foxit PDF Editor or Foxit PDF Reader (older PhantomPDF and Foxit Reader names too). `apps` PATH is that install. The Trusted Certificates file is **unverified**, so it is not a store path. Linux is not probed. | `apps` reports `guide only` when an install is found. `list`, `add`, `allowlist`, `backup`, `restore`, and `connect` print the pruning guide and exit 1. They do not read or write Foxit trust data. `--dry-run` does not plan a change. `--store` is rejected |
+
+### Acrobat
+
+`--app acrobat` backs up and restores the Adobe Acrobat / Reader address book. PDF signature trust in Acrobat is separate from the OS TLS store. trustprune copies `addressbook.acrodata` and prints how to change trust in the app. It does not list or prune that file.
+
+`apps` shows `found` when the file exists, with that path in PATH. A machine with no file shows `not-found`. On Linux and other systems the row is `not-found`: a current Acrobat build for Linux is **unverified**, and those systems are not probed.
+
+#### Where the file is
+
+Adobe documents the per-user folder as `C:\Users\<user>\AppData\Roaming\Adobe\Acrobat\DC\Security` on Windows and `/Users/<user>/Library/Application Support/Adobe/Acrobat/DC/Security` on macOS. The file name is `addressbook.acrodata`. Older versions use `11.0`, `10.0`, and `9.0` in place of `DC`.
+
+trustprune lists the version directories under `Adobe\Acrobat` and keeps the newest one that has a regular `Security\addressbook.acrodata`. `DC` (any case) wins over every numbered folder, including a year folder such as `2024`. Numbered names compare as dotted integers, so `2024` beats `11.0` and `11.0` beats `10.0`. That order matches Adobe's address-book import search, which looks at `11.0`, then `10.0`, then `9.0`. Any other directory name is older than those. When two folders rank the same, the address book with the later modification time wins.
+
+#### Backup and restore
+
+`backup` copies the file into `acrobat/<unix-timestamp>/addressbook.acrodata` and records the live path in `source`. The bytes are unchanged. `restore` writes that copy back with the same sibling-temp swap as `--app ssl` (stage into `.restore-tmp`, copy the live file aside to `.restore-old`, rename over the destination). A backup recorded for a different path is refused unless `--force`. With no backup, restore refuses before any write.
+
+Both refuse while a process image named Acrobat, AcroRd32, or AdobeReader is running (an `.exe` suffix matches). Quit those programs and run the command again. `--dry-run` prints the copy plan and does not write. It still refuses when one of those processes is running, and when the address book is missing.
+
+#### Pruning
+
+`list`, `add`, `allowlist`, and `connect` print a guide and exit 1. They do not parse the address book. `allowlist` still requires a backup first; once one exists, it prints the guide and does not edit the file.
+
+Trust comes from Trusted Identities in `addressbook.acrodata`. AATL and EUTL downloads load certificates into that same file. Remove a root in the app: **Preferences > Trust Manager**, or **Preferences > Signatures > Identities & Trusted Certificates**. Delete the certificate or clear its trust, then turn off the AATL and EUTL downloads in Trust Manager so an update does not add it back. The download interval is **unverified**.
+
+On Windows, Windows Integration can also trust roots in the Windows certificate store. Turning it off stops that path. A copy already in the address book stays. Registry and plist settings are not read or written.
+
+The address book format is **unverified**. trustprune does not rewrite it except to put a previous copy back on restore.
 
 ### Foxit
 
@@ -102,7 +131,7 @@ NSS modifications use Mozilla `certutil`: Darwin probes `/usr/local/opt/nss/bin/
 | Linux / Windows / FreeBSD | `~/.trustprune/` (read-only fallback `~/.cert-manage/`) |
 | Darwin | `~/Library/trustprune/` (read-only fallback `~/Library/cert-manage/`) |
 
-Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `poppler/`, `ssl/`, `openssl/`, `certifi/`.
+Per-store subfolders include `linux/`, `darwin/`, `java/`, `chrome/`, `firefox/`, `poppler/`, `ssl/`, `openssl/`, `certifi/`, `acrobat/`.
 
 ## Future stores
 
@@ -117,6 +146,6 @@ Researched but not yet supported:
 - Android
 - Kubernetes
 - iOS
-- PDF reader document-signing trust other than pdfsig's NSS DB (`--app poppler`): Adobe, Okular's custom DB, and poppler's GPG backend (Papers on the NSS backend is covered by `--app poppler`; Evince has no signature validation). See the [research note](research/pdf-readers.md). Foxit install detection and the pruning guide are in [Foxit](#foxit)
+- PDF reader document-signing trust still to do: Okular's custom DB, poppler's GPG backend, and Acrobat registry/plist settings (Papers on the NSS backend is covered by `--app poppler`; Evince has no signature validation; Acrobat address book backup is in [Acrobat](#acrobat)). See the [research note](research/pdf-readers.md). Foxit install detection and the pruning guide are in [Foxit](#foxit)
 
 [← Home](index.md)
