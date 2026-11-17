@@ -211,3 +211,56 @@ Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
 GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
 ...
 ```
+
+## Go library
+
+`github.com/adamdecaf/trustprune/pkg/certpool` returns an `*x509.CertPool` with an allowlist applied.
+
+`CertPool` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. Tests and programs with their own source use `FromCertificates`. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
+
+The system store is only read. `CertPool` lists certificates and returns a new pool. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
+
+```go
+package main
+
+import (
+	"crypto/tls"
+	"log"
+	"net/http"
+
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
+	"github.com/adamdecaf/trustprune/pkg/certpool"
+)
+
+func main() {
+	al, err := allowlist.FromFile("allowlist.yaml")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	pool, err := certpool.CertPool(al)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				RootCAs:    pool,
+			},
+		},
+	}
+	resp, err := client.Get("https://example.com")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer resp.Body.Close()
+}
+```
+
+The same filter for certificates you already hold:
+
+```go
+pool := certpool.FromCertificates(al, certs)
+```
