@@ -248,9 +248,6 @@ func readOkularSignatures(home string, getenv func(string) string) map[string]st
 		}
 	}
 	if len(unresolved) > 0 {
-		if out == nil {
-			out = make(map[string]string)
-		}
 		for k := range unresolved {
 			out[k] = okularBackendUnresolved
 		}
@@ -324,14 +321,27 @@ func okularLocalFilePath(raw string) string {
 		return raw
 	}
 	p := u.Path
-	if p == "" && u.Opaque != "" {
+	if p == "" {
 		p = u.Opaque
+	}
+	host := u.Hostname()
+	if host != "" && !strings.EqualFold(host, "localhost") {
+		if len(host) >= 2 && unicode.IsLetter(rune(host[0])) && host[1] == ':' {
+			rest := strings.TrimLeft(p, `/\`)
+			p = host
+			if rest != "" {
+				p = host + "/" + rest
+			}
+		}
 	}
 	if runtime.GOOS == "windows" && len(p) >= 3 && p[0] == '/' && unicode.IsLetter(rune(p[1])) && p[2] == ':' {
 		p = p[1:]
 	}
 	if p == "" {
 		return raw
+	}
+	if runtime.GOOS == "windows" {
+		p = filepath.Clean(filepath.FromSlash(p))
 	}
 	return p
 }

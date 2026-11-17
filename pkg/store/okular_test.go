@@ -43,6 +43,14 @@ func isolateOkularHome(t *testing.T) string {
 	return home
 }
 
+func okularFileURL(path string) string {
+	slash := filepath.ToSlash(path)
+	if runtime.GOOS == "windows" && len(slash) >= 2 && slash[1] == ':' && !strings.HasPrefix(slash, "/") {
+		slash = "/" + slash
+	}
+	return (&url.URL{Scheme: "file", Path: slash}).String()
+}
+
 func writeOkularRC(t *testing.T, home, body string) {
 	t.Helper()
 	dir := filepath.Join(home, ".config")
@@ -269,8 +277,7 @@ func TestOkularFileURLCertificatePath(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(custom, "cert9.db"), []byte("certdb"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	u := url.URL{Scheme: "file", Path: custom}
-	writeOkularRC(t, home, fmt.Sprintf("[Signatures]\nSignatureBackend=NSS\nUseDefaultCertDB=false\nDBCertificatePath=%s\n", u.String()))
+	writeOkularRC(t, home, fmt.Sprintf("[Signatures]\nSignatureBackend=NSS\nUseDefaultCertDB=false\nDBCertificatePath=%s\n", okularFileURL(custom)))
 
 	s := mustOkularStore(t)
 	info := s.GetInfo()
@@ -349,7 +356,7 @@ func TestOkularUnexpandedBackendRefusesNSS(t *testing.T) {
 
 func TestOkularLocalFilePath(t *testing.T) {
 	dir := t.TempDir()
-	got := okularLocalFilePath((&url.URL{Scheme: "file", Path: dir}).String())
+	got := okularLocalFilePath(okularFileURL(dir))
 	if got != dir {
 		t.Fatalf("file URL %q, want %q", got, dir)
 	}
