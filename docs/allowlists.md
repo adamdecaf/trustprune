@@ -216,9 +216,9 @@ GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
 
 `github.com/adamdecaf/trustprune/pkg/certpool` returns an `*x509.CertPool` with an allowlist applied.
 
-`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads an allowlist file and returns `New`. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. Tests and programs with their own source use `FromCertificates`. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
+`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads a PEM bundle from a path and skips blocks that are not `CERTIFICATE`. An unreadable file, a `CERTIFICATE` block that fails to parse, or a file with no certificates returns an error. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
 
-The system store is only read. `New` and `FromFile` list certificates and return a new pool. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
+The system store is only read. `New` lists certificates and returns a new pool. `FromFile` reads only the path you pass. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
 
 ```go
 package main
@@ -259,17 +259,17 @@ func main() {
 }
 ```
 
-`FromFile` reads the allowlist file and applies it:
-
-```go
-pool, err := certpool.FromFile("allowlist.yaml")
-if err != nil {
-	log.Fatal(err)
-}
-```
-
 The same filter for certificates you already hold:
 
 ```go
 pool := certpool.FromCertificates(al, certs)
+```
+
+The same filter for a PEM bundle on disk:
+
+```go
+pool, err := certpool.FromFile(al, "roots.pem")
+if err != nil {
+	log.Fatal(err)
+}
 ```

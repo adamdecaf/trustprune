@@ -22,6 +22,10 @@ linters:
       - path: pkg/certutil/read\.go
         linters: [gosec]
         text: "G304:"
+      # FromFile reads the PEM bundle path the caller supplies.
+      - path: pkg/certpool/
+        linters: [gosec]
+        text: "G304:"
       - path: pkg/allowlist/
         linters: [gosec]
         text: "G304:"

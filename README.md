@@ -44,7 +44,7 @@ trustprune restore --app java
 
 Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from hostnames, platform presets, or browser history.
 
-Go programs can apply that allowlist without changing a store. `certpool.New` reads the system store and returns an `*x509.CertPool` of the certificates the allowlist keeps; `certpool.FromFile` does the same from an allowlist path. See [Go library](docs/allowlists.md#go-library).
+Go programs can apply that allowlist without changing a store. `certpool.New` reads the system store and returns an `*x509.CertPool` of the certificates the allowlist keeps. `certpool.FromFile` applies the same filter to a PEM bundle on disk. See [Go library](docs/allowlists.md#go-library).
 
 > **Safety first:** Prefer experimenting against temp or container stores when learning. Back up first, every time. See [Safety](#safety) and the [docs site](https://trustprune.com/).
 

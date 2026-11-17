@@ -20,11 +20,13 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,41 +35,155 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
+func TestFromFile_matching(t *testing.T) {
+	keepFP := mustCert(t, "Keep By Fingerprint", "US", 11)
+	keepCountry := mustCert(t, "Keep By Country", "JP", 12)
+	drop := mustCert(t, "Drop", "DE", 13)
+	al := allowlist.Allowlist{
+		Fingerprints: []string{certutil.GetHexSHA256Fingerprint(*keepFP)},
+		Countries:    []string{"jp"},
+	}
+	path := writePEM(t, "roots.pem", []*pem.Block{
+		{Type: "PRIVATE KEY", Bytes: []byte("not-a-key")},
+		pemCert(keepFP),
+		pemCert(drop),
+		pemCert(keepCountry),
+	})
+
+	got, err := certpool.FromFile(al, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("nil pool")
+	}
+	want := certpool.FromCertificates(al, []*x509.Certificate{keepFP, drop, keepCountry})
+	if !got.Equal(want) {
+		t.Fatal("FromFile pool did not match FromCertificates")
+	}
+
+	withDrop := x509.NewCertPool()
+	withDrop.AddCert(keepFP)
+	withDrop.AddCert(keepCountry)
+	withDrop.AddCert(drop)
+	if got.Equal(withDrop) {
+		t.Fatal("dropped certificate was kept")
+	}
+}
+
+func TestFromFile_nonMatching(t *testing.T) {
+	drop := mustCert(t, "Drop", "DE", 14)
+	al := allowlist.Allowlist{
+		Fingerprints: []string{"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"},
+		Countries:    []string{"jp"},
+	}
+	path := writePEM(t, "roots.pem", []*pem.Block{pemCert(drop)})
+
+	got, err := certpool.FromFile(al, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil {
+		t.Fatal("nil pool")
+	}
+	if !got.Equal(x509.NewCertPool()) {
+		t.Fatal("non-matching certificates should yield an empty pool")
+	}
+}
+
+func TestFromFile_empty(t *testing.T) {
+	al := allowlist.Allowlist{Countries: []string{"US"}}
+	dir := t.TempDir()
+
+	empty := filepath.Join(dir, "empty.pem")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertFromFileError(t, al, empty, "no certificates")
+
+	onlyKey := writePEMIn(t, dir, "key.pem", []*pem.Block{
+		{Type: "PRIVATE KEY", Bytes: []byte("not-a-key")},
+	})
+	assertFromFileError(t, al, onlyKey, "no certificates")
+}
+
+func TestFromFile_invalid(t *testing.T) {
+	al := allowlist.Allowlist{Countries: []string{"US"}}
+	dir := t.TempDir()
+
+	bad := filepath.Join(dir, "bad.pem")
+	garbage := []byte("-----BEGIN CERTIFICATE-----\nQQ==\n-----END CERTIFICATE-----\n")
+	if err := os.WriteFile(bad, garbage, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertFromFileError(t, al, bad, "certificate block")
+
+	keep := mustCert(t, "Keep", "US", 15)
+	mixedBody := append(encodePEM(t, []*pem.Block{pemCert(keep)}), garbage...)
+	mixed := filepath.Join(dir, "mixed.pem")
+	if err := os.WriteFile(mixed, mixedBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	assertFromFileError(t, al, mixed, "certificate block")
+}
+
 func TestFromFile_missing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "missing.yaml")
-	pool, err := certpool.FromFile(path)
+	path := filepath.Join(t.TempDir(), "missing.pem")
+	pool, err := certpool.FromFile(allowlist.Allowlist{}, path)
 	if err == nil {
-		t.Fatal("expected an error for a missing allowlist file")
+		t.Fatal("expected an error for a missing file")
 	}
 	if pool != nil {
-		t.Fatal("pool should be nil when reading the allowlist fails")
+		t.Fatal("pool should be nil when the file cannot be read")
 	}
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("got %v", err)
 	}
 }
 
-func TestFromFile_valid(t *testing.T) {
-	al := allowlist.Allowlist{Countries: []string{"US"}}
-	path := filepath.Join(t.TempDir(), "allowlist.yaml")
-	if err := al.ToFile(path); err != nil {
-		t.Fatal(err)
+func assertFromFileError(t *testing.T, al allowlist.Allowlist, path, want string) {
+	t.Helper()
+	pool, err := certpool.FromFile(al, path)
+	if err == nil {
+		t.Fatalf("%s: expected an error containing %q", path, want)
 	}
+	if pool != nil {
+		t.Fatalf("%s: pool should be nil on error", path)
+	}
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("%s: got %v", path, err)
+	}
+}
 
-	got, err := certpool.FromFile(path)
-	if err != nil {
+func pemCert(c *x509.Certificate) *pem.Block {
+	return &pem.Block{Type: "CERTIFICATE", Bytes: c.Raw}
+}
+
+func writePEM(t *testing.T, name string, blocks []*pem.Block) string {
+	t.Helper()
+	return writePEMIn(t, t.TempDir(), name, blocks)
+}
+
+func writePEMIn(t *testing.T, dir, name string, blocks []*pem.Block) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, encodePEM(t, blocks), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	want, err := certpool.New(al)
-	if err != nil {
-		t.Fatal(err)
+	return path
+}
+
+func encodePEM(t *testing.T, blocks []*pem.Block) []byte {
+	t.Helper()
+	var buf []byte
+	for i := range blocks {
+		encoded := pem.EncodeToMemory(blocks[i])
+		if len(encoded) == 0 {
+			t.Fatalf("encode PEM block %d", i)
+		}
+		buf = append(buf, encoded...)
 	}
-	if got == nil || want == nil {
-		t.Fatal("nil pool")
-	}
-	if !got.Equal(want) {
-		t.Fatal("FromFile pool did not match New for the same allowlist")
-	}
+	return buf
 }
 
 func TestFromCertificates_keepsMatches(t *testing.T) {

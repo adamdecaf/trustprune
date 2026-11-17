@@ -13,14 +13,18 @@
 // limitations under the License.
 
 // Package certpool builds an x509.CertPool by applying an allowlist to
-// trusted certificates. The system store is only read.
+// trusted certificates. New reads the system store. FromFile reads a PEM
+// bundle from a path. The system store is only read.
 package certpool
 
 import (
 	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"os"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
@@ -41,19 +45,52 @@ func New(al allowlist.Allowlist) (*x509.CertPool, error) {
 	return FromCertificates(al, certs), nil
 }
 
-// FromFile reads an allowlist file at path and returns New applied to it.
-// The system store is only read. The returned pool is never nil when err
-// is nil. An allowlist that matches nothing yields an empty pool.
-func FromFile(path string) (*x509.CertPool, error) {
-	al, err := allowlist.FromFile(path)
+// FromFile reads a PEM bundle at path and returns an x509.CertPool of the
+// certificates al matches. Non-CERTIFICATE blocks are skipped. An
+// unreadable file, a CERTIFICATE block that fails to parse, or a bundle
+// with no certificates returns an error.
+//
+// The returned pool is never nil when err is nil. An allowlist that
+// matches nothing yields an empty pool. No store is read or written.
+func FromFile(al allowlist.Allowlist, path string) (*x509.CertPool, error) {
+	body, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("read allowlist %s: %w", path, err)
+		return nil, fmt.Errorf("read certificates: %w", err)
 	}
-	pool, err := New(al)
+	certs, err := certificatesFromPEM(body)
 	if err != nil {
-		return nil, fmt.Errorf("apply allowlist %s: %w", path, err)
+		return nil, fmt.Errorf("parse %s: %w", path, err)
 	}
-	return pool, nil
+	return FromCertificates(al, certs), nil
+}
+
+// certificatesFromPEM returns the CERTIFICATE blocks in body.
+// Other PEM types are ignored. A CERTIFICATE block that cannot be
+// parsed is an error, as is a bundle that contains none.
+func certificatesFromPEM(body []byte) ([]*x509.Certificate, error) {
+	var certs []*x509.Certificate
+	rest := body
+	n := 0
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		n++
+		cert, err := certutil.ParseCertificate(block.Bytes)
+		if err != nil {
+			return nil, fmt.Errorf("certificate block %d: %w", n, err)
+		}
+		certs = append(certs, cert)
+	}
+	if len(certs) == 0 {
+		return nil, fmt.Errorf("no certificates found")
+	}
+	return certs, nil
 }
 
 // FromCertificates returns an x509.CertPool which has had an allowlist
