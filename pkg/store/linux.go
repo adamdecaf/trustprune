@@ -239,57 +239,46 @@ func (s linuxStore) Remove(al allowlist.Allowlist) error {
 		return s.removeWithBlocklist(al)
 	}
 
-	if DryRun() {
-		var keptCerts []*x509.Certificate
-		var removedCerts []*x509.Certificate
-		var rawKeep []string
-		var details []string
-		err := filepath.Walk(s.ca.dir, func(path string, info os.FileInfo, err error) error {
-			if (err != nil && !errors.Is(err, filepath.SkipDir)) || info.IsDir() {
-				return nil
-			}
-			parsed, err := certutil.FromFileResult(path)
-			if err != nil {
-				return err
-			}
-			kept, removed := parsed.KeepMatching(al.Matches)
-			keptCerts = append(keptCerts, kept.Certs...)
-			removedCerts = append(removedCerts, removed...)
-			for i := range removed {
-				details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(removed[i]), path))
-			}
-			rawKeep = append(rawKeep, unparsablePEMLines(path, kept.Entries)...)
-			details = append(details, reportKeptRawPEMIn(path, kept.Entries)...)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-		reportAllowlistDryRun("linux", s.ca.dir, keptCerts, removedCerts, rawKeep, []string{fmt.Sprintf("then run %s", s.ca.refresh)}, details)
-		return nil
+	type item struct {
+		path string
+		kept certutil.PEMResult
 	}
-
-	// Check each CA cert file and optionally disable
-	walk := func(path string, info os.FileInfo, err error) error {
-		// Ignore SkipDir and directories
+	var items []item
+	var keptCerts []*x509.Certificate
+	var removedCerts []*x509.Certificate
+	var rawKeep []string
+	var details []string
+	// Read every file before writing so a parse error leaves the directory unchanged.
+	err := filepath.Walk(s.ca.dir, func(path string, info os.FileInfo, err error) error {
 		if (err != nil && !errors.Is(err, filepath.SkipDir)) || info.IsDir() {
 			return nil
 		}
-
 		parsed, err := certutil.FromFileResult(path)
 		if err != nil {
 			return err
 		}
-		kept, _ := parsed.KeepMatching(al.Matches)
-		return certutil.ToFileEntries(path, kept.Entries)
-	}
-
-	// Walk the fs and deactivate each cert
-	err := filepath.Walk(s.ca.dir, walk)
+		kept, removed := parsed.KeepMatching(al.Matches)
+		items = append(items, item{path: path, kept: kept})
+		keptCerts = append(keptCerts, kept.Certs...)
+		removedCerts = append(removedCerts, removed...)
+		for i := range removed {
+			details = append(details, fmt.Sprintf("remove %s from %s", formatCertLine(removed[i]), path))
+		}
+		rawKeep = append(rawKeep, unparsablePEMLines(path, kept.Entries)...)
+		details = append(details, reportKeptRawPEMIn(path, kept.Entries)...)
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-
+	if finishAllowlist(al, "linux", s.ca.dir, keptCerts, removedCerts, rawKeep, []string{fmt.Sprintf("then run %s", s.ca.refresh)}, details) {
+		return nil
+	}
+	for _, it := range items {
+		if err := certutil.ToFileEntries(it.path, it.kept.Entries); err != nil {
+			return err
+		}
+	}
 	return s.rebundleCerts()
 }
 
@@ -309,12 +298,11 @@ func (s linuxStore) removeWithBlocklist(al allowlist.Allowlist) error {
 		removed = append(removed, certs[i])
 	}
 
-	if DryRun() {
-		extras := []string{
-			fmt.Sprintf("blocklist directory %s", s.ca.blocklist),
-			fmt.Sprintf("then run %s", s.ca.refresh),
-		}
-		reportAllowlistDryRun("linux", s.ca.dir, keptCerts, removed, nil, extras, reportDryRunCerts("remove", removed))
+	extras := []string{
+		fmt.Sprintf("blocklist directory %s", s.ca.blocklist),
+		fmt.Sprintf("then run %s", s.ca.refresh),
+	}
+	if finishAllowlist(al, "linux", s.ca.dir, keptCerts, removed, nil, extras, reportDryRunCerts("remove", removed)) {
 		return nil
 	}
 

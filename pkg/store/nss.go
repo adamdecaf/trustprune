@@ -568,25 +568,24 @@ func (s nssStore) Remove(al allowlist.Allowlist) error {
 		return err
 	}
 
-	if DryRun() {
-		var kept []*x509.Certificate
-		var removed []*x509.Certificate
-		var details []string
-		var extras []string
-		for i := range items {
-			if al.MatchesAll(items[i].certs) {
-				kept = append(kept, items[i].certs...)
-				continue
-			}
-			if items[i].builtinOnly {
-				extras = append(extras, fmt.Sprintf("add built-in root %q to the internal token with trust %s", items[i].nick, trustAttrsProhibited))
-			}
-			for j := range items[i].certs {
-				removed = append(removed, items[i].certs[j])
-				details = append(details, fmt.Sprintf("distrust %s (nick %s)", formatCertLine(items[i].certs[j]), items[i].nick))
-			}
+	var kept []*x509.Certificate
+	var removed []*x509.Certificate
+	var details []string
+	var extras []string
+	for i := range items {
+		if al.MatchesAll(items[i].certs) {
+			kept = append(kept, items[i].certs...)
+			continue
 		}
-		reportAllowlistDryRun(s.nssType, s.foundCertdbLocation, kept, removed, nil, extras, details)
+		if items[i].builtinOnly {
+			extras = append(extras, fmt.Sprintf("add built-in root %q to the internal token with trust %s", items[i].nick, trustAttrsProhibited))
+		}
+		for j := range items[i].certs {
+			removed = append(removed, items[i].certs[j])
+			details = append(details, fmt.Sprintf("distrust %s (nick %s)", formatCertLine(items[i].certs[j]), items[i].nick))
+		}
+	}
+	if finishAllowlist(al, s.nssType, s.foundCertdbLocation, kept, removed, nil, extras, details) {
 		return nil
 	}
 

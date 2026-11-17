@@ -17,6 +17,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
@@ -76,14 +77,36 @@ func allowlistStore(s store.Store, app, path string) error {
 		return err
 	}
 
+	// Drop a classification left by an earlier Remove in this process.
+	// Remove records a new one when it decides what to keep.
+	store.ResetAllowlistStats()
 	if err := s.Remove(al); err != nil {
 		return err
 	}
+	return printAllowlistOutcome()
+}
 
-	// Dry-run closing lines are printed by the store plan, so the summary
-	// stays last. A success line is only for a real write.
-	if !store.DryRun() {
-		fmt.Println("Allowlist completed successfully")
+// printAllowlistOutcome prints the real-run summary, or only the removed
+// count when --count is set. Dry-run plans, including unmatched fingerprints
+// and the kept/removed line, are printed by the store so that line stays last.
+func printAllowlistOutcome() error {
+	if store.AllowlistCountOnly() {
+		stats, ok := store.LastAllowlistStats()
+		if !ok {
+			return errors.New("allowlist did not report how many certificates were removed")
+		}
+		fmt.Println(stats.Removed)
+		return nil
 	}
+	if store.DryRun() {
+		return nil
+	}
+	fmt.Println("Allowlist completed successfully")
+	stats, ok := store.LastAllowlistStats()
+	if !ok {
+		return nil
+	}
+	store.WriteUnmatchedAllowlist(os.Stdout, stats.Unmatched)
+	fmt.Println(store.AllowlistSummaryLine(stats.Removed, stats.Kept))
 	return nil
 }

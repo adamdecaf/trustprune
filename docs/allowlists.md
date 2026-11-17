@@ -44,13 +44,17 @@ To apply an allowlist against a platform:
 ```
 $ trustprune allowlist --file wh.json
 Allowlist completed successfully
+128 removed, 40 kept
 ```
+
+The last line is how many certificates were removed or distrusted, and how many were kept. Counts depend on the store. Fingerprints in the file that matched no certificate are listed between those lines under `Unmatched allowlist entries:`. `--count` prints only the removed count.
 
 You can also apply an allowlist against an application's certificate store:
 
 ```
 $ trustprune allowlist --file wh.json --app java
 Allowlist completed successfully
+40 removed, 12 kept
 ```
 
 ## Generating allowlists

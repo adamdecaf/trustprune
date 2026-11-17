@@ -527,6 +527,30 @@ func (s javaStore) version() string {
 	return strings.ReplaceAll(m, `"`, "")
 }
 
+// classifyJavaAllowlist pairs keytool aliases with full certificates and
+// splits them into kept and removed. A short certificate with no fingerprint
+// is an error before any alias is deleted.
+func classifyJavaAllowlist(al allowlist.Allowlist, certs []*x509.Certificate, shortCerts []*cert) (kept, removed []*x509.Certificate, details []string, err error) {
+	for i := range shortCerts {
+		if !shortCerts[i].hasFingerprints() {
+			return nil, nil, nil, fmt.Errorf("no fingerprints found for certificate %s", shortCerts[i])
+		}
+		for j := range certs {
+			if !shortCerts[i].matches(certs[j]) {
+				continue
+			}
+			if al.Matches(certs[j]) {
+				kept = append(kept, certs[j])
+			} else {
+				removed = append(removed, certs[j])
+				details = append(details, fmt.Sprintf("remove %s (alias %s)", formatCertLine(certs[j]), shortCerts[i].alias))
+			}
+			break
+		}
+	}
+	return kept, removed, details, nil
+}
+
 // List returns the x509 Certificates from a java TrustStore
 //
 // Note: keytool does not offer the ability to "untrust" a certificate
@@ -551,27 +575,11 @@ func (s javaStore) Remove(al allowlist.Allowlist) error {
 		return err
 	}
 
-	if DryRun() {
-		var kept []*x509.Certificate
-		var removed []*x509.Certificate
-		var details []string
-		for i := range shortCerts {
-			if !shortCerts[i].hasFingerprints() {
-				return fmt.Errorf("no fingerprints found for certificate %s", shortCerts[i])
-			}
-			for j := range certs {
-				if shortCerts[i].matches(certs[j]) {
-					if al.Matches(certs[j]) {
-						kept = append(kept, certs[j])
-					} else {
-						removed = append(removed, certs[j])
-						details = append(details, fmt.Sprintf("remove %s (alias %s)", formatCertLine(certs[j]), shortCerts[i].alias))
-					}
-					break
-				}
-			}
-		}
-		reportAllowlistDryRun("java", kpath, kept, removed, nil, nil, details)
+	kept, removed, details, classErr := classifyJavaAllowlist(al, certs, shortCerts)
+	if classErr != nil {
+		return classErr
+	}
+	if finishAllowlist(al, "java", kpath, kept, removed, nil, nil, details) {
 		return nil
 	}
 

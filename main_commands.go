@@ -80,7 +80,7 @@ func allowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "allowlist",
 		Usage: "Remove trust from certificates which do not match the allowlist in <path>",
-		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--v]
+		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [--v]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist --file allowlist.json
@@ -98,6 +98,10 @@ func allowlistCommand(st *runState) *cli.Command {
   directory. Back up that store, or pass --force.
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb --force
 
+  Print only how many certificates were removed or untrusted
+    trustprune allowlist --file allowlist.yaml --count
+    trustprune allowlist --file allowlist.yaml --dry-run --count
+
   Remove untrusted certificates in an explicit OpenSSL PEM CA bundle
     trustprune allowlist --app openssl --file allowlist.json --bundle /path/to/ca-bundle.pem
 
@@ -110,6 +114,7 @@ APPS
 			flagBundle(),
 			flagAllowlistForce(),
 			flagDryRun(),
+			flagAllowlistCount(),
 			flagAllowlistVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
@@ -132,6 +137,7 @@ func allowlistAction(_ context.Context, c *cli.Command) error {
 	applyDryRun(c)
 	store.SetDryRunVerbose(c.Bool("v"))
 	store.SetForceRestore(c.Bool("force"))
+	store.SetAllowlistCountOnly(c.Bool("count"))
 	file := flagString(c, "file")
 	app := flagString(c, "app")
 	bundle := flagString(c, "bundle")

@@ -233,6 +233,18 @@ func flagAllowlistVerbose() *cli.BoolFlag {
 	}
 }
 
+// flagAllowlistCount prints only how many certificates allowlist removed
+// or untrusted. It is separate from list --count, which counts certificates
+// in a store.
+func flagAllowlistCount() *cli.BoolFlag {
+	return &cli.BoolFlag{
+		Name:        "count",
+		Usage:       "print only the number of certificates removed or untrusted",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 // flagVersion is the root --version alias of the version command.
 // There is no -v alias: list uses -v for verbose table output.
 func flagVersion() *cli.BoolFlag {
