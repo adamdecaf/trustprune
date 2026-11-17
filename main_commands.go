@@ -142,16 +142,17 @@ func allowlistAction(_ context.Context, c *cli.Command) error {
 	app := flagString(c, "app")
 	bundle := flagString(c, "bundle")
 	path := storePath(c)
+	out := c.Root().Writer
 	if app == "" {
-		return cmd.AllowlistForPlatform(file)
+		return cmd.AllowlistForPlatform(file, out)
 	}
 	if bundle != "" {
-		return cmd.AllowlistForBundle(app, file, bundle)
+		return cmd.AllowlistForBundle(app, file, bundle, out)
 	}
 	if path != "" {
-		return cmd.AllowlistForAppWithStore(app, path, file)
+		return cmd.AllowlistForAppWithStore(app, path, file, out)
 	}
-	return cmd.AllowlistForApp(app, file)
+	return cmd.AllowlistForApp(app, file, out)
 }
 
 func appsCommand(st *runState) *cli.Command {
