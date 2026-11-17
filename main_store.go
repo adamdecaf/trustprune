@@ -22,7 +22,17 @@ import (
 )
 
 func storePath(c *cli.Command) string {
-	return strings.TrimSpace(c.String("store"))
+	return preservedStorePath(c.String("store"))
+}
+
+// preservedStorePath keeps surrounding whitespace on a nonblank path so the
+// selected store and a later add hint name the same file. A whitespace-only
+// value is treated as unset.
+func preservedStorePath(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	return s
 }
 
 // rejectIncompatibleStore rejects --store unless --app supports a trust-store

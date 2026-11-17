@@ -869,11 +869,14 @@ func TestFormatConnectPresented(t *testing.T) {
 		if connectShellQuote("/tmp/a;rm -rf /") != `'/tmp/a;rm -rf /'` {
 			t.Fatalf("semicolon quote: %q", connectShellQuote("/tmp/a;rm -rf /"))
 		}
-		for _, path := range []string{"$HOME/certs", "it's", "/tmp/a;rm -rf /"} {
+		for _, path := range []string{"$HOME/certs", "it's", "/tmp/a;rm -rf /", " /tmp/custom cacerts "} {
 			h := connectAddHintCmd("java", path)
 			if !strings.Contains(h, "--store "+connectShellQuote(path)) {
 				t.Fatalf("path %q hint %q", path, h)
 			}
+		}
+		if connectAddHintCmd("java", "   ") != "trustprune add --file <cert> --app java" {
+			t.Fatalf("whitespace-only store should be omitted: %q", connectAddHintCmd("java", "   "))
 		}
 	})
 

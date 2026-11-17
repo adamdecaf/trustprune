@@ -336,8 +336,7 @@ func connectAddHintCmd(app, storePath string) string {
 	if app != "" {
 		cmd += " --app " + app
 	}
-	storePath = strings.TrimSpace(storePath)
-	if storePath != "" {
+	if strings.TrimSpace(storePath) != "" {
 		cmd += " --store " + connectShellQuote(storePath)
 	}
 	return cmd
