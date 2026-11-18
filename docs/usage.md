@@ -110,7 +110,9 @@ trustprune list --ui web --allowlist allowlist.json
 | `--ui <type>` | Presentation: `cli` (default) or `web` (local page) |
 | `--allowlist <path>` | With `--ui web`: allowlist JSON or YAML, the same file `allowlist --file` reads. Certificates that file would keep start checked |
 
-`list --ui web` shows each certificate on a local page with a checkbox. A checked box means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist <path>`, a certificate starts checked when that allowlist would keep it. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
+`list --ui web` shows each certificate on a local page with a keep switch. A checked switch means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist <path>`, a certificate starts checked when that allowlist would keep it. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
+
+The header counts kept and dropped certificates. Search matches subject, issuer, or SHA256. Filters cover kept, dropped, expired, expiring within 90 days, and self-signed rows. Sort is by subject, NotAfter, or issuer. Select all and Select none change the keep switch for rows that are currently shown. Validity badges (Valid, Expiring soon, Expired, Not yet valid) are decided when the page is rendered.
 
 In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate.
 
