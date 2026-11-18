@@ -1022,6 +1022,11 @@ func (s opensslStore) rehash(dir string, required bool) error {
 		if err := promoteCRTsForCerthash(dir); err != nil {
 			return err
 		}
+		// Renaming a .crt to .pem can leave a previous alias pointing at the
+		// old name; drop those before certhash tries to open them.
+		if err := dropDanglingCerthashAliases(dir); err != nil {
+			return err
+		}
 	}
 
 	cmd := exec.Command(bin, args...) // #nosec G204 -- bin is c_rehash or a discovered LibreSSL openssl; args are certhash and the cert dir
