@@ -17,6 +17,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -78,7 +79,8 @@ func TestCreateCLI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode().Perm() != 0o644 {
+		// Windows reports Perm() as 0666 and does not honor Unix mode bits.
+		if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 			t.Fatalf("mode=%o want 0644", info.Mode().Perm())
 		}
 		got, err := certutil.FromFile(out)

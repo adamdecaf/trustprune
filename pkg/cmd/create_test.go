@@ -25,6 +25,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +104,8 @@ func TestCreateFromStore_FiltersAndWritesPEM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	// Windows reports Perm() as 0666 and does not honor Unix mode bits.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode=%o want 0644", info.Mode().Perm())
 	}
 	got, err := certutil.FromFile(out)
@@ -187,7 +189,8 @@ func TestCreateFromStore_NoMatchWritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows reports Perm() as 0666 and does not honor Unix mode bits.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("mode=%o want 0600", info.Mode().Perm())
 	}
 
@@ -325,7 +328,8 @@ func TestCreateForBundle_DoesNotModifyPEM(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o644 {
+	// Windows reports Perm() as 0666 and does not honor Unix mode bits.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
 		t.Fatalf("mode=%o want 0644", info.Mode().Perm())
 	}
 }
