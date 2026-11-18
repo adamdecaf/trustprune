@@ -209,11 +209,8 @@ func exposeCRTForCerthash(crt string) error {
 }
 
 func aliasCRTAsPEM(crt, pem string) error {
-	if err := os.Symlink(filepath.Base(crt), pem); err == nil {
-		return nil
-	}
-	if err := file.CopyFile(crt, pem); err != nil {
-		return fmt.Errorf("link or copy %s to %s for certhash: %w", crt, pem, err)
+	if err := os.Symlink(filepath.Base(crt), pem); err != nil {
+		return fmt.Errorf("symlink %s to %s for certhash: %w", crt, pem, err)
 	}
 	return nil
 }
@@ -240,30 +237,56 @@ func opensslCertFilesSame(a, b string) bool {
 	return true
 }
 
-// isCerthashAliasPEM reports a *.pem file created only so certhash can
-// see a sibling *.crt. List skips these so the certificate is not counted twice.
+// isCerthashAliasPEM reports a *.pem symlink created only so certhash can
+// see a sibling *.crt in the same directory. List and allowlist removal
+// skip these so the certificate is not counted twice. A .pem that points
+// outside the store, or a regular .pem next to a .crt, is left alone.
 func isCerthashAliasPEM(path string) bool {
 	if !strings.HasSuffix(path, ".pem") {
 		return false
 	}
 	st, err := os.Lstat(path)
+	if err != nil || st.Mode()&os.ModeSymlink == 0 {
+		return false
+	}
+	target, err := os.Readlink(path)
 	if err != nil {
 		return false
 	}
 	dir := filepath.Dir(path)
-	if st.Mode()&os.ModeSymlink != 0 {
-		target, err := os.Readlink(path)
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(dir, target)
+	}
+	if filepath.Clean(filepath.Dir(target)) != filepath.Clean(dir) {
+		return false
+	}
+	return strings.HasSuffix(target, ".crt")
+}
+
+// dropDanglingCerthashAliases removes .pem aliases whose sibling .crt
+// no longer exists, so certhash cannot rebuild hash links for a removed cert.
+func dropDanglingCerthashAliases(dir string) error {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.pem"))
+	if err != nil {
+		return err
+	}
+	for _, pem := range matches {
+		if !isCerthashAliasPEM(pem) {
+			continue
+		}
+		target, err := os.Readlink(pem)
 		if err != nil {
-			return false
+			continue
 		}
 		if !filepath.IsAbs(target) {
 			target = filepath.Join(dir, target)
 		}
-		return strings.HasSuffix(target, ".crt")
+		if file.Exists(target) {
+			continue
+		}
+		if err := os.Remove(pem); err != nil {
+			return fmt.Errorf("remove dangling certhash alias %s: %w", pem, err)
+		}
 	}
-	base := filepath.Base(path)
-	if strings.HasSuffix(base, ".crt.pem") {
-		return file.Exists(filepath.Join(dir, strings.TrimSuffix(base, ".pem")))
-	}
-	return false
+	return nil
 }

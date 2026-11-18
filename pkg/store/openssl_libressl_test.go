@@ -714,12 +714,78 @@ func TestLibreSSL_PromoteCRTSymlinkAndNameCollision(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(dir, "both.crt.pem")); err != nil {
 		t.Fatalf("colliding .crt was not aliased: %v", err)
 	}
+
+	// A .pem symlink to a .crt outside the store, and a regular foo.crt.pem
+	// that holds a different certificate than foo.crt, must stay in List.
+	outside := filepath.Join(t.TempDir(), "outside.crt")
+	if err := certutil.ToFile(outside, extraExampleCert(t)); err != nil {
+		t.Fatal(err)
+	}
+	outsidePEM := filepath.Join(dir, "outside-link.pem")
+	if err := os.Symlink(outside, outsidePEM); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if isCerthashAliasPEM(outsidePEM) {
+		t.Fatal("pem symlink to a .crt outside the store must not be treated as an alias")
+	}
+
 	got, err := opensslStoreAt(dir).List(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("List len=%d want 3 (alias should not be counted)", len(got))
+	if len(got) != 4 {
+		t.Fatalf("List len=%d want 4 (alias skipped, outside pem counted)", len(got))
+	}
+}
+
+func TestLibreSSL_RemoveDropsAliasesAndKeepsIndependentPEMs(t *testing.T) {
+	isolateOpenSSLLookup(t)
+	hideCRehash(t)
+	opensslTestHome(t)
+	bin, _ := writeFakeSSL(t, "LibreSSL 3.9.2", 0, 0)
+	libreSSLBinPaths = []string{bin}
+
+	dir := t.TempDir()
+	certs := loadLotsCerts(t, 3)
+	if err := certutil.ToFile(filepath.Join(dir, "keep.pem"), certs[0:1]); err != nil {
+		t.Fatal(err)
+	}
+	if err := certutil.ToFile(filepath.Join(dir, "drop.crt"), certs[1:2]); err != nil {
+		t.Fatal(err)
+	}
+	if err := certutil.ToFile(filepath.Join(dir, "drop.pem"), certs[2:3]); err != nil {
+		t.Fatal(err)
+	}
+	if err := promoteCRTsForCerthash(dir); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(dir, "drop.crt.pem")
+	if _, err := os.Lstat(alias); err != nil {
+		t.Fatalf("expected alias %s: %v", alias, err)
+	}
+
+	s := opensslStoreAt(dir)
+	refuseIfSystemOpenSSL(t, dir)
+	SetDryRun(false)
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0], certs[2]})
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "drop.crt")); !os.IsNotExist(err) {
+		t.Fatal("removed .crt is still present")
+	}
+	if _, err := os.Lstat(alias); !os.IsNotExist(err) {
+		t.Fatal("dangling alias left behind after removing .crt")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "drop.pem")); err != nil {
+		t.Fatalf("independent drop.pem should be kept: %v", err)
+	}
+	got, err := s.List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("List len=%d want 2", len(got))
 	}
 }
 
@@ -734,17 +800,56 @@ func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
 	libreSSLBinPaths = []string{bin}
 	s, dir, certs := opensslDirEnv(t)
 	extra := extraExampleCert(t)
-	SetDryRun(false)
-	if err := s.Add(extra); err != nil {
-		t.Fatalf("Add: %v", err)
+	target := filepath.Join(dir, "target-cert")
+	if err := certutil.ToFile(target, extra); err != nil {
+		t.Fatal(err)
 	}
+	if err := os.Symlink(filepath.Base(target), filepath.Join(dir, "linked.crt")); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	// Collision: same basename, different certificate than ca-0.crt.
+	if err := certutil.ToFile(filepath.Join(dir, "ca-0.pem"), extra); err != nil {
+		t.Fatal(err)
+	}
+	SetDryRun(false)
+	if err := s.Backup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Restore(""); err != nil {
+		t.Fatalf("Restore/certhash: %v", err)
+	}
+	assertCerthashLinks(t, dir)
 	got, err := s.List(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != len(certs)+len(extra) {
-		t.Fatalf("List len=%d want %d", len(got), len(certs)+len(extra))
+	// opensslDirEnv has 3 certs; plus linked extra and ca-0.pem extra. linked.crt aliases extra,
+	// ca-0.pem is a second copy of extra, ca-0.crt is certs[0]. Unique: certs[0], certs[1], certs[2], extra = 4
+	if len(got) != 4 {
+		t.Fatalf("List len=%d want 4", len(got))
 	}
+	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0], certs[1], certs[2]})
+	if err := s.Remove(keep); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	got, err = s.List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("after remove List len=%d want 3", len(got))
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "linked.crt")); !os.IsNotExist(err) {
+		t.Fatal("removed linked.crt still present")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "linked.pem")); !os.IsNotExist(err) {
+		t.Fatal("alias for removed linked.crt still present")
+	}
+	assertCerthashLinks(t, dir)
+}
+
+func assertCerthashLinks(t *testing.T, dir string) {
+	t.Helper()
 	pems, err := filepath.Glob(filepath.Join(dir, "*.pem"))
 	if err != nil {
 		t.Fatal(err)
@@ -757,6 +862,9 @@ func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
 		t.Fatal("certhash created no hash links")
 	}
 	for _, p := range pems {
+		if isCerthashAliasPEM(p) {
+			// alias must still be reachable via a hash link
+		}
 		if !linked[filepath.Base(p)] && !linked[p] {
 			t.Errorf("no hash link points at %s", p)
 		}
@@ -828,10 +936,7 @@ func isOpenSSLHashLinkName(name string) bool {
 			return false
 		}
 	}
-	rest := name[9:]
-	if strings.HasPrefix(rest, "r") {
-		rest = rest[1:]
-	}
+	rest := strings.TrimPrefix(name[9:], "r")
 	if rest == "" {
 		return false
 	}

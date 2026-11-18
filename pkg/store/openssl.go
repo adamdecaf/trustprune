@@ -1016,6 +1016,9 @@ func (s opensslStore) rehash(dir string, required bool) error {
 	}
 
 	if findLibreSSLBin() != "" {
+		if err := dropDanglingCerthashAliases(dir); err != nil {
+			return err
+		}
 		if err := promoteCRTsForCerthash(dir); err != nil {
 			return err
 		}
