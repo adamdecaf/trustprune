@@ -48,7 +48,7 @@ No restriction can distrust a system root. `com.apple.applicationaccess` has no 
 
 The [Certificate Revocation payload](https://developer.apple.com/documentation/devicemanagement/certificaterevocation) (`com.apple.security.certificaterevocation`, iOS 14.2) turns on revocation checking for certificates named by the SHA-256 hash of `subjectPublicKeyInfo`. Apple's schema says trusted roots are already included, so the payload does not ask you to list them. It does not mark a root untrusted.
 
-Supervision decides who may install a profile and who may flip the switch. On an unsupervised device, Apple Configurator asks the person to confirm, and a root installed by hand needs the full-trust switch. On a supervised device, Configurator installs the profile with no prompt ([Add or remove configuration profiles](https://support.apple.com/guide/apple-configurator-mac/add-or-remove-configuration-profiles-cadb67fcd4f/2.16/mac/12.4)), and the trust switch for those roots is off. `allowUIConfigurationProfileInstallation` can also block the user from adding any profile.
+Supervision decides who may install a profile and who may flip the switch. On an unsupervised device, Apple Configurator asks the person to confirm, and a root installed by hand needs the full-trust switch. On a supervised device, Configurator installs the profile with no prompt ([Add or remove configuration profiles](https://support.apple.com/guide/apple-configurator-mac/add-or-remove-configuration-profiles-cadb67fcd4f/2.16/mac/12.4)), and roots installed that way are trusted without the full-trust switch. The setting is locked there, not turned off. `allowUIConfigurationProfileInstallation` can also block the user from adding any profile.
 
 ## Reading the trust state
 
@@ -62,13 +62,13 @@ An app on the phone cannot list the store either. The system trusts the roots pa
 
 ## What trustprune can do
 
-**Audit against the published list.** Take a trust-store version, the number from Certificate Trust Settings or a version the user names, and list that article's roots: name and SHA-256 fingerprint. Diff an allowlist against that set. The output is Apple's published list for that version, and the command should say so. It is a description of a published article, not a dump of a phone. The articles are HTML tables. Apple does not document a machine-readable feed of the same table. Whether `Certificates.bundle` holds anything beyond the documented `TrustStore.html` is **unverified**. The version in a Mac's `TrustStore.html` is that Mac's copy of the shared store. It can be a different version from the phone.
+**Audit against the published list.** Take a trust-store version, the number from Certificate Trust Settings or a version the user names, and list that article's trusted roots: name and SHA-256 fingerprint. Some articles also list always-ask and blocked certificates. The audit keeps those categories separate, compares only the trusted section with an allowlist, and does not report the other rows as trusted roots. The output is Apple's published list for that version, and the command should say so. It is a description of a published article, not a dump of a phone. The articles are HTML tables. Apple does not document a machine-readable feed of the same table. Whether `Certificates.bundle` holds anything beyond the documented `TrustStore.html` is **unverified**. The version in a Mac's `TrustStore.html` is that Mac's copy of the shared store. It can be a different version from the phone.
 
 **A guide for roots the user installed.** Print the steps and do not write anything:
 
-1. Open **Settings > General > VPN & Device Management**. Delete a profile you installed. That removes its certificates.
-2. Open **Settings > General > About > Certificate Trust Settings**. Turn off **Enable full trust for root certificates** for a root you installed by hand. TLS trust drops. The profile stays until you delete it.
-3. If the switch is missing, or the profile will not delete, the device is supervised or a device-management service owns the profile. The administrator removes it.
+1. Open **Settings > General > About > Certificate Trust Settings**. Turn off **Enable full trust for root certificates** for a root you installed by hand. TLS trust drops, and the profile stays in place, so this is easy to undo.
+2. To remove the root entirely, open **Settings > General > VPN & Device Management** and delete the profile that installed it. Deleting a profile removes every certificate and setting in it, so check what else it contains first.
+3. If the full-trust section is missing, there may simply be no extra roots installed by hand. If a root you expect to see is listed under a profile you cannot delete, a supervision or device-management service likely owns that profile, and its administrator has to remove it.
 
 **What cannot be automated on a stock iPhone:**
 
