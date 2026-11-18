@@ -655,7 +655,10 @@ func readChainFile(path string) ([]*x509.Certificate, error) {
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, fmt.Errorf("%s: no certificate", path)
 	}
-	cert, err := certutil.ParseCertificate(bytes.TrimSpace(body))
+	// Parse the raw body. TrimSpace would drop a trailing signature byte
+	// that is whitespace (0x09, 0x0a, 0x20, ...) and the certificate
+	// would fail as malformed.
+	cert, err := certutil.ParseCertificate(body)
 	if err != nil {
 		return nil, fmt.Errorf("%s: not a PEM or DER certificate: %w", path, err)
 	}

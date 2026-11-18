@@ -684,6 +684,32 @@ func TestReadChainFileMissing(t *testing.T) {
 	}
 }
 
+func TestReadChainFileDERTrailingWhitespace(t *testing.T) {
+	t.Parallel()
+	der := mintDEREndingInWhitespace(t)
+	path := filepath.Join(t.TempDir(), "leaf.der")
+	if err := os.WriteFile(path, der, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	certs, err := readChainFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 || certs[0] == nil {
+		t.Fatalf("certs = %d", len(certs))
+	}
+	if !bytes.Equal(certs[0].Raw, der) {
+		t.Fatal("parsed certificate dropped trailing bytes")
+	}
+	trimmed := bytes.TrimSpace(der)
+	if len(trimmed) >= len(der) {
+		t.Fatalf("last byte %#x was not removed by TrimSpace", der[len(der)-1])
+	}
+	if _, err := x509.ParseCertificate(trimmed); err == nil {
+		t.Fatalf("trimmed DER still parsed (last byte %#x)", der[len(der)-1])
+	}
+}
+
 func chainTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
@@ -707,6 +733,71 @@ func mustURL(t *testing.T, raw string) *url.URL {
 		t.Fatal(err)
 	}
 	return u
+}
+
+// mintDEREndingInWhitespace returns a certificate whose DER encoding ends
+// in a whitespace byte (for example 0x20, 0x0a, or 0x09). The search is
+// bounded and anything that could hang is wrapped in a 120s timeout.
+func mintDEREndingInWhitespace(t *testing.T) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
+	defer cancel()
+	type result struct {
+		der []byte
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		der, err := searchDEREndingInWhitespace(ctx)
+		ch <- result{der, err}
+	}()
+	select {
+	case <-ctx.Done():
+		t.Fatalf("minting DER certificate: %v", ctx.Err())
+	case res := <-ch:
+		if res.err != nil {
+			t.Fatal(res.err)
+		}
+		return res.der
+	}
+	return nil
+}
+
+func searchDEREndingInWhitespace(ctx context.Context) ([]byte, error) {
+	const maxAttempts = 8192
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, err
+	}
+	notBefore := chainTestNow.Add(-time.Hour)
+	notAfter := chainTestNow.Add(24 * time.Hour)
+	for i := 1; i <= maxAttempts; i++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		tmpl := caTemplate("ws.example", notBefore, notAfter)
+		tmpl.SerialNumber = big.NewInt(int64(i))
+		der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+		if err != nil {
+			return nil, err
+		}
+		if len(der) > 0 && derEndsWithWhitespace(der[len(der)-1]) {
+			return der, nil
+		}
+	}
+	return nil, errors.New("no DER certificate ended in whitespace after 8192 attempts")
+}
+
+// derEndsWithWhitespace reports bytes that bytes.TrimSpace removes from
+// arbitrary binary. 0x85 and 0xA0 are Unicode spaces only as UTF-8
+// sequences, so a lone signature byte of those values is left in place.
+func derEndsWithWhitespace(b byte) bool {
+	switch b {
+	case 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20:
+		return true
+	default:
+		return false
+	}
 }
 
 func mintLeafAndCA(t *testing.T, leafCN, caCN string, notBefore, notAfter time.Time) (*x509.Certificate, *x509.Certificate) {
@@ -881,5 +972,3 @@ func mintTLSChainUnder(t *testing.T, root *x509.Certificate, rootKey *ecdsa.Priv
 	server := tls.Certificate{Certificate: [][]byte{leafDER, midDER}, PrivateKey: leafKey}
 	return leaf, mid, server
 }
-
-
