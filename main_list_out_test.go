@@ -256,6 +256,25 @@ func TestOutHelpText(t *testing.T) {
 	if !strings.Contains(list.stdout, "--format long") {
 		t.Fatalf("list help should mention --format long:\n%s", list.stdout)
 	}
+	if !strings.Contains(list.stdout, "--allowlist") || !strings.Contains(list.stdout, "--ui web --allowlist") {
+		t.Fatalf("list help missing web allowlist checklist:\n%s", list.stdout)
+	}
+}
+
+func TestListAllowlistRequiresWeb(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	pem := filepath.Join("testdata", "example.crt")
+	res := runCLI(t, bin, home, "list", "--file", pem, "--allowlist", filepath.Join(home, "keep.json"))
+	if res.code != 2 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if res.stdout != "" {
+		t.Fatalf("stdout=%q, want empty", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "--allowlist is only used with --ui web") {
+		t.Fatalf("stderr=%q", res.stderr)
+	}
 }
 
 func TestListFormatDefaultAndUnknown(t *testing.T) {

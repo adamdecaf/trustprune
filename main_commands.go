@@ -733,6 +733,11 @@ FORMATTING
   Show the certificates on a local webpage (Default: ` + ui.DefaultUI() + `, Options: ` + strings.Join(ui.GetUIs(), ", ") + `)
     trustprune list --ui web
 
+  That page has a checkbox per certificate (checked means keep) and a
+  Download allowlist button. --allowlist pre-checks certificates that file
+  would keep. The page leaves the trust store unchanged.
+    trustprune list --ui web --allowlist allowlist.json
+
   Write formatted output to a file instead of stdout (--out <path>, every --format and --count)
     trustprune list --format json --out certs.json
     trustprune list --format observatory --out report.yaml
@@ -749,6 +754,7 @@ APPS
 			flagListFormat(),
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
 			flagUI(),
+			flagListAllowlist(),
 			flagVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
@@ -771,6 +777,9 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 	}
 	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi/poppler path, not both"); err != nil {
 		return ctx, err
+	}
+	if flagString(c, "allowlist") != "" && !strings.EqualFold(flagString(c, "ui"), "web") {
+		return ctx, usageExit(c, "--allowlist is only used with --ui web")
 	}
 	return ctx, rejectIncompatibleStore(c)
 }

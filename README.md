@@ -148,7 +148,8 @@ trustprune list --format long           # multi-line dump
 trustprune list --format openssl
 trustprune list --format json --out certs.json          # --out writes every list format and --count; stdout stays empty
 trustprune list --format observatory --out report.yaml
-trustprune list --ui web             # cli (default) or web (prints URL if headless)
+trustprune list --ui web             # local checklist page (prints the URL if headless)
+trustprune list --ui web --allowlist allowlist.json  # start from an allowlist file; download writes JSON
 
 # Apps
 trustprune list --app java
