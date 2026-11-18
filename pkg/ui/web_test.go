@@ -312,6 +312,116 @@ func TestChecklistScriptIsLocal(t *testing.T) {
 	}
 }
 
+// TestDroppedStyleFollowsCheckbox locks the dropped card and the subject
+// strikethrough to the live keep checkbox. A stale is-dropped class, which
+// is the initial state when JS is off, must not paint a checked row as dropped.
+func TestDroppedStyleFollowsCheckbox(t *testing.T) {
+	css := stylesheetOf(t, head)
+	const fallbackAt = "@supports not selector(:has("
+	modern, fallback, found := strings.Cut(css, fallbackAt)
+	live := stripCSSComments(modern)
+	if strings.Contains(live, "is-dropped") {
+		t.Fatalf("dropped styles key off is-dropped where :has() applies:\n%s", live)
+	}
+	for _, want := range []string{
+		"article.cert:has(input.cert-keep:not(:checked)) {",
+		"article.cert:has(input.cert-keep:not(:checked)) .subject {",
+		"article.cert:has(input.cert-keep:checked) {",
+		"article.cert:has(input.cert-keep:checked) .subject {",
+		"background: var(--dropped)",
+		"text-decoration: line-through",
+		"background: var(--card)",
+		"text-decoration: none",
+	} {
+		if !strings.Contains(live, want) {
+			t.Fatalf("stylesheet missing %q", want)
+		}
+	}
+	droppedSel := selectorBefore(t, live, "background: var(--dropped)")
+	if droppedSel != "article.cert:has(input.cert-keep:not(:checked))" {
+		t.Fatalf("dropped background selector = %q", droppedSel)
+	}
+	strikeSel := selectorBefore(t, live, "text-decoration: line-through")
+	if strikeSel != "article.cert:has(input.cert-keep:not(:checked)) .subject" {
+		t.Fatalf("strikethrough selector = %q", strikeSel)
+	}
+	keptRule := ruleBySelector(t, live, "article.cert:has(input.cert-keep:checked) .subject")
+	if !strings.Contains(keptRule, "color: var(--text)") || !strings.Contains(keptRule, "text-decoration: none") {
+		t.Fatalf("checked subject rule = %q", keptRule)
+	}
+	keptCard := ruleBySelector(t, live, "article.cert:has(input.cert-keep:checked)")
+	if !strings.Contains(keptCard, "background: var(--card)") || !strings.Contains(keptCard, "border-left-color: var(--keep)") {
+		t.Fatalf("checked card rule = %q", keptCard)
+	}
+	if !found {
+		t.Fatal("missing no-:has fallback for the is-dropped class")
+	}
+	if !strings.Contains(fallback, "article.cert.is-dropped") || !strings.Contains(fallback, "article.cert.is-dropped .subject") {
+		t.Fatal("older browsers lose the class-based dropped style")
+	}
+	if strings.Contains(fallback, ":has(") {
+		t.Fatal("no-:has fallback still depends on :has()")
+	}
+}
+
+// TestCopyFallbackSurfacesFailure locks the fingerprint copy path so a false
+// execCommand result, a thrown error, or a rejected clipboard promise whose
+// fallback also fails does not show the copied state.
+func TestCopyFallbackSurfacesFailure(t *testing.T) {
+	fallback := jsFuncBody(t, footer, "fallbackCopy")
+	if execCommandResultIgnored(fallback) {
+		t.Fatalf("execCommand result is ignored:\n%s", fallback)
+	}
+	for _, want := range []string{
+		`document.execCommand("copy")`,
+		"catch (e)",
+		"return ok",
+	} {
+		if !strings.Contains(fallback, want) {
+			t.Fatalf("fallbackCopy missing %q:\n%s", want, fallback)
+		}
+	}
+
+	copyFn := jsFuncBody(t, footer, "copyFingerprint")
+	flat := strings.Join(strings.Fields(copyFn), "")
+	if strings.Contains(flat, "fallbackCopy(fp);done()") || strings.Contains(flat, "fallbackCopy(fp);failed()") {
+		t.Fatalf("copy result is ignored:\n%s", copyFn)
+	}
+	if !strings.Contains(flat, "finish(fallbackCopy(fp))") {
+		t.Fatalf("fallback result is not checked:\n%s", copyFn)
+	}
+	if !strings.Contains(flat, ".then(done,function(){finish(fallbackCopy(fp));})") {
+		t.Fatalf("rejected clipboard write does not use the fallback result:\n%s", copyFn)
+	}
+	if !strings.Contains(flat, "if(ok){done();}else{failed();}") {
+		t.Fatalf("done() does not wait on a successful copy:\n%s", copyFn)
+	}
+	for _, want := range []string{
+		`status.textContent = "Copied SHA256 fingerprint"`,
+		`status.textContent = "Copy failed"`,
+		`setAttribute("data-copied", "1")`,
+		`setAttribute("data-copy-failed", "1")`,
+		"function done()",
+		"function failed()",
+	} {
+		if !strings.Contains(copyFn, want) {
+			t.Fatalf("copyFingerprint missing %q", want)
+		}
+	}
+
+	css := stylesheetOf(t, head)
+	for _, want := range []string{
+		`.fp-copy[data-copy-failed="1"]`,
+		`content: "Copy failed"`,
+		"color: var(--danger)",
+		"--danger:",
+	} {
+		if !strings.Contains(css, want) {
+			t.Fatalf("stylesheet missing %q", want)
+		}
+	}
+}
+
 func TestWebChecklistPrecheck(t *testing.T) {
 	alpha := mustNamedCert(t, "alpha", "US", 1)
 	zulu := mustNamedCert(t, "zulu", "DE", 2)
@@ -696,6 +806,123 @@ func TestWebPageControlsAndStatus(t *testing.T) {
 	}
 	if strings.Count(page, `<span class="pill">Self-signed</span>`) != 1 {
 		t.Fatalf("self-signed pills:\n%s", page)
+	}
+}
+
+func stripCSSComments(css string) string {
+	for {
+		start := strings.Index(css, "/*")
+		if start < 0 {
+			return css
+		}
+		end := strings.Index(css[start:], "*/")
+		if end < 0 {
+			return css[:start]
+		}
+		css = css[:start] + css[start+end+2:]
+	}
+}
+
+func stylesheetOf(t *testing.T, doc string) string {
+	t.Helper()
+	i := strings.Index(doc, "<style>")
+	j := strings.Index(doc, "</style>")
+	if i < 0 || j < i {
+		t.Fatal("missing stylesheet")
+	}
+	return doc[i+len("<style>") : j]
+}
+
+// selectorBefore returns the selector of the declaration block that contains
+// the first needle. It is the text between the previous rule and that block's "{".
+// ruleBySelector returns the declaration block for an exact selector.
+// A longer selector that merely contains sel is not a match.
+func ruleBySelector(t *testing.T, css, sel string) string {
+	t.Helper()
+	rest := css
+	for {
+		i := strings.Index(rest, sel)
+		if i < 0 {
+			t.Fatalf("stylesheet missing selector %q", sel)
+		}
+		after := rest[i+len(sel):]
+		trimmed := strings.TrimLeft(after, " \t")
+		if !strings.HasPrefix(trimmed, "{") {
+			rest = rest[i+len(sel):]
+			continue
+		}
+		end := strings.Index(trimmed, "}")
+		if end < 0 {
+			t.Fatalf("unclosed rule %q", sel)
+		}
+		return trimmed[:end+1]
+	}
+}
+
+func selectorBefore(t *testing.T, css, needle string) string {
+	t.Helper()
+	i := strings.Index(css, needle)
+	if i < 0 {
+		t.Fatalf("stylesheet missing %q", needle)
+	}
+	brace := strings.LastIndex(css[:i], "{")
+	if brace < 0 {
+		t.Fatalf("no rule for %q", needle)
+	}
+	start := strings.LastIndex(css[:brace], "}")
+	if start < 0 {
+		start = 0
+	} else {
+		start++
+	}
+	return strings.TrimSpace(css[start:brace])
+}
+
+func jsFuncBody(t *testing.T, script, name string) string {
+	t.Helper()
+	needle := "function " + name
+	i := strings.Index(script, needle)
+	if i < 0 {
+		t.Fatalf("missing function %s", name)
+	}
+	rel := strings.Index(script[i:], "{")
+	if rel < 0 {
+		t.Fatalf("function %s has no body", name)
+	}
+	start := i + rel
+	depth := 0
+	for n := start; n < len(script); n++ {
+		switch script[n] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return script[start : n+1]
+			}
+		}
+	}
+	t.Fatalf("function %s body does not close", name)
+	return ""
+}
+
+// execCommandResultIgnored reports a bare execCommand("copy") statement,
+// which drops both a false return and is the shape that ignores failure.
+func execCommandResultIgnored(fn string) bool {
+	const call = `execCommand("copy")`
+	rest := fn
+	found := false
+	for {
+		i := strings.Index(rest, call)
+		if i < 0 {
+			return !found
+		}
+		found = true
+		after := strings.TrimLeft(rest[i+len(call):], " \t\r\n")
+		if strings.HasPrefix(after, ";") {
+			return true
+		}
+		rest = rest[i+len(call):]
 	}
 }
 

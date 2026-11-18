@@ -83,6 +83,7 @@ const (
   --code-bg: #f3eee4;
   --dropped: #f6f3ec;
   --keep: #1e4d3a;
+  --danger: #991b1b;
   --shadow: 0 1px 2px rgba(28, 25, 21, 0.05), 0 10px 28px rgba(28, 25, 21, 0.05);
   --header-shadow: 0 10px 28px rgba(28, 25, 21, 0.06);
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
@@ -109,6 +110,7 @@ const (
     --code-bg: #101614;
     --dropped: #171e1b;
     --keep: #9ed4b8;
+    --danger: #fca5a5;
     --shadow: none;
     --header-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
   }
@@ -278,15 +280,35 @@ article.cert {
   padding: 0.9rem 1rem 0.8rem;
   box-shadow: var(--shadow);
 }
-article.cert.is-dropped,
+/* Dropped look follows the live checkbox, with or without the page script.
+   :has() is more specific than .is-dropped, so a stale initial class cannot
+   keep the dropped card or the strikethrough after the box is checked.
+   Browsers without :has() ignore these rules. */
 article.cert:has(input.cert-keep:not(:checked)) {
   background: var(--dropped);
   border-left-color: var(--border-strong);
 }
-article.cert.is-dropped .subject,
 article.cert:has(input.cert-keep:not(:checked)) .subject {
   color: var(--muted);
   text-decoration: line-through;
+}
+article.cert:has(input.cert-keep:checked) {
+  background: var(--card);
+  border-left-color: var(--keep);
+}
+article.cert:has(input.cert-keep:checked) .subject {
+  color: var(--text);
+  text-decoration: none;
+}
+@supports not selector(:has(*)) {
+  article.cert.is-dropped {
+    background: var(--dropped);
+    border-left-color: var(--border-strong);
+  }
+  article.cert.is-dropped .subject {
+    color: var(--muted);
+    text-decoration: line-through;
+  }
 }
 .cert-main {
   display: grid;
@@ -426,6 +448,15 @@ article.cert:has(input.cert-keep:not(:checked)) .subject {
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--keep);
+}
+.fp-copy[data-copy-failed="1"] { border-color: var(--danger); box-shadow: inset 0 0 0 1px var(--danger); }
+.fp-copy[data-copy-failed="1"]::after {
+  content: "Copy failed";
+  margin-left: 0.45rem;
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--danger);
 }
 .cert-details {
   margin-top: 0.75rem;
@@ -743,12 +774,16 @@ function fallbackCopy(text) {
   ta.style.left = "-9999px";
   document.body.appendChild(ta);
   ta.select();
+  var ok = false;
   try {
-    document.execCommand("copy");
+    ok = document.execCommand("copy") == true;
   } catch (e) {
-    /* clipboard unavailable */
+    ok = false;
   }
-  document.body.removeChild(ta);
+  if (ta.parentNode) {
+    ta.parentNode.removeChild(ta);
+  }
+  return ok;
 }
 
 function copyFingerprint(btn) {
@@ -757,27 +792,43 @@ function copyFingerprint(btn) {
     return;
   }
   var status = document.getElementById("copy-status");
+  function clearCopyState() {
+    btn.removeAttribute("data-copied");
+    btn.removeAttribute("data-copy-failed");
+    if (status) {
+      status.textContent = "";
+    }
+  }
   function done() {
+    btn.removeAttribute("data-copy-failed");
     btn.setAttribute("data-copied", "1");
     if (status) {
       status.textContent = "Copied SHA256 fingerprint";
     }
-    window.setTimeout(function () {
-      btn.removeAttribute("data-copied");
-      if (status) {
-        status.textContent = "";
-      }
-    }, 1200);
+    window.setTimeout(clearCopyState, 1200);
+  }
+  function failed() {
+    btn.removeAttribute("data-copied");
+    btn.setAttribute("data-copy-failed", "1");
+    if (status) {
+      status.textContent = "Copy failed";
+    }
+    window.setTimeout(clearCopyState, 1200);
+  }
+  function finish(ok) {
+    if (ok) {
+      done();
+    } else {
+      failed();
+    }
   }
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(fp).then(done, function () {
-      fallbackCopy(fp);
-      done();
+      finish(fallbackCopy(fp));
     });
     return;
   }
-  fallbackCopy(fp);
-  done();
+  finish(fallbackCopy(fp));
 }
 
 var downloadBtn = document.getElementById("download-allowlist");
