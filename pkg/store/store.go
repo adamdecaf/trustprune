@@ -282,9 +282,9 @@ func ForApp(app string) (Store, error) {
 // ForAppWithStore returns a Store for app, optionally overriding the trust-store
 // path with storePath. java uses it as a keystore override; certifi uses it as a
 // cacert.pem override (one bundle per venv); poppler uses it as an NSS directory
-// (pdfsig -nssdir). Used by -store on list, backup, connect, restore, add, and
-// allowlist. Other apps, including the platform OS name, reject a non-empty
-// storePath. Empty storePath is ForApp.
+// (pdfsig -nssdir). Used by -store on list, backup, connect, restore, add,
+// allowlist, and create. Other apps, including the platform OS name, reject
+// a non-empty storePath. Empty storePath is ForApp.
 // Apps that accept storePath are storeOverrideApps (SupportsStoreOverride).
 func ForAppWithStore(app, storePath string) (Store, error) {
 	if strings.TrimSpace(storePath) == "" {

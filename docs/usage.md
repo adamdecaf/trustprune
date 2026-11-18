@@ -6,7 +6,7 @@ nav_order: 4
 
 # Usage
 
-Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted.
+Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle. It leaves the store unchanged and has no `--dry-run` flag.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -364,7 +364,7 @@ countries:
 
 ## gen-allowlist
 
-Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
+Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). To write a PEM bundle from a store and leave that store unchanged, use [`trustprune create`](#create). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
 
 ```bash
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
@@ -391,6 +391,33 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets -
 | `--stats` | Print connection and timing stats to stderr after hosts are dialed. The summary table is unchanged. The block lists URLs read, unique hosts, TLS attempts, successes, and failures (failed hosts, at most 20), hosts answered from a CA already recorded for that name, total and average DNS and connect+TLS times, unique roots, and wall time. Omitted when `--stats` is not set |
 
 Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0. `--stats` alone does not count as a source. `--presets` and `--no-presets` together are a usage error (exit 2).
+
+## create
+
+Write a PEM bundle of the trusted certificates that match an allowlist. The platform store is the default. `--app` selects an application store. `--store` overrides java, certifi, and poppler. `--bundle` with `--app openssl` reads that PEM. The command only reads that store: it does not add, remove, back up, or restore. Guide-only apps return their existing guide error and write nothing.
+
+`--file` is the allowlist (YAML or JSON), the same file `allowlist` and `gen-allowlist` use. Matching uses that file's fingerprints and countries, including the built-in denylist and Chromium blocklist, so a denied certificate is left out even when the file names it. `--format` accepts `pem` (the default). Any other value, including a Java trust store, is a usage error (exit 2) that names `pem`. Omit `--out` to write the PEM to stdout. With `--out`, stdout stays empty and the file mode is `0644`.
+
+An allowlist that matches no trusted certificate fails with exit 1 (`no certificates matched the allowlist; refusing to write an empty PEM bundle`) and creates no output file. That matches `allowlist` refusing to leave a bundle empty. `--out` set to the store path, or to a file inside a directory store, is refused before any write.
+
+```bash
+trustprune create --file allowlist.yaml
+trustprune create --file allowlist.yaml --out ca-bundle.pem
+trustprune create --file allowlist.yaml --format pem --out ca-bundle.pem
+trustprune create --file allowlist.yaml --app java --out java-cas.pem
+trustprune create --file allowlist.yaml --app certifi --store /path/to/cacert.pem --out kept.pem
+trustprune create --file allowlist.yaml --app poppler --store /path/to/nssdb --out kept.pem
+trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundle.pem --out kept.pem
+```
+
+| Flag | Meaning |
+|------|---------|
+| `--file <path>` | **Required.** Allowlist file (YAML or JSON) |
+| `--app <name>` | Read an application store. Omit it to read the platform store |
+| `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory |
+| `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |
+| `--format pem` | Output format. `pem` is the default and the only accepted value. Another name is a usage error (exit 2) |
+| `--out <path>` | Write the PEM bundle to this path (mode `0644`) instead of stdout. Stdout stays empty |
 
 ## add
 

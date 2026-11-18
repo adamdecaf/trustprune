@@ -192,7 +192,7 @@ func writeUsageError(w io.Writer, msg string) {
 func newApp(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "trustprune",
-		Usage: "list, backup, allowlist, and restore CA trust stores",
+		Usage: "list, backup, allowlist, restore, and create PEM bundles from CA trust stores",
 		// HideVersion skips urfave's VersionFlag, which aliases -v.
 		// list already uses -v for verbose output. Root --version is flagVersion.
 		HideVersion:                   true,
@@ -211,6 +211,7 @@ func newApp(st *runState) *cli.Command {
 			appsCommand(st),
 			backupCommand(st),
 			connectCommand(st),
+			createCommand(st),
 			diffCommand(st),
 			genAllowlistCommand(st),
 			listCommand(st),

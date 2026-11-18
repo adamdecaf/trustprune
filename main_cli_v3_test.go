@@ -89,7 +89,7 @@ func TestCLIExitCodes(t *testing.T) {
 	})
 
 	t.Run("missing --file is 2", func(t *testing.T) {
-		for _, name := range []string{"add", "allowlist"} {
+		for _, name := range []string{"add", "allowlist", "create"} {
 			res := runCLI(t, bin, home, name)
 			assertUsageError(t, res, "required flag --file not set")
 		}

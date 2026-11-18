@@ -194,6 +194,19 @@ func flagConnectFormat() *cli.StringFlag {
 	}
 }
 
+// flagCreateFormat is create --format pem.
+// pem is the only accepted value. Java trust stores can be added later.
+// Do not use ui.DefaultFormat here: that is the list table format.
+func flagCreateFormat() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:        "format",
+		Usage:       "output format (default: pem, options: " + cmd.CreateFormats + ")",
+		Value:       "pem",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 // flagDiffFormat is diff --format text (default) or json.
 // Do not use ui.DefaultFormat here: that is the list table format.
 func flagDiffFormat() *cli.StringFlag {
