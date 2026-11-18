@@ -327,10 +327,11 @@ func connectAction(_ context.Context, c *cli.Command) error {
 func createCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "create",
-		Usage: "Write a PEM bundle of allowlisted certificates without changing the store",
-		UsageText: `trustprune create --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--format pem] [--out <path>]
+		Usage: "Write a PEM bundle or Java truststore of allowlisted certificates without changing the store",
+		UsageText: `trustprune create --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--format pem|jks|pkcs12] [--out <path>]
 
-  Write trusted certificates that match an allowlist to a PEM bundle.
+  Write trusted certificates that match an allowlist.
+  pem (the default) is a PEM bundle. jks and pkcs12 are Java truststores.
   The store is only read. Nothing is removed, added, or backed up.
 
   Platform store, PEM on stdout
@@ -338,6 +339,12 @@ func createCommand(st *runState) *cli.Command {
 
   Write the bundle to a file (mode 0644). Stdout stays empty.
     trustprune create --file allowlist.yaml --out ca-bundle.pem
+
+  Java truststore. --out is required. The password defaults to changeit.
+  Set TRUSTPRUNE_JAVA_STOREPASS to override it. A custom password is passed
+  to keytool with -storepass:env, not argv. There is no password flag.
+    trustprune create --file allowlist.yaml --format jks --out trusted.jks
+    trustprune create --file allowlist.yaml --format pkcs12 --out trusted.p12
 
   Application store. --store overrides java, certifi, or poppler.
     trustprune create --file allowlist.yaml --app java --out java-cas.pem
@@ -347,8 +354,13 @@ func createCommand(st *runState) *cli.Command {
   Read an explicit OpenSSL PEM CA bundle. The file is not modified.
     trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundle.pem --out kept.pem
 
-  --format accepts pem (the default). Any other value is a usage error.
+  --format accepts pem (the default), jks, and pkcs12. Any other value is a usage error.
     trustprune create --file allowlist.yaml --format pem
+
+  jks and pkcs12 require --out. keytool writes the truststore (JAVA_HOME/bin,
+  then PATH, then ~/.local/bin). A missing keytool is an error. Aliases are
+  sha256-<fingerprint>. The truststore is written to a temp file in the
+  destination directory and renamed into place.
 
   An allowlist that matches no trusted certificate fails before any output file is created.
   --out equal to the store path, or a path inside a directory store, is refused.
@@ -361,7 +373,7 @@ APPS
 			flagStore(),
 			flagBundle(),
 			flagCreateFormat(),
-			flagOut("write the PEM bundle to this path instead of stdout (mode 0644)", false),
+			flagOut("write the PEM bundle or Java truststore to this path (mode 0644). Required for jks and pkcs12; pem defaults to stdout", false),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       createBefore,
@@ -370,8 +382,12 @@ APPS
 }
 
 func createBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
-	if _, err := cmd.NormalizeCreateFormat(c.String("format")); err != nil {
+	format, err := cmd.NormalizeCreateFormat(c.String("format"))
+	if err != nil {
 		return ctx, usageExit(c, err.Error())
+	}
+	if cmd.CreateFormatRequiresOut(format) && flagString(c, "out") == "" {
+		return ctx, usageExit(c, cmd.CreateOutRequiredError(format).Error())
 	}
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err

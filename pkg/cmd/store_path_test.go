@@ -32,10 +32,6 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
 
-// defaultJavaStorePassword matches pkg/store defaultKeystorePassword.
-// The Java store reads this password; the test cannot see that unexported name.
-const defaultJavaStorePassword = "changeit"
-
 func TestAddCertsToAppFromStoreCertifiDryRun(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

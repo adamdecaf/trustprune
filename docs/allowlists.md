@@ -57,10 +57,11 @@ Allowlist completed successfully
 40 removed, 12 kept
 ```
 
-`create` uses the same allowlist file to write a PEM bundle and leaves the store unchanged. `--format` accepts `pem`. An allowlist that matches nothing fails and writes no file. Full flags: [usage](usage.md#create).
+`create` uses the same allowlist file to write a PEM bundle or a Java truststore (`--format jks` or `pkcs12`) and leaves the store unchanged. `--format` accepts `pem` (the default), `jks`, and `pkcs12`. `jks` and `pkcs12` require `--out` and `keytool`. An allowlist that matches nothing fails and writes no file. Full flags: [usage](usage.md#create).
 
 ```
 $ trustprune create --file wh.json --out kept.pem
+$ trustprune create --file wh.json --format jks --out trusted.jks
 $ trustprune create --file wh.json --app java --out java-cas.pem
 ```
 

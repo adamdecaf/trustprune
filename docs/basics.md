@@ -254,14 +254,15 @@ Web UI: http://127.0.0.1:12345/
 
 ## Create
 
-`create` writes a PEM bundle of the trusted certificates that match an allowlist. It reads the platform store, or an application store with the same `--app`, `--store`, and `--bundle` rules as `list`. The store is left unchanged. Guide-only apps return their existing guide error and write nothing.
+`create` writes a PEM bundle or a Java truststore of the trusted certificates that match an allowlist. It reads the platform store, or an application store with the same `--app`, `--store`, and `--bundle` rules as `list`. The store is left unchanged. Guide-only apps return their existing guide error and write nothing.
 
 ```
 $ trustprune create --file allowlist.yaml --out ca-bundle.pem
+$ trustprune create --file allowlist.yaml --format jks --out trusted.jks
 $ trustprune create --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem --out kept.pem
 ```
 
-`--format` accepts `pem` (the default). Omit `--out` and the PEM is written to stdout. The output file mode is `0644`. An allowlist that matches nothing fails before any output file is created. Full flags: [usage](usage.md#create).
+`--format` accepts `pem` (the default), `jks`, or `pkcs12`. Omit `--out` and the PEM is written to stdout. `jks` and `pkcs12` require `--out`. `keytool` writes the truststore (password defaults to `changeit`; override with `TRUSTPRUNE_JAVA_STOREPASS`). The output file mode is `0644`. An allowlist that matches nothing fails before any output file is created. Full flags: [usage](usage.md#create).
 
 ## Backup and Restore
 
