@@ -267,6 +267,8 @@ $ trustprune list --app java --ui web
 Web UI: http://127.0.0.1:12345/
 ```
 
+<img src="./images/web.png" />
+
 ## Create
 
 `create` writes a PEM bundle or a Java truststore of the trusted certificates that match an allowlist. It reads the platform store, or an application store with the same `--app`, `--store`, and `--bundle` rules as `list`. The store is left unchanged. Guide-only apps return their existing guide error and write nothing.
