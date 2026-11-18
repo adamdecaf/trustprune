@@ -55,6 +55,9 @@ func TestCheckBundleFlag(t *testing.T) {
 	if err := CheckBundleFlag("allowlist", "OpenSSL", "/tmp/ca.pem"); err != nil {
 		t.Fatal(err)
 	}
+	if err := CheckBundleFlag("chain", "openssl", "/tmp/ca.pem"); err != nil {
+		t.Fatal(err)
+	}
 	err := CheckBundleFlag("add", "openssl", "/tmp/ca.pem")
 	if err == nil || !strings.Contains(err.Error(), "only supported for list") {
 		t.Fatalf("add: %v", err)

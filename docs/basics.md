@@ -79,6 +79,23 @@ An unknown `--format` is a usage error (exit 2) and names the valid formats (`js
 | `-v`, `--verbose` | Print the verified chain after the one-line summary. No effect with `--format json` |
 | `--format` | `text` (default) is the one-line summary. `json` is one object (`url`, `tls_version`, `verified`, `root`, `leaf`, `chain`) |
 
+## Chain
+
+The `chain` command prints the certificate chain for a local file or a URL. The selected store is only listed. Use it to see which CA a leaf chains to, including a private CA with `--untrusted`.
+
+```
+$ trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
+0      leaf.example ca.example  2027-06-01  <16 hex>
+1      ca.example   ca.example  2027-06-01  <16 hex>
+
+$ trustprune chain --file leaf.pem --untrusted
+$ trustprune chain --file leaf.pem --all
+$ trustprune chain --url example.com --remote
+```
+
+The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
+
 ## Diff
 
 `diff` compares two certificate files and prints the fields that differ. Each file is PEM or DER and must contain one certificate. The comparison does not use the network.

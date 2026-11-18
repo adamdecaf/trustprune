@@ -244,6 +244,107 @@ func backupAction(_ context.Context, c *cli.Command) error {
 	return cmd.BackupForApp(app)
 }
 
+func chainCommand(st *runState) *cli.Command {
+	return &cli.Command{
+		Name:  "chain",
+		Usage: "Show the certificate chain for a file or URL",
+		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote]
+
+Show the certificate chain for a local file or a URL. The store is only listed.
+Nothing is added, removed, or backed up.
+
+The default table uses trusted, in-date certificates that are not on the
+offline Chromium or Mozilla blocklists. Columns match connect -v:
+INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. The leaf is shown even when it
+is not in the store. Other certificates outside the store, expired or
+not-yet-valid certificates, and blocklisted certificates are omitted
+unless the matching flag is set. Included certificates are labeled
+(untrusted), (expired), (not yet valid), and/or (blocklisted).
+--expired covers a past NotAfter and a future NotBefore.
+--revoked does not use OCSP or CRLs.
+
+  File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
+    trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+
+  Include a private CA that is not in the trusted store
+    trustprune chain --file leaf.pem --untrusted
+
+  Include expired, not-yet-valid, or blocklisted certificates
+    trustprune chain --file leaf.pem --expired
+    trustprune chain --file leaf.pem --revoked
+
+  Include untrusted, expired, not-yet-valid, and blocklisted certificates
+    trustprune chain --file leaf.pem --all
+
+  Look up the TLS chain when no local certificate matches the host
+    trustprune chain --url example.com --remote
+    trustprune chain --url https://example.com --remote --untrusted
+
+  --store overrides java, certifi, or poppler. --bundle requires --app openssl.
+
+APPS
+  Supported apps: ` + store.FormatAppsHelpLine(),
+		Flags: []cli.Flag{
+			flagApp(),
+			flagStore(),
+			flagBundle(),
+			flagFile("certificate file (PEM or DER) to show a chain for", false),
+			flagURL("host or URL to show a chain for"),
+			flagChainUntrusted(),
+			flagChainExpired(),
+			flagChainRevoked(),
+			flagChainAll(),
+			flagChainRemote(),
+		},
+		ArgValidator: rejectPositionalArgs,
+		Before:       chainBefore,
+		Action:       withTrace(st, chainAction),
+	}
+}
+
+func chainBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if err := checkBundleFlag(c); err != nil {
+		return ctx, err
+	}
+	if err := rejectStoreWithBundle(c, "chain: --bundle names the openssl PEM to read; --store is only for java/certifi/poppler"); err != nil {
+		return ctx, err
+	}
+	if err := rejectIncompatibleStore(c); err != nil {
+		return ctx, err
+	}
+	file := flagString(c, "file")
+	urlRaw := flagString(c, "url")
+	if c.Bool("remote") && urlRaw == "" {
+		return ctx, usageExit(c, "--remote requires a URL")
+	}
+	if file == "" && urlRaw == "" {
+		return ctx, usageExit(c, "provide a certificate file (--file) or a URL (--url)")
+	}
+	return ctx, nil
+}
+
+func chainAction(_ context.Context, c *cli.Command) error {
+	opts := cmd.ChainOptions{
+		App:       flagString(c, "app"),
+		StorePath: storePath(c),
+		Bundle:    flagString(c, "bundle"),
+		File:      flagString(c, "file"),
+		Untrusted: c.Bool("untrusted"),
+		Expired:   c.Bool("expired"),
+		Revoked:   c.Bool("revoked"),
+		All:       c.Bool("all"),
+		Remote:    c.Bool("remote"),
+	}
+	if raw := flagString(c, "url"); raw != "" {
+		u, err := cmd.NormalizeConnectURL(raw)
+		if err != nil {
+			return err
+		}
+		opts.URL = u
+	}
+	return cmd.ShowChain(c.Root().Writer, opts)
+}
+
 func connectCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "connect",

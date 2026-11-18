@@ -202,6 +202,12 @@ trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 # ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
+# Show a certificate chain (read-only). Default table matches connect -v.
+trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+trustprune chain --file leaf.pem --untrusted   # include a private CA
+trustprune chain --file leaf.pem --all         # untrusted, expired, not-yet-valid, and blocklisted
+trustprune chain --url example.com --remote    # TLS lookup when no local chain is found (30s timeout)
+
 # Compare two certificates (PEM or DER). Exit 0 when identical, 1 when a field differs.
 trustprune diff old.pem new.pem
 trustprune diff --format json old.pem new.der
