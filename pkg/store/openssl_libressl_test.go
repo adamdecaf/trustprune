@@ -799,16 +799,17 @@ func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
 	opensslTestHome(t)
 	libreSSLBinPaths = []string{bin}
 	s, dir, certs := opensslDirEnv(t)
-	extra := extraExampleCert(t)
+	more := loadLotsCerts(t, 5)
+	linkedCert, collideCert := more[3:4], more[4:5]
 	target := filepath.Join(dir, "target-cert")
-	if err := certutil.ToFile(target, extra); err != nil {
+	if err := certutil.ToFile(target, linkedCert); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Base(target), filepath.Join(dir, "linked.crt")); err != nil {
 		t.Skipf("symlink: %v", err)
 	}
-	// Collision: same basename, different certificate than ca-0.crt.
-	if err := certutil.ToFile(filepath.Join(dir, "ca-0.pem"), extra); err != nil {
+	// Collision: same basename as ca-0.crt, but a different certificate.
+	if err := certutil.ToFile(filepath.Join(dir, "ca-0.pem"), collideCert); err != nil {
 		t.Fatal(err)
 	}
 	SetDryRun(false)
@@ -823,10 +824,9 @@ func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// opensslDirEnv has 3 certs; plus linked extra and ca-0.pem extra. linked.crt aliases extra,
-	// ca-0.pem is a second copy of extra, ca-0.crt is certs[0]. Unique: certs[0], certs[1], certs[2], extra = 4
-	if len(got) != 4 {
-		t.Fatalf("List len=%d want 4", len(got))
+	// opensslDirEnv has 3 certs; linked.crt is a fourth, ca-0.pem is a fifth.
+	if len(got) != 5 {
+		t.Fatalf("List len=%d want 5", len(got))
 	}
 	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0], certs[1], certs[2]})
 	if err := s.Remove(keep); err != nil {
@@ -862,9 +862,6 @@ func assertCerthashLinks(t *testing.T, dir string) {
 		t.Fatal("certhash created no hash links")
 	}
 	for _, p := range pems {
-		if isCerthashAliasPEM(p) {
-			// alias must still be reachable via a hash link
-		}
 		if !linked[filepath.Base(p)] && !linked[p] {
 			t.Errorf("no hash link points at %s", p)
 		}
