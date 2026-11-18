@@ -158,7 +158,8 @@ func TestCLIAllowlistDryRunDefaultAndVerbose(t *testing.T) {
 	if err != nil || len(certs) < 2 {
 		t.Fatalf("bundle certs: %d %v", len(certs), err)
 	}
-	keep := allowlist.FromCertificates(certs[:1])
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	var keptN, removedN int
 	var keptLine, removeDetail string
 	for _, c := range certs {
@@ -179,7 +180,7 @@ func TestCLIAllowlistDryRunDefaultAndVerbose(t *testing.T) {
 		t.Fatalf("kept=%d removed=%d", keptN, removedN)
 	}
 	alPath := filepath.Join(t.TempDir(), "allowlist.yaml")
-	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	fp := certutil.GetHexSHA256Fingerprint(*keptCert)
 	if err := os.WriteFile(alPath, []byte("fingerprints:\n  - \""+fp+"\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

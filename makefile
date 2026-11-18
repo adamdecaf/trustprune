@@ -113,6 +113,7 @@ $(BETTERLEAKS_BIN):
 .PHONY: generate
 generate:
 	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
+	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
 
 test: check
 	$(MAKE) linux

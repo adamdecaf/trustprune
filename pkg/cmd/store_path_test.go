@@ -26,6 +26,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
@@ -262,7 +263,20 @@ func TestAllowlistForAppWithStoreCertifiDryRun(t *testing.T) {
 	}
 	idx := strings.LastIndex(planText, closing)
 	summary := planText[idx+len(closing):]
-	wantSummary := fmt.Sprintf("dry-run: %d kept, 0 removed\n", len(certs))
+	parsedAL, err := allowlist.FromFile(al)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keptN, removedN := 0, 0
+	for _, c := range certs {
+		if parsedAL.Matches(c) {
+			keptN++
+		} else {
+			removedN++
+		}
+	}
+	// Naming every fingerprint still drops Mozilla blocklist entries.
+	wantSummary := fmt.Sprintf("dry-run: %d kept, %d removed\n", keptN, removedN)
 	if summary != wantSummary {
 		t.Fatalf("plan summary %q, want %q\nplan=%q", summary, wantSummary, planText)
 	}

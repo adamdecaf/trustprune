@@ -169,6 +169,8 @@ $ trustprune gen-allowlist --out allowlist.yaml --from firefox
 
 `trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted. That list matches certificate SHA-256 fingerprints.
 
+It also includes a Mozilla blocklist generated from [certdata.txt](https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt). That list matches the same way. It contains certificates marked `CKT_NSS_NOT_TRUSTED` for server authentication, and roots whose `CKA_NSS_SERVER_DISTRUST_AFTER` date has passed. The date is recorded on those entries. A root whose distrust-after date is still in the future is omitted until `make generate` runs again after that date. `make generate` refreshes the Chromium list and the Mozilla list.
+
 There is currently no way to disable this behavior.
 
 ### Denylisted certificates
@@ -223,7 +225,7 @@ GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
 
 `github.com/adamdecaf/trustprune/pkg/certpool` returns an `*x509.CertPool` with an allowlist applied.
 
-`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads a PEM bundle from a path and skips blocks that are not `CERTIFICATE`. An unreadable file, a `CERTIFICATE` block that fails to parse, or a file with no certificates returns an error. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in blocklist and denylist. See [Denylisted certificates](#denylisted-certificates).
+`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads a PEM bundle from a path and skips blocks that are not `CERTIFICATE`. An unreadable file, a `CERTIFICATE` block that fails to parse, or a file with no certificates returns an error. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in Chromium and Mozilla blocklists and denylist. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
 
 The system store is only read. `New` lists certificates and returns a new pool. `FromFile` reads only the path you pass. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
 

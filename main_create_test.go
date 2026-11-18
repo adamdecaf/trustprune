@@ -31,7 +31,7 @@ func TestCreateCLI(t *testing.T) {
 	if err != nil || len(certs) < 2 {
 		t.Fatalf("lots.crt: len=%d err=%v", len(certs), err)
 	}
-	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
+	keepFP := certutil.GetHexSHA256Fingerprint(*firstAllowlistedCert(t, certs))
 
 	t.Run("help", func(t *testing.T) {
 		home := t.TempDir()

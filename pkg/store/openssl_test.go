@@ -16,15 +16,21 @@ package store
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/x509"
+	"crypto/x509/pkix"
 	"errors"
 	"fmt"
+	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -100,7 +106,17 @@ func opensslDirEnv(t *testing.T) (opensslStore, string, []*x509.Certificate) {
 	if err != nil || len(certs) < 3 {
 		t.Fatalf("load lots.crt: len=%d err=%v", len(certs), err)
 	}
-	keep := certs[:3]
+	// lots.crt leads with roots Mozilla certdata.txt distrusts for server
+	// auth. A directory allowlist has to be able to keep every file it
+	// names, so the fixture is three certificates Matches would accept.
+	keep := allowlistKeepableCerts(certs)
+	if len(keep) < 3 {
+		keep = append(keep, newTestCA(t, "openssl dir keep"))
+	}
+	if len(keep) < 3 {
+		t.Fatalf("need 3 certificates an allowlist can keep, got %d", len(keep))
+	}
+	keep = keep[:3]
 	dir := t.TempDir()
 	refuseIfSystemOpenSSL(t, dir)
 	for i, c := range keep {
@@ -111,6 +127,58 @@ func opensslDirEnv(t *testing.T) (opensslStore, string, []*x509.Certificate) {
 		refuseIfSystemOpenSSL(t, p)
 	}
 	return opensslStoreAt(dir), dir, keep
+}
+
+// firstAllowlistedCert is the first certificate an allowlist of its own
+// SHA-256 fingerprint would keep. Blocklisted and denylisted certificates
+// are skipped.
+func firstAllowlistedCert(t *testing.T, certs []*x509.Certificate) *x509.Certificate {
+	t.Helper()
+	keepable := allowlistKeepableCerts(certs)
+	if len(keepable) == 0 {
+		t.Fatal("no certificate survives the built-in blocklists and denylist")
+	}
+	return keepable[0]
+}
+
+func allowlistKeepableCerts(certs []*x509.Certificate) []*x509.Certificate {
+	var out []*x509.Certificate
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if (allowlist.Allowlist{Fingerprints: []string{fp}}).Matches(c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func newTestCA(t *testing.T, commonName string) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: commonName},
+		NotBefore:             time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
+		NotAfter:              time.Date(2035, 1, 1, 0, 0, 0, 0, time.UTC),
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		KeyUsage:              x509.KeyUsageCertSign,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
 }
 
 func extraExampleCert(t *testing.T) []*x509.Certificate {
@@ -351,7 +419,8 @@ func TestOpenSSLStore_RestoreNoBackupRefusesBeforeWrite(t *testing.T) {
 
 func TestOpenSSLStore_RemoveAllowlistFile(t *testing.T) {
 	s, path, certs := opensslFileEnv(t)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	SetDryRun(false)
 	if err := s.Backup(); err != nil {
 		t.Fatal(err)
@@ -366,14 +435,15 @@ func TestOpenSSLStore_RemoveAllowlistFile(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after allowlist len=%d want 1", len(got))
 	}
-	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*certs[0]) {
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*keptCert) {
 		t.Fatal("kept unexpected certificate")
 	}
 }
 
 func TestOpenSSLStore_RemoveAllowlistDir(t *testing.T) {
 	s, dir, certs := opensslDirEnv(t)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	SetDryRun(false)
 	if err := s.Backup(); err != nil {
 		t.Fatal(err)
@@ -388,7 +458,7 @@ func TestOpenSSLStore_RemoveAllowlistDir(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after allowlist len=%d want 1", len(got))
 	}
-	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*certs[0]) {
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*keptCert) {
 		t.Fatal("kept unexpected certificate")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ca-1.crt")); !os.IsNotExist(err) {
@@ -506,7 +576,8 @@ func TestOpenSSLStore_DryRunDoesNotWrite(t *testing.T) {
 		SetDryRunOutput(nil)
 	}()
 
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Backup(); err != nil {
 		t.Fatalf("Backup dry-run: %v", err)
 	}
@@ -558,7 +629,8 @@ func TestOpenSSLStore_DirDryRunDoesNotWrite(t *testing.T) {
 	if err := s.Add(extraExampleCert(t)); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -832,7 +904,8 @@ func TestOpenSSLStore_CertPathResolvesSymlink(t *testing.T) {
 	if filepath.Clean(got) != filepath.Clean(want) {
 		t.Fatalf("certPath=%q, want resolved %q", got, want)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	SetDryRun(false)
 	if err := linked.Backup(); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,14 @@
 trustprune
 Copyright 2018 Adam Shannon
 
+This product includes certificate fingerprints derived from Mozilla
+certdata.txt (security/nss/lib/ckfw/builtins/certdata.txt):
+
+https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+
+That file is subject to the Mozilla Public License, v. 2.0. You can obtain
+a copy of the license at https://www.mozilla.org/MPL/2.0/.
+
 This product includes certificate fingerprints derived from the Chromium
 project (net/data/ssl/blocklist), distributed under the following license:
 

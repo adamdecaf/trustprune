@@ -84,7 +84,8 @@ func TestCertifiStore_ListBackupRestoreRoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +183,8 @@ func TestCertifiAllowlistDryRun_DefaultAndVerbose(t *testing.T) {
 	if err != nil || len(parsed.Certs) < 2 {
 		t.Fatalf("bundle certs: %d %v", len(parsed.Certs), err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{parsed.Certs[0]})
+	keptCert := firstAllowlistedCert(t, parsed.Certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 
 	var keptLines []string
 	var removeLines []string
@@ -265,7 +267,8 @@ func TestCertifiAllowlistDryRun_DefaultAndVerbose(t *testing.T) {
 
 func TestCertifiStore_RemoveAllowlistAndDryRun(t *testing.T) {
 	s, path, certs := certifiFileEnv(t)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -298,7 +301,7 @@ func TestCertifiStore_RemoveAllowlistAndDryRun(t *testing.T) {
 		t.Fatalf("len=%d want 1", len(got))
 	}
 	for _, c := range got {
-		if !bytes.Equal(c.Raw, certs[0].Raw) {
+		if !bytes.Equal(c.Raw, keptCert.Raw) {
 			t.Fatal("kept unexpected certificate")
 		}
 	}
@@ -349,7 +352,8 @@ func TestCertifiStore_DryRunDoesNotWrite(t *testing.T) {
 	if err := s.Add(extraExampleCert(t)); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +379,8 @@ func TestCertifiStore_RestoreHonorsWhere(t *testing.T) {
 	if err := s.Backup(); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}

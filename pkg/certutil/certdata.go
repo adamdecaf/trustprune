@@ -249,13 +249,138 @@ func (o nssObject) serverDistrustAfter() (time.Time, error) {
 }
 
 func serverAuthTrusted(trusts []nssObject, der []byte) bool {
+	for _, v := range serverAuthTrustValues(trusts, der) {
+		if v == "CKT_NSS_TRUSTED_DELEGATOR" {
+			return true
+		}
+	}
+	return false
+}
+
+// DistrustedServerCert is one certificate ParseDistrustedServerCerts selected.
+type DistrustedServerCert struct {
+	Cert *x509.Certificate
+	// NotTrusted is true when CKA_TRUST_SERVER_AUTH is CKT_NSS_NOT_TRUSTED,
+	// including a combined value that contains that flag.
+	NotTrusted bool
+	// DistrustAfter is CKA_NSS_SERVER_DISTRUST_AFTER when that instant is
+	// set and not after the cutoff. It is zero when the certificate has no
+	// such date, or when the date is still in the future.
+	DistrustAfter time.Time
+}
+
+// ParseDistrustedServerCerts reads a Mozilla certdata.txt document and
+// returns certificates to block for TLS server authentication.
+//
+// A certificate is included when a matching trust object sets
+// CKA_TRUST_SERVER_AUTH to CKT_NSS_NOT_TRUSTED, including a combined value
+// such as "(CKT_NSS_MUST_VERIFY_TRUST|CKT_NSS_NOT_TRUSTED)". It is also
+// included when CKA_NSS_SERVER_DISTRUST_AFTER is set and that instant is
+// at or before now. Mozilla still marks those roots as trusted delegators
+// and only rejects certificates they issue after the date; the returned
+// list treats the root itself as blocked once the date has passed. A
+// future date does not include the certificate.
+//
+// Trust records that name only an issuer and serial, with no certificate
+// in the file, are omitted: there is no certificate to fingerprint.
+// Certificates that fail to parse are skipped. now is the cutoff.
+func ParseDistrustedServerCerts(r io.Reader, now time.Time) ([]DistrustedServerCert, error) {
+	objects, err := parseNSSObjects(&certDataParser{r: bufio.NewReader(r)})
+	if err != nil {
+		return nil, err
+	}
+	return distrustedServerAuthCerts(objects, now)
+}
+
+func distrustedServerAuthCerts(objects []nssObject, now time.Time) ([]DistrustedServerCert, error) {
+	var certs []nssObject
+	var trusts []nssObject
+	for _, object := range objects {
+		switch object.class() {
+		case "CKO_CERTIFICATE":
+			certs = append(certs, object)
+		case "CKO_NSS_TRUST":
+			trusts = append(trusts, object)
+		}
+	}
+
+	var out []DistrustedServerCert
+	seen := make(map[string]struct{})
+	for _, cert := range certs {
+		distrustAfter, err := cert.serverDistrustAfter()
+		if err != nil {
+			return nil, fmt.Errorf("certdata: line %d: %w", cert.line, err)
+		}
+		derAttr, ok := cert.attrs["CKA_VALUE"]
+		if !ok || derAttr.kind != "MULTILINE_OCTAL" {
+			continue
+		}
+		notTrusted := serverAuthExplicitlyDistrusted(trusts, derAttr.value)
+		passed := distrustAfterPassed(distrustAfter, now)
+		if !notTrusted && !passed {
+			continue
+		}
+		// Same skip as trustedServerAuthCerts: crypto/x509 rejects at least
+		// one historical NSS builtin certificate (bug 707995).
+		parsed, err := x509.ParseCertificate(derAttr.value)
+		if err != nil {
+			continue
+		}
+		rawKey := string(parsed.Raw)
+		if _, ok := seen[rawKey]; ok {
+			continue
+		}
+		seen[rawKey] = struct{}{}
+		entry := DistrustedServerCert{Cert: parsed, NotTrusted: notTrusted}
+		if passed {
+			entry.DistrustAfter = distrustAfter
+		}
+		out = append(out, entry)
+	}
+	return out, nil
+}
+
+func distrustAfterPassed(distrustAfter, now time.Time) bool {
+	return !distrustAfter.IsZero() && !distrustAfter.After(now)
+}
+
+func serverAuthExplicitlyDistrusted(trusts []nssObject, der []byte) bool {
+	for _, v := range serverAuthTrustValues(trusts, der) {
+		if trustValueNotTrusted(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func serverAuthTrustValues(trusts []nssObject, der []byte) []string {
 	sum := sha1.Sum(der) //nolint:gosec // G401: match CKA_CERT_SHA1_HASH, not a signature
+	var values []string
 	for _, trust := range trusts {
 		hash, ok := trust.attrs["CKA_CERT_SHA1_HASH"]
 		if !ok || !bytes.Equal(sum[:], hash.value) {
 			continue
 		}
-		return string(trust.attrs["CKA_TRUST_SERVER_AUTH"].value) == "CKT_NSS_TRUSTED_DELEGATOR"
+		values = append(values, string(trust.attrs["CKA_TRUST_SERVER_AUTH"].value))
+	}
+	return values
+}
+
+// trustValueNotTrusted reports whether an NSS trust attribute explicitly
+// distrusts the certificate. The combined form lists flags inside parentheses
+// separated by '|'.
+func trustValueNotTrusted(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "CKT_NSS_NOT_TRUSTED" {
+		return true
+	}
+	if len(v) < 2 || v[0] != '(' || v[len(v)-1] != ')' {
+		return false
+	}
+	for _, part := range strings.Split(v[1:len(v)-1], "|") {
+		if strings.TrimSpace(part) == "CKT_NSS_NOT_TRUSTED" {
+			return true
+		}
 	}
 	return false
 }

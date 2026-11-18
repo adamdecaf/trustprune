@@ -141,7 +141,126 @@ func TestParseCertData_multilineOctalErrors(t *testing.T) {
 	}
 }
 
-func TestDecodeNSS_historicalFixture(t *testing.T) {
+func TestDistrustedServerCerts(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	past := time.Date(2024, 11, 30, 23, 59, 59, 0, time.UTC)
+	future := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	cases := []struct {
+		cn            string
+		trust         string
+		date          string
+		trusted       bool
+		blocked       bool
+		notTrusted    bool
+		distrustAfter time.Time
+	}{
+		{cn: "Explicitly Distrusted", trust: "CKT_NSS_NOT_TRUSTED", blocked: true, notTrusted: true},
+		{cn: "Passed Distrust After", trust: "CKT_NSS_TRUSTED_DELEGATOR", date: nssDistrustOctal(past), trusted: true, blocked: true, distrustAfter: past},
+		{cn: "Future Distrust After", trust: "CKT_NSS_TRUSTED_DELEGATOR", date: nssDistrustOctal(future), trusted: true},
+		{cn: "Still Trusted", trust: "CKT_NSS_TRUSTED_DELEGATOR", trusted: true},
+		{cn: "Distrust After At Cutoff", trust: "CKT_NSS_TRUSTED_DELEGATOR", date: nssDistrustOctal(now), trusted: true, blocked: true, distrustAfter: now},
+		{cn: "Combined Not Trusted", trust: "(CKT_NSS_MUST_VERIFY_TRUST|CKT_NSS_NOT_TRUSTED)", blocked: true, notTrusted: true},
+		{cn: "Must Verify", trust: "CKT_NSS_MUST_VERIFY_TRUST"},
+		{cn: "False Date Root", trust: "CKT_NSS_TRUSTED_DELEGATOR", date: "false", trusted: true},
+		{cn: "Explicit And Passed", trust: "CKT_NSS_NOT_TRUSTED", date: nssDistrustOctal(past), blocked: true, notTrusted: true, distrustAfter: past},
+	}
+
+	var doc strings.Builder
+	doc.WriteString("BEGINDATA\n")
+	for i := range cases {
+		writeCertPair(&doc, testSelfSignedDER(t, cases[i].cn), cases[i].trust, cases[i].date)
+	}
+
+	entries, err := parseCertData(strings.NewReader(doc.String()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedNames := map[string]bool{}
+	for _, entry := range entries {
+		trustedNames[entry.cert.Subject.CommonName] = true
+	}
+	blocked, err := ParseDistrustedServerCerts(strings.NewReader(doc.String()), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedByName := map[string]DistrustedServerCert{}
+	for _, entry := range blocked {
+		cn := entry.Cert.Subject.CommonName
+		if _, ok := blockedByName[cn]; ok {
+			t.Fatalf("duplicate blocked certificate %s", cn)
+		}
+		blockedByName[cn] = entry
+	}
+
+	for _, tc := range cases {
+		if trustedNames[tc.cn] != tc.trusted {
+			t.Errorf("%s trusted=%v, want %v", tc.cn, trustedNames[tc.cn], tc.trusted)
+		}
+		got, ok := blockedByName[tc.cn]
+		if ok != tc.blocked {
+			t.Errorf("%s blocked=%v, want %v", tc.cn, ok, tc.blocked)
+			continue
+		}
+		if !tc.blocked {
+			continue
+		}
+		if got.NotTrusted != tc.notTrusted {
+			t.Errorf("%s NotTrusted=%v, want %v", tc.cn, got.NotTrusted, tc.notTrusted)
+		}
+		if !got.DistrustAfter.Equal(tc.distrustAfter) {
+			t.Errorf("%s distrust-after=%s, want %s", tc.cn, got.DistrustAfter.Format(time.RFC3339), tc.distrustAfter.Format(time.RFC3339))
+		}
+	}
+	wantBlocked := 0
+	for _, tc := range cases {
+		if tc.blocked {
+			wantBlocked++
+		}
+	}
+	if len(blockedByName) != wantBlocked {
+		t.Fatalf("blocked %d certificates, want %d", len(blockedByName), wantBlocked)
+	}
+}
+
+func nssDistrustOctal(t time.Time) string {
+	return octalEncode([]byte(t.UTC().Format("060102150405Z")))
+}
+
+func TestDistrustedServerCerts_badDate(t *testing.T) {
+	doc := certDataDocument(t, testSelfSignedDER(t, "Bad Date"), "CKT_NSS_TRUSTED_DELEGATOR", "\\060\\061")
+	if _, err := ParseDistrustedServerCerts(strings.NewReader(doc), time.Now()); err == nil {
+		t.Fatal("expected invalid distrust-after timestamp to fail")
+	}
+}
+
+func TestDistrustedServerCerts_historicalFixture(t *testing.T) {
+	bs := readCertDataFixture(t)
+	got, err := ParseDistrustedServerCerts(bytes.NewReader(bs), time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The fixture has no CKA_NSS_SERVER_DISTRUST_AFTER dates. The two
+	// explicitly distrusted certificates that include a DER are DigiNotar.
+	if len(got) != 2 {
+		names := make([]string, 0, len(got))
+		for _, entry := range got {
+			names = append(names, entry.Cert.Subject.String())
+		}
+		t.Fatalf("got %d distrusted certs: %s", len(got), strings.Join(names, "; "))
+	}
+	for _, entry := range got {
+		if !entry.NotTrusted || !entry.DistrustAfter.IsZero() {
+			t.Fatalf("%s NotTrusted=%v date=%s", entry.Cert.Subject.CommonName, entry.NotTrusted, entry.DistrustAfter)
+		}
+		if !strings.Contains(entry.Cert.Subject.String(), "DigiNotar") {
+			t.Fatalf("subject %s", entry.Cert.Subject.String())
+		}
+	}
+}
+
+func readCertDataFixture(t *testing.T) []byte {
+	t.Helper()
 	f, err := os.Open("../../testdata/certdata.txt.gz")
 	if err != nil {
 		t.Fatal(err)
@@ -164,6 +283,11 @@ func TestDecodeNSS_historicalFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return bs
+}
+
+func TestDecodeNSS_historicalFixture(t *testing.T) {
+	bs := readCertDataFixture(t)
 	entries, err := parseCertData(bytes.NewReader(bs))
 	if err != nil {
 		t.Fatal(err)

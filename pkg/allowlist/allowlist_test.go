@@ -20,7 +20,9 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"testing"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
@@ -278,6 +280,80 @@ func TestAllowlist_blocklistRejectsMatch(t *testing.T) {
 	}
 }
 
+func TestAllowlist_mozillaBlocklistedFingerprintsLoad(t *testing.T) {
+	if len(mozillaBlocklistedFingerprints) == 0 {
+		t.Fatal("mozillaBlocklistedFingerprints is empty")
+	}
+	for _, fp := range mozillaBlocklistedFingerprints {
+		if len(fp) != 64 {
+			t.Fatalf("fingerprint %q is not 64 hex digits", fp)
+		}
+		for _, c := range fp {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				t.Fatalf("fingerprint %q is not lowercase hex", fp)
+			}
+		}
+	}
+	// Entrust Root Certification Authority - G2, server distrust after
+	// 2024-11-30 from Mozilla certdata.txt (mozilla-central tip).
+	const entrustG2 = "43df5774b03e7fef5fe40d931a7bedf1bb2e6b42738c4e6d3841103d3aa7f339"
+	found := false
+	for _, fp := range mozillaBlocklistedFingerprints {
+		if fp == entrustG2 {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("Entrust Root Certification Authority - G2 fingerprint %s is missing", entrustG2)
+	}
+
+	src, err := os.ReadFile("mozilla_blocklist.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sourceURL = "https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt"
+	if !bytes.Contains(src, []byte(sourceURL)) {
+		t.Fatal("generated file is missing the certdata.txt source URL")
+	}
+	if !bytes.Contains(src, []byte("CKA_NSS_SERVER_DISTRUST_AFTER 2024-11-30T23:59:59Z")) {
+		t.Fatal("generated file does not record a passed server distrust-after date")
+	}
+	dates := regexp.MustCompile(`CKA_NSS_SERVER_DISTRUST_AFTER (\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z)`).FindAllSubmatch(src, -1)
+	if len(dates) == 0 {
+		t.Fatal("generated file records no server distrust-after dates")
+	}
+	now := time.Now().UTC()
+	for _, m := range dates {
+		got, err := time.Parse(time.RFC3339, string(m[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.After(now) {
+			t.Fatalf("future distrust-after %s is blocklisted", got.Format(time.RFC3339))
+		}
+	}
+}
+
+func TestAllowlist_mozillaBlocklistRejectsMatch(t *testing.T) {
+	certs, err := certutil.FromFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) == 0 || certs[0] == nil {
+		t.Fatal("expected example.crt")
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+
+	orig := mozillaBlocklistedFingerprints
+	t.Cleanup(func() { mozillaBlocklistedFingerprints = orig })
+	mozillaBlocklistedFingerprints = append([]string{fp}, mozillaBlocklistedFingerprints...)
+
+	al := Allowlist{Fingerprints: []string{fp}, Countries: []string{"US"}}
+	if al.Matches(certs[0]) {
+		t.Fatal("mozilla blocklisted fingerprint should not match even if it is on the allowlist")
+	}
+}
 
 func TestAllowlist_ToFileFormat(t *testing.T) {
 	al := Allowlist{Fingerprints: []string{"abc"}}

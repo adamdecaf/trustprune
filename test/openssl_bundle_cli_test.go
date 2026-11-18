@@ -16,6 +16,7 @@ package test
 
 import (
 	"bytes"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -26,8 +27,27 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
+
+// firstAllowlistedCert is the first certificate an allowlist of its own
+// SHA-256 fingerprint would keep. Blocklisted and denylisted certificates
+// are skipped.
+func firstAllowlistedCert(t *testing.T, certs []*x509.Certificate) *x509.Certificate {
+	t.Helper()
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if (allowlist.Allowlist{Fingerprints: []string{fp}}).Matches(c) {
+			return c
+		}
+	}
+	t.Fatal("no certificate survives the built-in blocklists and denylist")
+	return nil
+}
 
 // TestOpenSSLBundleCLI exercises -bundle through the built CLI. Every HOME,
 // PEM, allowlist, and decoy path is under t.TempDir. SSL_CERT_FILE points at
@@ -77,7 +97,7 @@ func TestOpenSSLBundleCLI(t *testing.T) {
 	if err := os.Mkdir(bundleDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	fp := certutil.GetHexSHA256Fingerprint(*firstAllowlistedCert(t, certs))
 	if err := os.WriteFile(allowlistPath, []byte(fmt.Sprintf("{\"Fingerprints\":[%q]}\n", fp)), 0o644); err != nil {
 		t.Fatal(err)
 	}
