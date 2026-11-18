@@ -92,6 +92,19 @@ func fingerprintBlocked(list []string, fp string) bool {
 	return false
 }
 
+// Blocklisted reports whether cert is on the embedded Chromium blocklist
+// or the embedded Mozilla certdata.txt blocklist. The match is the
+// certificate SHA-256, the same comparison Matches uses. It does not use
+// OCSP, CRLs, or the network.
+func Blocklisted(cert *x509.Certificate) bool {
+	if cert == nil || len(cert.Raw) == 0 {
+		return false
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
+	return fingerprintBlocked(blocklistedFingerprints, fp) ||
+		fingerprintBlocked(mozillaBlocklistedFingerprints, fp)
+}
+
 // MatchesAll checks if a given list of certificates all match against an allowlist
 func (a Allowlist) MatchesAll(cs []*x509.Certificate) bool {
 	for i := range cs {

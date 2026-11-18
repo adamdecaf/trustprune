@@ -210,6 +210,7 @@ func newApp(st *runState) *cli.Command {
 			allowlistCommand(st),
 			appsCommand(st),
 			backupCommand(st),
+			chainCommand(st),
 			connectCommand(st),
 			createCommand(st),
 			diffCommand(st),

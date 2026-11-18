@@ -104,7 +104,7 @@ func TestCertManage_help(t *testing.T) {
 	}
 
 	// sub-commands, with help flag
-	subCommands = []string{"add", "backup", "gen-allowlist", "list", "restore", "allowlist", "create"}
+	subCommands = []string{"add", "backup", "chain", "gen-allowlist", "list", "restore", "allowlist", "create"}
 	for i := range subCommands {
 		for j := range helpChoices {
 			out, err := run(t, subCommands[i], helpChoices[j])

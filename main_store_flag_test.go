@@ -124,9 +124,9 @@ func TestCLIStoreOverrideRejectedBeforeWrite(t *testing.T) {
 	const wantFirefox = "--store with --app firefox is only supported for java (keystore override), certifi (cacert.pem override) and poppler (nss db override)"
 	const wantNoApp = "--store overrides the trust store path and is only supported with --app java, --app certifi or --app poppler"
 
-	// Commands that take --store: add, allowlist, backup, connect, create, list, restore.
-	// --file is required on add, allowlist, and create. connect gets a URL so a missed
-	// store check cannot be mistaken for "no url", and http fails before any dial.
+	// Commands that take --store: add, allowlist, backup, chain, connect, create, list, restore.
+	// --file is required on add, allowlist, and create. chain and connect get a URL so a
+	// missed store check cannot be mistaken for a missing input, and http fails before any dial.
 	commands := []struct {
 		name  string
 		extra []string
@@ -134,6 +134,7 @@ func TestCLIStoreOverrideRejectedBeforeWrite(t *testing.T) {
 		{"add", []string{"--file", cert}},
 		{"allowlist", []string{"--file", cert}},
 		{"backup", nil},
+		{"chain", []string{"--url", "http://127.0.0.1"}},
 		{"connect", []string{"--url", "http://127.0.0.1"}},
 		{"create", []string{"--file", cert}},
 		{"list", nil},

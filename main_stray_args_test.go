@@ -87,6 +87,12 @@ func TestStrayArgsRejectedBeforeWrite(t *testing.T) {
 		}
 	})
 
+	t.Run("chain", func(t *testing.T) {
+		home := t.TempDir()
+		res := runCLI(t, bin, home, "chain", "--file", filepath.Join("testdata", "example.crt"), "extra")
+		assertStrayRejected(t, res, "extra")
+	})
+
 	t.Run("list", func(t *testing.T) {
 		home := t.TempDir()
 		res := runCLI(t, bin, home, "list", "x", "-count")

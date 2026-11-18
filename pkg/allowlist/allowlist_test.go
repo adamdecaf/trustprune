@@ -246,6 +246,39 @@ func TestAllowlist__matching(t *testing.T) {
 	}
 }
 
+func TestBlocklisted(t *testing.T) {
+	if Blocklisted(nil) {
+		t.Fatal("nil certificate is not blocklisted")
+	}
+	certs, err := certutil.FromFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) == 0 || certs[0] == nil {
+		t.Fatal("expected example.crt")
+	}
+	if Blocklisted(certs[0]) {
+		t.Fatal("example.crt should not be on the embedded blocklists")
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	origChrome := blocklistedFingerprints
+	origMozilla := mozillaBlocklistedFingerprints
+	t.Cleanup(func() {
+		blocklistedFingerprints = origChrome
+		mozillaBlocklistedFingerprints = origMozilla
+	})
+
+	blocklistedFingerprints = append([]string{fp}, blocklistedFingerprints...)
+	if !Blocklisted(certs[0]) {
+		t.Fatal("chromium blocklist should match the certificate SHA-256")
+	}
+	blocklistedFingerprints = origChrome
+	mozillaBlocklistedFingerprints = append([]string{fp}, mozillaBlocklistedFingerprints...)
+	if !Blocklisted(certs[0]) {
+		t.Fatal("mozilla blocklist should match the certificate SHA-256")
+	}
+}
+
 func TestAllowlist_blocklistedFingerprintsLoad(t *testing.T) {
 	if len(blocklistedFingerprints) == 0 {
 		t.Fatal("blocklistedFingerprints is empty")
