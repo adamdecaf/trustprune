@@ -43,7 +43,8 @@ type Allowlist struct {
 //
 // A denylisted certificate never matches, even when this allowlist names
 // its fingerprint or country. The denylist matches the certificate SHA-256
-// and the SubjectPublicKeyInfo SHA-256.
+// and the SubjectPublicKeyInfo SHA-256. Chromium and Mozilla blocklist
+// fingerprints never match either.
 func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	if inc == nil {
 		return false
@@ -55,10 +56,9 @@ func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	fp := certutil.GetHexSHA256Fingerprint(*inc)
 
 	// is the certificate explicitly distrusted?
-	for i := range blocklistedFingerprints {
-		if blocklistedFingerprints[i] == fp {
-			return false
-		}
+	if fingerprintBlocked(blocklistedFingerprints, fp) ||
+		fingerprintBlocked(mozillaBlocklistedFingerprints, fp) {
+		return false
 	}
 
 	// check if our allowlist's fingerprints include this certificate
@@ -80,6 +80,15 @@ func (a Allowlist) Matches(inc *x509.Certificate) bool {
 		}
 	}
 
+	return false
+}
+
+func fingerprintBlocked(list []string, fp string) bool {
+	for i := range list {
+		if list[i] == fp {
+			return true
+		}
+	}
 	return false
 }
 

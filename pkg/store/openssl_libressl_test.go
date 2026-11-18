@@ -390,7 +390,8 @@ func TestLibreSSL_PEMBackupRestoreListRemove(t *testing.T) {
 	if len(restored) != len(certs) {
 		t.Fatalf("after restore len=%d want %d", len(restored), len(certs))
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +458,8 @@ func TestLibreSSL_DirBackupRestoreRemoveUsesCerthash(t *testing.T) {
 		t.Fatalf("restore log %q, want certhash %s", log, resolved)
 	}
 
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -569,7 +571,8 @@ func TestLibreSSL_DryRunPrintsCerthash(t *testing.T) {
 	if err := s.Add(extraExampleCert(t)); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -746,14 +749,20 @@ func TestLibreSSL_RemoveDropsAliasesAndKeepsIndependentPEMs(t *testing.T) {
 	libreSSLBinPaths = []string{bin}
 
 	dir := t.TempDir()
-	certs := loadLotsCerts(t, 3)
-	if err := certutil.ToFile(filepath.Join(dir, "keep.pem"), certs[0:1]); err != nil {
+	certs := loadLotsCerts(t, 5)
+	kept := allowlistKeepableCerts(certs)
+	if len(kept) < 2 {
+		t.Fatal("need two certificates an allowlist can keep")
+	}
+	// drop.crt is a Mozilla-blocklisted root, so it cannot be the certificate
+	// the allowlist retains. keep.pem and drop.pem are certificates Matches accepts.
+	if err := certutil.ToFile(filepath.Join(dir, "keep.pem"), kept[0:1]); err != nil {
 		t.Fatal(err)
 	}
-	if err := certutil.ToFile(filepath.Join(dir, "drop.crt"), certs[1:2]); err != nil {
+	if err := certutil.ToFile(filepath.Join(dir, "drop.crt"), certs[0:1]); err != nil {
 		t.Fatal(err)
 	}
-	if err := certutil.ToFile(filepath.Join(dir, "drop.pem"), certs[2:3]); err != nil {
+	if err := certutil.ToFile(filepath.Join(dir, "drop.pem"), kept[1:2]); err != nil {
 		t.Fatal(err)
 	}
 	if err := promoteCRTsForCerthash(dir); err != nil {
@@ -767,7 +776,7 @@ func TestLibreSSL_RemoveDropsAliasesAndKeepsIndependentPEMs(t *testing.T) {
 	s := opensslStoreAt(dir)
 	refuseIfSystemOpenSSL(t, dir)
 	SetDryRun(false)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0], certs[2]})
+	keep := allowlist.FromCertificates([]*x509.Certificate{kept[0], kept[1]})
 	if err := s.Remove(keep); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -800,7 +809,9 @@ func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
 	libreSSLBinPaths = []string{bin}
 	s, dir, certs := opensslDirEnv(t)
 	more := loadLotsCerts(t, 5)
-	linkedCert, collideCert := more[3:4], more[4:5]
+	// Directory fixtures keep matchable roots. These two are distrusted by
+	// the Mozilla blocklist and are not already in the directory.
+	linkedCert, collideCert := more[0:1], more[1:2]
 	target := filepath.Join(dir, "target-cert")
 	if err := certutil.ToFile(target, linkedCert); err != nil {
 		t.Fatal(err)

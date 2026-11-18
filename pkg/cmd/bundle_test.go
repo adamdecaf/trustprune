@@ -16,16 +16,36 @@ package cmd
 
 import (
 	"bytes"
+	"crypto/x509"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
+
+// firstAllowlistedCert is the first certificate an allowlist of its own
+// SHA-256 fingerprint would keep. Blocklisted and denylisted certificates
+// are skipped.
+func firstAllowlistedCert(t *testing.T, certs []*x509.Certificate) *x509.Certificate {
+	t.Helper()
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if (allowlist.Allowlist{Fingerprints: []string{fp}}).Matches(c) {
+			return c
+		}
+	}
+	t.Fatal("no certificate survives the built-in blocklists and denylist")
+	return nil
+}
 
 func TestCheckBundleFlag(t *testing.T) {
 	t.Parallel()
@@ -169,7 +189,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	fp := certutil.GetHexSHA256Fingerprint(*firstAllowlistedCert(t, certs))
 	alPath := filepath.Join(dir, "allowlist.json")
 	if err := os.WriteFile(alPath, []byte(fmt.Sprintf("{\"Fingerprints\":[%q]}\n", fp)), 0o644); err != nil {
 		t.Fatal(err)

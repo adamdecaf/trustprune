@@ -15,12 +15,14 @@
 package main
 
 import (
+	"crypto/x509"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
@@ -316,6 +318,24 @@ func seedCertifiBackup(t *testing.T, home, bundle string, pem []byte) {
 	}
 }
 
+// firstAllowlistedCert is the first certificate an allowlist of its own
+// SHA-256 fingerprint would keep. Blocklisted and denylisted certificates
+// are skipped.
+func firstAllowlistedCert(t *testing.T, certs []*x509.Certificate) *x509.Certificate {
+	t.Helper()
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if (allowlist.Allowlist{Fingerprints: []string{fp}}).Matches(c) {
+			return c
+		}
+	}
+	t.Fatal("no certificate survives the built-in blocklists and denylist")
+	return nil
+}
+
 func canonicalTestPath(path string) string {
 	abs, err := filepath.Abs(path)
 	if err != nil {
@@ -335,7 +355,7 @@ func writeKeepFirstAllowlist(t *testing.T, pem []byte) string {
 	if err != nil || len(certs) == 0 {
 		t.Fatalf("decode allowlist cert: %d %v", len(certs), err)
 	}
-	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+	fp := certutil.GetHexSHA256Fingerprint(*firstAllowlistedCert(t, certs))
 	body := "fingerprints:\n  - \"" + fp + "\"\n"
 	return writeTestFile(t, "allowlist.yaml", []byte(body))
 }

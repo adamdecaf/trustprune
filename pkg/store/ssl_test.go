@@ -164,7 +164,8 @@ func TestSSLStore_RestoreHonorsWhere(t *testing.T) {
 
 func TestSSLStore_RemoveAllowlistAndDryRun(t *testing.T) {
 	s, path, certs := sslTestEnv(t)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 
 	var buf bytes.Buffer
 	SetDryRunOutput(&buf)
@@ -206,7 +207,7 @@ func TestSSLStore_RemoveAllowlistAndDryRun(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("after allowlist len=%d want 1", len(got))
 	}
-	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*certs[0]) {
+	if certutil.GetHexSHA256Fingerprint(*got[0]) != certutil.GetHexSHA256Fingerprint(*keptCert) {
 		t.Fatal("kept unexpected certificate")
 	}
 }
@@ -233,7 +234,8 @@ func TestSSLStore_DetectsOSUpdateDrift(t *testing.T) {
 	if err := s.Backup(); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +371,8 @@ func certificatePEMBlock(t *testing.T, blob []byte) []byte {
 
 func TestSSLStore_AllowlistKeepsUnparsablePEM(t *testing.T) {
 	s, path, certs, rawSkip := sslEnvWithGarbagePEM(t)
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
 	removeFP := certutil.GetHexSHA256Fingerprint(*certs[len(certs)-1])
 
@@ -516,7 +519,8 @@ func TestSSLStore_AllowlistNegativeSerialFallback(t *testing.T) {
 		t.Fatal("List missing negative-serial certificate from fallback parse")
 	}
 
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	keepFP := certutil.GetHexSHA256Fingerprint(*certs[0])
 	SetDryRun(false)
 	if err := s.Backup(); err != nil {
@@ -686,7 +690,8 @@ func TestSSLStore_InstallPreservesReadableMode(t *testing.T) {
 	if err := s.Backup(); err != nil {
 		t.Fatal(err)
 	}
-	keep := allowlist.FromCertificates([]*x509.Certificate{certs[0]})
+	keptCert := firstAllowlistedCert(t, certs)
+	keep := allowlist.FromCertificates([]*x509.Certificate{keptCert})
 	if err := s.Remove(keep); err != nil {
 		t.Fatal(err)
 	}

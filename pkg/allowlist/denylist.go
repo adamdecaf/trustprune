@@ -24,10 +24,10 @@ import (
 
 // The denylist is a small, committed set of known-distrusted roots and
 // intermediates. Builds and tests do not use the network. It is separate
-// from the generated Chromium fingerprint blocklist in blocklist.go: each
-// entry here records both the certificate SHA-256 and the SHA-256 of the
-// SubjectPublicKeyInfo, so a re-issued certificate that reused the key is
-// still rejected.
+// from the generated fingerprint blocklists in blocklist.go (Chromium) and
+// mozilla_blocklist.go (Mozilla certdata.txt). Each entry here records both
+// the certificate SHA-256 and the SHA-256 of the SubjectPublicKeyInfo, so a
+// re-issued certificate that reused the key is still rejected.
 //
 // To refresh this list, run:
 //
