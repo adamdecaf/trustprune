@@ -78,7 +78,13 @@ type okularStore struct {
 	backend string
 }
 
-var _ Store = okularStore{}
+var (
+	_ Store    = okularStore{}
+	_ Lister   = okularStore{}
+	_ Modifier = okularStore{}
+	_ Saver    = okularStore{}
+	_ Informer = okularStore{}
+)
 
 func (s okularStore) gpg() bool {
 	return s.backend == okularBackendGPG

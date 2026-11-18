@@ -53,6 +53,14 @@ type chromeStore struct {
 	Store
 }
 
+var (
+	_ Store    = chromeStore{}
+	_ Lister   = chromeStore{}
+	_ Modifier = chromeStore{}
+	_ Saver    = chromeStore{}
+	_ Informer = chromeStore{}
+)
+
 func (s chromeStore) GetInfo() *Info {
 	info := &Info{
 		Name:    "Chrome",

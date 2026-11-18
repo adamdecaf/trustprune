@@ -61,7 +61,14 @@ func RestoreForBundle(app, backup, bundle string) error {
 // is appended after ": " so existing prefix checks still match.
 const restoreSuccessPrefix = "Restore completed successfully"
 
-func restoreStore(s store.Store, where string) error {
+// restoreTarget is the store surface restore writes and reports.
+// It restores a backup and reads store info. It does not list, add, or remove.
+type restoreTarget interface {
+	store.Saver
+	store.Informer
+}
+
+func restoreStore(s restoreTarget, where string) error {
 	err := s.Restore(where)
 	if err == nil {
 		printRestoreSuccess(s, where)
@@ -72,7 +79,7 @@ func restoreStore(s store.Store, where string) error {
 // printRestoreSuccess prints the dry-run notice, or the success phrase plus
 // the live store path (GetInfo().Path). When that path is empty it falls
 // back to the backup source, then the latest backup path.
-func printRestoreSuccess(s store.Store, where string) {
+func printRestoreSuccess(s restoreTarget, where string) {
 	if store.DryRun() {
 		fmt.Println("dry-run: no changes made")
 		return

@@ -385,7 +385,13 @@ func AcrobatStore() Store {
 
 type acrobatStore struct{}
 
-var _ Store = acrobatStore{}
+var (
+	_ Store    = acrobatStore{}
+	_ Lister   = acrobatStore{}
+	_ Modifier = acrobatStore{}
+	_ Saver    = acrobatStore{}
+	_ Informer = acrobatStore{}
+)
 
 func (acrobatStore) GetInfo() *Info {
 	st := detectAcrobat()

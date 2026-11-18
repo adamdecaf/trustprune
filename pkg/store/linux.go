@@ -104,6 +104,14 @@ type linuxStore struct {
 	ca cadir
 }
 
+var (
+	_ Store    = linuxStore{}
+	_ Lister   = linuxStore{}
+	_ Modifier = linuxStore{}
+	_ Saver    = linuxStore{}
+	_ Informer = linuxStore{}
+)
+
 func selectCadir(dirs []cadir) (cadir, bool) {
 	for _, ca := range dirs {
 		if !ca.empty() {

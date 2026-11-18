@@ -70,6 +70,14 @@ var (
 // https://developer.apple.com/legacy/library/documentation/Darwin/Reference/ManPages/man1/security.1.html
 type darwinStore struct{}
 
+var (
+	_ Store    = darwinStore{}
+	_ Lister   = darwinStore{}
+	_ Modifier = darwinStore{}
+	_ Saver    = darwinStore{}
+	_ Informer = darwinStore{}
+)
+
 func platform() Store {
 	return darwinStore{}
 }

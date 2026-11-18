@@ -110,6 +110,13 @@ func CreateForBundle(app, bundle string, opts CreateOptions) error {
 	return CreateFromStore(st, opts)
 }
 
+// createSource is the store surface create reads. It lists certificates
+// and reports store info. create does not add, remove, back up, or restore.
+type createSource interface {
+	store.Lister
+	store.Informer
+}
+
 // CreateFromStore lists trusted certificates from st, keeps those
 // allowlist.Matches accepts, and writes a PEM bundle.
 //
@@ -118,7 +125,7 @@ func CreateForBundle(app, bundle string, opts CreateOptions) error {
 // GetLatestBackup. An output path that is the store, or a file inside a
 // directory store, is refused before any write. ErrNoMatchingCerts is
 // returned before any write when nothing matches.
-func CreateFromStore(st store.Store, opts CreateOptions) error {
+func CreateFromStore(st createSource, opts CreateOptions) error {
 	if st == nil {
 		return errors.New("no certificate store")
 	}

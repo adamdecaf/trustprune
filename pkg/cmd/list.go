@@ -135,7 +135,7 @@ func listAcrobatTrustReport(cfg *ui.Config) error {
 	return ui.WriteConfiguredText(cfg, text)
 }
 
-func createMeta(st store.Store) ui.Meta {
+func createMeta(st store.Informer) ui.Meta {
 	info := st.GetInfo()
 	if info == nil {
 		return ui.Meta{}

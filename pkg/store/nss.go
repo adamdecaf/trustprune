@@ -85,6 +85,14 @@ type nssStore struct {
 	tool *crtutil
 }
 
+var (
+	_ Store    = nssStore{}
+	_ Lister   = nssStore{}
+	_ Modifier = nssStore{}
+	_ Saver    = nssStore{}
+	_ Informer = nssStore{}
+)
+
 // NssStore returns an implementation of Store for NSS certificate stores
 //
 // Docs:
@@ -448,7 +456,7 @@ func latestNSSBackupFor(nssType, dest string) (string, error) {
 // for this store. ForceRestore suppresses it, matching restore. Non-NSS
 // stores, and stores whose newest backup is not a different directory,
 // return nil.
-func NSSAllowlistBackupError(s Store, app string) error {
+func NSSAllowlistBackupError(s Informer, app string) error {
 	if ForceRestore() {
 		return nil
 	}
@@ -500,7 +508,7 @@ func NSSAllowlistBackupError(s Store, app string) error {
 // nssAllowlistTarget is the NSS app and directory allowlist must have a
 // backup of. A wrapped store (tests) still exposes the path through GetInfo
 // for firefox, poppler, and okular.
-func nssAllowlistTarget(s Store, app string) (nssType, storePath string, ok bool) {
+func nssAllowlistTarget(s Informer, app string) (nssType, storePath string, ok bool) {
 	app = strings.ToLower(strings.TrimSpace(app))
 	if ns, isNSS := s.(nssStore); isNSS {
 		nssType = ns.nssType

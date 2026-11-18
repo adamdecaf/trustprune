@@ -26,6 +26,14 @@ import (
 // This is useful for stubs
 type emptyStore struct{}
 
+var (
+	_ Store    = emptyStore{}
+	_ Lister   = emptyStore{}
+	_ Modifier = emptyStore{}
+	_ Saver    = emptyStore{}
+	_ Informer = emptyStore{}
+)
+
 func (s emptyStore) printNotce() {
 	fmt.Fprintln(os.Stderr, "NOTICE: This implementation is currently stubbed, nothing is happening.")
 }

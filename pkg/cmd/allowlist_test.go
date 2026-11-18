@@ -99,6 +99,14 @@ func (s *noWriteStore) Remove(allowlist.Allowlist) error {
 	return errors.New("Remove must not be called in this test")
 }
 
+var (
+	_ store.Store    = (*noWriteStore)(nil)
+	_ store.Lister   = (*noWriteStore)(nil)
+	_ store.Modifier = (*noWriteStore)(nil)
+	_ store.Saver    = (*noWriteStore)(nil)
+	_ store.Informer = (*noWriteStore)(nil)
+)
+
 func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 	apps := []string{"certifi", "chrome", "firefox", "java", "openssl", "ssl", ""}
 	for _, app := range apps {
@@ -180,6 +188,14 @@ func (s *allowlistRecorder) Remove(allowlist.Allowlist) error {
 	s.removed = true
 	return nil
 }
+
+var (
+	_ store.Store    = (*allowlistRecorder)(nil)
+	_ store.Lister   = (*allowlistRecorder)(nil)
+	_ store.Modifier = (*allowlistRecorder)(nil)
+	_ store.Saver    = (*allowlistRecorder)(nil)
+	_ store.Informer = (*allowlistRecorder)(nil)
+)
 
 func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 	home := t.TempDir()

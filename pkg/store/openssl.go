@@ -72,6 +72,14 @@ type opensslStore struct {
 	path string
 }
 
+var (
+	_ Store    = opensslStore{}
+	_ Lister   = opensslStore{}
+	_ Modifier = opensslStore{}
+	_ Saver    = opensslStore{}
+	_ Informer = opensslStore{}
+)
+
 // OpenSSLStore returns an implementation of Store for OpenSSL / curl / git CA
 // bundles and OpenSSL cert directories.
 func OpenSSLStore() Store {

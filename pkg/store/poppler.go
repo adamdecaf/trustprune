@@ -49,6 +49,14 @@ type popplerStore struct {
 	nssStore
 }
 
+var (
+	_ Store    = popplerStore{}
+	_ Lister   = popplerStore{}
+	_ Modifier = popplerStore{}
+	_ Saver    = popplerStore{}
+	_ Informer = popplerStore{}
+)
+
 func (s popplerStore) List(opts *ListOptions) ([]*x509.Certificate, error) {
 	if err := s.requireCert9(); err != nil {
 		return nil, err
