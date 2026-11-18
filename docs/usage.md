@@ -93,6 +93,7 @@ trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+trustprune list --ui web --allowlist allowlist.json
 ```
 
 | Flag | Meaning |
@@ -107,6 +108,9 @@ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/securi
 | `--out <path>` | Write the formatted output to `<path>` instead of stdout for every `--format` and for `--count`. Stdout stays empty |
 | `-v` | On the default table, show the full fingerprint, serial, source or store path (`-` for URLs), and hyphenated `NOT-BEFORE` / `NOT-AFTER`. Columns fit the longest header or cell and are separated by two spaces. When every row has the same path, print `PATH: <path>` above the table and omit the PATH column; mixed paths keep the column. DAYS stays numeric (including negative when expired) |
 | `--ui <type>` | Presentation: `cli` (default) or `web` (local page) |
+| `--allowlist <path>` | With `--ui web`: allowlist JSON or YAML, the same file `allowlist --file` reads. Certificates that file would keep start checked |
+
+`list --ui web` shows each certificate on a local page with a checkbox. A checked box means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist <path>`, a certificate starts checked when that allowlist would keep it. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
 
 In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate.
 

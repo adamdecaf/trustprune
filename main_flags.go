@@ -153,6 +153,18 @@ func flagUI() *cli.StringFlag {
 	}
 }
 
+// flagListAllowlist is the allowlist file for the list --ui web checklist.
+// list already uses --file for a certificate PEM, so this is a separate flag.
+// The file is the JSON or YAML that `allowlist --file` reads.
+func flagListAllowlist() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:      "allowlist",
+		Usage:     "with --ui web, allowlist file (JSON or YAML, same as allowlist --file) whose matches start checked",
+		TakesFile: true,
+		Local:     true,
+	}
+}
+
 func flagCount() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "count",
