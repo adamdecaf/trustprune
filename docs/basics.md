@@ -260,14 +260,12 @@ $ trustprune list --format json --out certs.json
 
 ### Web
 
-`trustprune` can present certificates on a local web page with `--ui web` on `list` only (other commands ignore `--ui`). It prints the local URL (and still serves it) when a browser cannot be opened, such as on a headless host. Each certificate row shows Subject, Issuer, SHA256 fingerprint, serial, and validity dates; the full formatted dump stays behind Details.
+`trustprune` can present certificates on a local web page with `--ui web` on `list` only (other commands ignore `--ui`). It prints the local URL (and still serves it) when a browser cannot be opened, such as on a headless host. The sticky header shows how many certificates are kept or dropped, a search box, filters (kept, dropped, expired, expiring within 90 days, self-signed), and sort. Each row shows the subject, issuer, a validity badge, the expiry date, a short SHA256 fingerprint, and a keep switch. Serial, NotBefore, NotAfter, the full fingerprint, and the formatted dump stay behind Details. Download allowlist writes a JSON allowlist of the checked fingerprints. The page does not change the trust store.
 
 ```
 $ trustprune list --app java --ui web
 Web UI: http://127.0.0.1:12345/
 ```
-
-<img src="./images/web.png" />
 
 ## Create
 
