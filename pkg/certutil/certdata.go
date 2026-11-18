@@ -34,11 +34,13 @@ import (
 // does sets go 1.14 and pulls a large module graph, including cgo packages.
 // This file is original Apache-2.0 code; the upstream sources were not copied.
 //
-// A certificate is trusted for TLS when its CKO_NSS_TRUST object sets
-// CKA_TRUST_SERVER_AUTH to CKT_NSS_TRUSTED_DELEGATOR. Other server-auth
-// values, including CKT_NSS_NOT_TRUSTED, CKT_NSS_MUST_VERIFY_TRUST,
-// CKT_NSS_TRUST_UNKNOWN, and the combined
-// "(CKT_NSS_MUST_VERIFY_TRUST|CKT_NSS_NOT_TRUSTED)" form, are not trusted.
+// A certificate is trusted for TLS when a matching CKO_NSS_TRUST object sets
+// CKA_TRUST_SERVER_AUTH to CKT_NSS_TRUSTED_DELEGATOR. It is not trusted when
+// any matching trust object is CKT_NSS_NOT_TRUSTED, including the combined
+// "(CKT_NSS_MUST_VERIFY_TRUST|CKT_NSS_NOT_TRUSTED)" form. Explicit distrust
+// wins over a delegator record regardless of record order. Other server-auth
+// values, including CKT_NSS_MUST_VERIFY_TRUST and CKT_NSS_TRUST_UNKNOWN, are
+// not trusted.
 // DER fields are MULTILINE_OCTAL. Current certdata.txt also stores
 // CKA_NSS_SERVER_DISTRUST_AFTER as a UTCTime string YYMMDDHHMMSSZ when it
 // is MULTILINE_OCTAL, and as CK_FALSE when the root has no such date.
@@ -248,13 +250,22 @@ func (o nssObject) serverDistrustAfter() (time.Time, error) {
 	return t, nil
 }
 
+// serverAuthTrusted reports whether the certificate is trusted for server
+// authentication. Explicit distrust wins: any matching CKT_NSS_NOT_TRUSTED
+// record, including a combined value that contains that flag, leaves the
+// certificate untrusted even when another matching record is
+// CKT_NSS_TRUSTED_DELEGATOR.
 func serverAuthTrusted(trusts []nssObject, der []byte) bool {
+	trusted := false
 	for _, v := range serverAuthTrustValues(trusts, der) {
+		if trustValueNotTrusted(v) {
+			return false
+		}
 		if v == "CKT_NSS_TRUSTED_DELEGATOR" {
-			return true
+			trusted = true
 		}
 	}
-	return false
+	return trusted
 }
 
 // DistrustedServerCert is one certificate ParseDistrustedServerCerts selected.

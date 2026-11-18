@@ -108,6 +108,46 @@ func TestParseCertData_serverAuthTrust(t *testing.T) {
 	}
 }
 
+func TestServerAuthExplicitDistrustWinsOverDelegator(t *testing.T) {
+	der := testSelfSignedDER(t, "Conflicting Trust")
+	orders := [][]string{
+		{"CKT_NSS_NOT_TRUSTED", "CKT_NSS_TRUSTED_DELEGATOR"},
+		{"CKT_NSS_TRUSTED_DELEGATOR", "CKT_NSS_NOT_TRUSTED"},
+	}
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	for _, order := range orders {
+		var doc strings.Builder
+		doc.WriteString("BEGINDATA\n")
+		writeCertObject(&doc, der, "")
+		for _, trust := range order {
+			writeServerAuthTrust(&doc, der, trust)
+		}
+		name := strings.Join(order, " then ")
+
+		entries, err := parseCertData(strings.NewReader(doc.String()))
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(entries) != 0 {
+			t.Fatalf("%s: trusted %d certs, want 0", name, len(entries))
+		}
+
+		blocked, err := ParseDistrustedServerCerts(strings.NewReader(doc.String()), now)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(blocked) != 1 {
+			t.Fatalf("%s: distrusted %d certs, want 1", name, len(blocked))
+		}
+		if !blocked[0].NotTrusted {
+			t.Fatalf("%s: NotTrusted=false, want true", name)
+		}
+		if blocked[0].Cert.Subject.CommonName != "Conflicting Trust" {
+			t.Fatalf("%s: blocked %q", name, blocked[0].Cert.Subject.CommonName)
+		}
+	}
+}
+
 func TestParseCertData_skipsUnparsedCertificate(t *testing.T) {
 	good := testSelfSignedDER(t, "Good Root")
 	var doc strings.Builder
@@ -352,8 +392,12 @@ func certDataDocument(t *testing.T, der []byte, serverAuth, dateOctal string) st
 }
 
 func writeCertPair(b *strings.Builder, der []byte, serverAuth, dateOctal string) {
-	sum := sha1.Sum(der) //nolint:gosec // G401: fixture uses the NSS trust-record key
 	writeCertObject(b, der, dateOctal)
+	writeServerAuthTrust(b, der, serverAuth)
+}
+
+func writeServerAuthTrust(b *strings.Builder, der []byte, serverAuth string) {
+	sum := sha1.Sum(der) //nolint:gosec // G401: fixture uses the NSS trust-record key
 	b.WriteString("CKA_CLASS CK_OBJECT_CLASS CKO_NSS_TRUST\n")
 	b.WriteString("CKA_CERT_SHA1_HASH MULTILINE_OCTAL\n")
 	b.WriteString(octalEncode(sum[:]))
