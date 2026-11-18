@@ -94,7 +94,7 @@ $ trustprune chain --file leaf.pem --all
 $ trustprune chain --url example.com --remote
 ```
 
-The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
+The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
 
 ## Diff
 

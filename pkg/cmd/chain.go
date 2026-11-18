@@ -42,8 +42,8 @@ const chainRemoteTimeout = 30 * time.Second
 const chainMaxCerts = 16
 
 // ChainOptions selects the store and which certificates may appear in a chain.
-// The zero value reads the platform store, hides expired and blocklisted
-// certificates, and does not dial the network.
+// The zero value reads the platform store, hides expired, not-yet-valid,
+// and blocklisted certificates, and does not dial the network.
 type ChainOptions struct {
 	// App is the application store. Empty is the platform store.
 	App string
@@ -58,7 +58,9 @@ type ChainOptions struct {
 	URL *url.URL
 	// Untrusted includes certificates that are not in the trusted store.
 	Untrusted bool
-	// Expired includes certificates whose NotAfter is before Now.
+	// Expired includes certificates outside their validity window:
+	// NotAfter before Now, or NotBefore after Now. A future NotBefore
+	// is labeled "not yet valid". A past NotAfter is labeled "expired".
 	Expired bool
 	// Revoked includes certificates on the offline Chromium and Mozilla
 	// blocklists. Included certificates are labeled blocklisted.
@@ -135,7 +137,7 @@ func (s skipReason) skipped() bool {
 //
 // The default chain uses trusted, in-date certificates that are not on
 // the offline Chromium or Mozilla blocklists. The leaf is shown when it
-// passes the expiry and blocklist checks, even if it is not in the store.
+// passes the validity and blocklist checks, even if it is not in the store.
 // With no labels, the table matches connect's verified chain table.
 func ShowChain(w io.Writer, opts ChainOptions) error {
 	if w == nil {
@@ -234,14 +236,14 @@ func resolveChainLeaf(opts ChainOptions, fileCerts, trusted, untrustedStore []*x
 		return c, extras, nil
 	}
 	if !opts.Remote {
-		return nil, nil, fmt.Errorf("no local chain for %s; pass --remote to look up the TLS chain", opts.URL.String())
+		return nil, nil, fmt.Errorf("no local chain for %s; pass --remote to look up the TLS chain", chainLookupURL(opts.URL))
 	}
 	presented, err := fetchPresented(opts)
 	if err != nil {
 		return nil, nil, err
 	}
 	if len(presented) == 0 || presented[0] == nil {
-		return nil, nil, fmt.Errorf("remote lookup for %s: server presented no certificates", opts.URL.String())
+		return nil, nil, fmt.Errorf("remote lookup for %s: server presented no certificates", chainLookupURL(opts.URL))
 	}
 	extras := append(append([]*x509.Certificate{}, presented[1:]...), fileCerts...)
 	return presented[0], extras, nil
@@ -256,6 +258,24 @@ func fetchPresented(opts ChainOptions) ([]*x509.Certificate, error) {
 		return certs, nil
 	}
 	return readChainCertificates(context.Background(), opts.URL, chainRemoteTimeout)
+}
+
+// chainLookupURL is the host shown for a remote lookup. It is
+// scheme://host[:port]. Userinfo, path, query, and fragment are omitted
+// so a password or token passed in --url is not printed.
+func chainLookupURL(u *url.URL) string {
+	if u == nil {
+		return ""
+	}
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	host := u.Hostname()
+	if port := u.Port(); port != "" {
+		host = net.JoinHostPort(host, port)
+	}
+	return scheme + "://" + host
 }
 
 func applyChainIncludes(opts ChainOptions) ChainOptions {
@@ -296,7 +316,7 @@ func rejectLeaf(leaf *x509.Certificate, opts ChainOptions, now time.Time, blocke
 	var why []string
 	var flags []string
 	if chainExpired(leaf, now) && !opts.Expired {
-		why = append(why, "expired "+leaf.NotAfter.UTC().Format(connectDateLayout))
+		why = append(why, chainValidityReason(leaf, now))
 		flags = append(flags, "--expired")
 	}
 	if chainIsBlocked(blocked, leaf) && !opts.Revoked {
@@ -344,14 +364,14 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct
 		return chainRow{}, err
 	}
 	return chainRow{
-		subject:  chainSubject(cert, isLeaf, chainInStore(cert, trusted), chainExpired(cert, now), chainIsBlocked(blocked, cert)),
+		subject:  chainSubject(cert, isLeaf, chainInStore(cert, trusted), chainValidityTag(cert, now), chainIsBlocked(blocked, cert)),
 		issuer:   connectName(cert.Issuer),
 		notAfter: cert.NotAfter.UTC().Format(connectDateLayout),
 		sha:      sum,
 	}, nil
 }
 
-func chainSubject(cert *x509.Certificate, isLeaf, inStore, expired, blocked bool) string {
+func chainSubject(cert *x509.Certificate, isLeaf, inStore bool, validity string, blocked bool) string {
 	name := chainDisplayName(cert)
 	var tags []string
 	// The leaf is the certificate the user asked about. It is shown even
@@ -359,8 +379,8 @@ func chainSubject(cert *x509.Certificate, isLeaf, inStore, expired, blocked bool
 	if !isLeaf && !inStore {
 		tags = append(tags, "untrusted")
 	}
-	if expired {
-		tags = append(tags, "expired")
+	if validity != "" {
+		tags = append(tags, validity)
 	}
 	if blocked {
 		tags = append(tags, "blocklisted")
@@ -473,21 +493,50 @@ func chainIssuedBy(child, parent *x509.Certificate) bool {
 	return child.CheckSignatureFrom(parent) == nil
 }
 
+// chainSelfSigned reports whether cert was signed with its own key.
+// CheckSignatureFrom rejects a non-CA, so a self-signed leaf would look
+// like a missing issuer. Compare the raw names, then verify the signature
+// directly. Links between two certificates still use CheckSignatureFrom.
 func chainSelfSigned(cert *x509.Certificate) bool {
 	if cert == nil || len(cert.Raw) == 0 {
 		return false
 	}
-	if len(cert.RawSubject) > 0 && !bytes.Equal(cert.RawSubject, cert.RawIssuer) {
+	if !bytes.Equal(cert.RawSubject, cert.RawIssuer) {
 		return false
 	}
-	return cert.CheckSignatureFrom(cert) == nil
+	return cert.CheckSignature(cert.SignatureAlgorithm, cert.RawTBSCertificate, cert.Signature) == nil
 }
 
+// chainExpired reports whether cert is outside its validity window.
+// NotBefore in the future is treated the same as NotAfter in the past:
+// the certificate is left out unless --expired is set.
 func chainExpired(cert *x509.Certificate, now time.Time) bool {
+	return chainValidityTag(cert, now) != ""
+}
+
+// chainValidityTag is the row label for a certificate outside its
+// validity window. An in-window certificate returns an empty string.
+// NotBefore equal to now, and NotAfter equal to now, are in window.
+func chainValidityTag(cert *x509.Certificate, now time.Time) string {
 	if cert == nil {
-		return false
+		return ""
 	}
-	return now.After(cert.NotAfter)
+	if now.Before(cert.NotBefore) {
+		return "not yet valid"
+	}
+	if now.After(cert.NotAfter) {
+		return "expired"
+	}
+	return ""
+}
+
+// chainValidityReason is the leaf error detail for chainExpired.
+// cert is non-nil: rejectLeaf only calls this after chainExpired.
+func chainValidityReason(cert *x509.Certificate, now time.Time) string {
+	if now.Before(cert.NotBefore) {
+		return "not yet valid until " + cert.NotBefore.UTC().Format(connectDateLayout)
+	}
+	return "expired " + cert.NotAfter.UTC().Format(connectDateLayout)
 }
 
 func chainIsBlocked(fn func(*x509.Certificate) bool, cert *x509.Certificate) bool {
@@ -681,7 +730,7 @@ func readChainCertificates(ctx context.Context, u *url.URL, timeout time.Duratio
 	}
 	addr, err := connectDialAddr(u)
 	if err != nil {
-		return nil, fmt.Errorf("remote lookup for %s: %w", u.String(), err)
+		return nil, fmt.Errorf("remote lookup for %s: %w", chainLookupURL(u), err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -709,7 +758,7 @@ func readChainCertificates(ctx context.Context, u *url.URL, timeout time.Duratio
 		return got, nil
 	}
 	if dialErr != nil {
-		return nil, fmt.Errorf("remote lookup for %s: %w", u.String(), dialErr)
+		return nil, fmt.Errorf("remote lookup for %s: %w", chainLookupURL(u), dialErr)
 	}
-	return nil, fmt.Errorf("remote lookup for %s: server presented no certificates", u.String())
+	return nil, fmt.Errorf("remote lookup for %s: server presented no certificates", chainLookupURL(u))
 }

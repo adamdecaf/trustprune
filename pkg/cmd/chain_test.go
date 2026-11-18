@@ -172,6 +172,87 @@ func TestBuildChainExpiredLeaf(t *testing.T) {
 	}
 }
 
+func TestBuildChainNotYetValid(t *testing.T) {
+	t.Parallel()
+	future := time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC)
+	ca, key := mintCA(t, "future.example", future, future.Add(365*24*time.Hour))
+	leaf := mintChild(t, "leaf.example", ca, key, chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour), false)
+	in := chainInput{
+		leaf:    leaf,
+		trusted: []*x509.Certificate{ca},
+		opts:    ChainOptions{Now: chainTestNow},
+		blocked: func(*x509.Certificate) bool { return false },
+	}
+	out, err := buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The leaf row names its issuer. The CA itself is a second row.
+	if lines := chainDataLines(out); len(lines) != 1 {
+		t.Fatalf("rows = %d, want 1:\n%s", len(lines), out)
+	}
+	if strings.Contains(out, "(not yet valid)") || strings.Contains(out, "(expired)") {
+		t.Fatalf("not-yet-valid CA included:\n%s", out)
+	}
+	if !strings.Contains(out, "incomplete: no issuer for leaf.example; pass --expired") {
+		t.Fatalf("missing not-yet-valid hint:\n%s", out)
+	}
+
+	in.opts.Expired = true
+	out, err = buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "future.example (not yet valid)") {
+		t.Fatalf("not-yet-valid CA not labeled:\n%s", out)
+	}
+	if strings.Contains(out, "future.example (expired)") || strings.Contains(out, "incomplete:") {
+		t.Fatalf("not-yet-valid chain:\n%s", out)
+	}
+
+	// NotBefore equal to now is already valid.
+	currentCA, currentKey := mintCA(t, "ca.example", chainTestNow, chainTestNow.Add(365*24*time.Hour))
+	currentLeaf := mintChild(t, "leaf.example", currentCA, currentKey, chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour), false)
+	out, err = buildChain(chainInput{
+		leaf:    currentLeaf,
+		trusted: []*x509.Certificate{currentCA},
+		opts:    ChainOptions{Now: chainTestNow},
+		blocked: func(*x509.Certificate) bool { return false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "not yet valid") || strings.Contains(out, "(expired)") || strings.Contains(out, "incomplete:") {
+		t.Fatalf("NotBefore == now treated as not yet valid:\n%s", out)
+	}
+
+	futureLeaf := mintChild(t, "future-leaf.example", currentCA, currentKey, future, future.Add(24*time.Hour), false)
+	_, err = buildChain(chainInput{
+		leaf:    futureLeaf,
+		trusted: []*x509.Certificate{currentCA},
+		opts:    ChainOptions{Now: chainTestNow},
+		blocked: func(*x509.Certificate) bool { return false },
+	})
+	if err == nil || err.Error() != "leaf certificate not yet valid until 2099-01-02; pass --expired to include it" {
+		t.Fatalf("err = %v", err)
+	}
+	out, err = buildChain(chainInput{
+		leaf:    futureLeaf,
+		trusted: []*x509.Certificate{currentCA},
+		opts:    ChainOptions{Now: chainTestNow, Expired: true},
+		blocked: func(*x509.Certificate) bool { return false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "future-leaf.example (not yet valid)") {
+		t.Fatalf("leaf not labeled not yet valid:\n%s", out)
+	}
+	if strings.Contains(out, "incomplete:") || strings.Contains(out, "future-leaf.example (expired)") {
+		t.Fatalf("not-yet-valid leaf:\n%s", out)
+	}
+}
+
 func TestBuildChainNotAfterEqualToNowIsCurrent(t *testing.T) {
 	t.Parallel()
 	leaf, ca := mintLeafAndCA(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow)
@@ -340,6 +421,39 @@ func TestBuildChainPrefersCurrentIssuer(t *testing.T) {
 	}
 }
 
+func TestBuildChainSelfSignedNonCALeaf(t *testing.T) {
+	t.Parallel()
+	leaf := mintSelfSignedLeaf(t, "leaf.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour))
+	if leaf.IsCA {
+		t.Fatal("leaf is a CA")
+	}
+	if !bytes.Equal(leaf.RawSubject, leaf.RawIssuer) {
+		t.Fatal("subject and issuer differ")
+	}
+	if err := leaf.CheckSignature(leaf.SignatureAlgorithm, leaf.RawTBSCertificate, leaf.Signature); err != nil {
+		t.Fatal(err)
+	}
+	// CheckSignatureFrom enforces CA constraints, so it must reject this leaf.
+	// The chain walk has to accept it anyway.
+	if err := leaf.CheckSignatureFrom(leaf); err == nil {
+		t.Fatal("CheckSignatureFrom accepted a non-CA leaf")
+	}
+	out, err := buildChain(chainInput{
+		leaf:    leaf,
+		opts:    ChainOptions{Now: chainTestNow},
+		blocked: func(*x509.Certificate) bool { return false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "incomplete:") {
+		t.Fatalf("self-signed non-CA leaf marked incomplete:\n%s", out)
+	}
+	if lines := chainDataLines(out); len(lines) != 1 || !strings.Contains(out, "leaf.example") {
+		t.Fatalf("chain:\n%s", out)
+	}
+}
+
 func TestBuildChainCycle(t *testing.T) {
 	t.Parallel()
 	aSelf, aKey := mintCA(t, "a.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour))
@@ -411,6 +525,64 @@ func TestResolveChainLeafRemoteFallback(t *testing.T) {
 	}
 	if len(extras) != 1 || chainFP(extras[0]) != chainFP(ca) {
 		t.Fatalf("extras = %#v", extras)
+	}
+}
+
+func TestResolveChainLeafRedactsURL(t *testing.T) {
+	t.Parallel()
+	u := mustURL(t, "https://alice:s3cret@leaf.example:8443/hidden?token=sekrit#frag")
+	opts := ChainOptions{URL: u, Now: chainTestNow}
+	_, _, err := resolveChainLeaf(opts, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	assertChainURLRedacted(t, err.Error(), "https://leaf.example:8443")
+	if err.Error() != "no local chain for https://leaf.example:8443; pass --remote to look up the TLS chain" {
+		t.Fatalf("err = %v", err)
+	}
+
+	opts.Remote = true
+	opts.Fetch = func(*url.URL) ([]*x509.Certificate, error) {
+		return nil, nil
+	}
+	_, _, err = resolveChainLeaf(opts, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	assertChainURLRedacted(t, err.Error(), "https://leaf.example:8443")
+	if err.Error() != "remote lookup for https://leaf.example:8443: server presented no certificates" {
+		t.Fatalf("err = %v", err)
+	}
+
+	// Empty host fails before any dial.
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	bare := &url.URL{
+		Scheme:   "https",
+		User:     url.UserPassword("alice", "s3cret"),
+		Path:     "/hidden",
+		RawQuery: "token=sekrit",
+		Fragment: "frag",
+	}
+	_, err = readChainCertificates(ctx, bare, 120*time.Second)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	assertChainURLRedacted(t, err.Error(), "https://")
+	if strings.Contains(err.Error(), u.User.String()) || strings.Contains(err.Error(), "token=sekrit") {
+		t.Fatalf("full url in error: %v", err)
+	}
+}
+
+func assertChainURLRedacted(t *testing.T, msg, host string) {
+	t.Helper()
+	if !strings.Contains(msg, host) {
+		t.Fatalf("error missing %q: %s", host, msg)
+	}
+	for _, secret := range []string{"alice", "s3cret", "token", "sekrit", "hidden", "frag", "user:pass", "alice:s3cret"} {
+		if strings.Contains(msg, secret) {
+			t.Fatalf("error text contains %q: %s", secret, msg)
+		}
 	}
 }
 
@@ -805,6 +977,34 @@ func mintLeafAndCA(t *testing.T, leafCN, caCN string, notBefore, notAfter time.T
 	ca, key := mintCA(t, caCN, notBefore, notAfter)
 	leaf := mintChild(t, leafCN, ca, key, notBefore, notAfter, true)
 	return leaf, ca
+}
+
+func mintSelfSignedLeaf(t *testing.T, cn string, notBefore, notAfter time.Time) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          testSerial(t),
+		Subject:               pkix.Name{CommonName: cn},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  false,
+		DNSNames:              []string{cn},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
 }
 
 func mintCA(t *testing.T, cn string, notBefore, notAfter time.Time) (*x509.Certificate, *ecdsa.PrivateKey) {

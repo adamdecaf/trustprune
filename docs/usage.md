@@ -431,7 +431,7 @@ Show the certificate chain for a local file or a URL. The selected store is only
 
 `--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. The leaf is the first certificate in the file or store that matches that host. `--remote` dials that host only when no local leaf is found. The dial uses a 30 second timeout and does not treat the server as trusted.
 
-The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. Other certificates outside the store, expired certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `(untrusted)`, `(expired)`, and/or `(blocklisted)`. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
+The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. Other certificates outside the store, expired or not-yet-valid certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `(untrusted)`, `(expired)`, `(not yet valid)`, and/or `(blocklisted)`. `--expired` includes a certificate whose `NotAfter` is in the past and a certificate whose `NotBefore` is in the future. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
 
 An incomplete chain prints a note and names the flags that would include a skipped issuer.
 
@@ -460,9 +460,9 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery |
 | `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |
 | `--untrusted` | Include certificates that are not in the trusted store |
-| `--expired` | Include expired certificates |
+| `--expired` | Include expired and not-yet-valid certificates |
 | `--revoked` | Include certificates on the offline Chromium and Mozilla blocklists (labeled `blocklisted`; no OCSP or CRL) |
-| `--all` | Include untrusted, expired, and blocklisted certificates |
+| `--all` | Include untrusted, expired, not-yet-valid, and blocklisted certificates |
 | `--remote` | Look up the TLS chain when no local chain is found (30s timeout) |
 
 ## add

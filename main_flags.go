@@ -289,7 +289,7 @@ func flagChainUntrusted() *cli.BoolFlag {
 func flagChainExpired() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "expired",
-		Usage:       "include expired certificates",
+		Usage:       "include expired and not-yet-valid certificates",
 		HideDefault: true,
 		Local:       true,
 	}
@@ -307,7 +307,7 @@ func flagChainRevoked() *cli.BoolFlag {
 func flagChainAll() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "all",
-		Usage:       "include untrusted, expired, and blocklisted certificates",
+		Usage:       "include untrusted, expired, not-yet-valid, and blocklisted certificates",
 		HideDefault: true,
 		Local:       true,
 	}

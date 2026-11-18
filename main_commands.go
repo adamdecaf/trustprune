@@ -256,10 +256,12 @@ Nothing is added, removed, or backed up.
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
 INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. The leaf is shown even when it
-is not in the store. Other certificates outside the store, expired
-certificates, and blocklisted certificates are omitted unless the matching
-flag is set. Included certificates are labeled (untrusted), (expired),
-and/or (blocklisted). --revoked does not use OCSP or CRLs.
+is not in the store. Other certificates outside the store, expired or
+not-yet-valid certificates, and blocklisted certificates are omitted
+unless the matching flag is set. Included certificates are labeled
+(untrusted), (expired), (not yet valid), and/or (blocklisted).
+--expired covers a past NotAfter and a future NotBefore.
+--revoked does not use OCSP or CRLs.
 
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
@@ -267,11 +269,11 @@ and/or (blocklisted). --revoked does not use OCSP or CRLs.
   Include a private CA that is not in the trusted store
     trustprune chain --file leaf.pem --untrusted
 
-  Include expired or blocklisted certificates
+  Include expired, not-yet-valid, or blocklisted certificates
     trustprune chain --file leaf.pem --expired
     trustprune chain --file leaf.pem --revoked
 
-  Include untrusted, expired, and blocklisted certificates
+  Include untrusted, expired, not-yet-valid, and blocklisted certificates
     trustprune chain --file leaf.pem --all
 
   Look up the TLS chain when no local certificate matches the host
