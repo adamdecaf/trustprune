@@ -25,15 +25,15 @@ import (
 
 // CheckBundleFlag reports whether --bundle is allowed for this command.
 // An empty bundle means the flag was not set. Non-empty requires --app openssl
-// and one of list, backup, restore, or allowlist.
+// and one of list, backup, restore, allowlist, or create.
 func CheckBundleFlag(command, app, bundle string) error {
 	if strings.TrimSpace(bundle) == "" {
 		return nil
 	}
 	switch strings.ToLower(strings.TrimSpace(command)) {
-	case "list", "backup", "restore", "allowlist":
+	case "list", "backup", "restore", "allowlist", "create":
 	default:
-		return fmt.Errorf("--bundle is only supported for list, backup, restore, and allowlist")
+		return fmt.Errorf("--bundle is only supported for list, backup, restore, allowlist, and create")
 	}
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
 		return fmt.Errorf("--bundle requires --app openssl")

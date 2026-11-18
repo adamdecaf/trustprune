@@ -324,6 +324,86 @@ func connectAction(_ context.Context, c *cli.Command) error {
 	return cmd.ConnectWithAppStore(u, app, opts)
 }
 
+func createCommand(st *runState) *cli.Command {
+	return &cli.Command{
+		Name:  "create",
+		Usage: "Write a PEM bundle of allowlisted certificates without changing the store",
+		UsageText: `trustprune create --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--format pem] [--out <path>]
+
+  Write trusted certificates that match an allowlist to a PEM bundle.
+  The store is only read. Nothing is removed, added, or backed up.
+
+  Platform store, PEM on stdout
+    trustprune create --file allowlist.yaml
+
+  Write the bundle to a file (mode 0644). Stdout stays empty.
+    trustprune create --file allowlist.yaml --out ca-bundle.pem
+
+  Application store. --store overrides java, certifi, or poppler.
+    trustprune create --file allowlist.yaml --app java --out java-cas.pem
+    trustprune create --file allowlist.yaml --app certifi --store /path/to/cacert.pem --out kept.pem
+    trustprune create --file allowlist.yaml --app poppler --store /path/to/nssdb --out kept.pem
+
+  Read an explicit OpenSSL PEM CA bundle. The file is not modified.
+    trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundle.pem --out kept.pem
+
+  --format accepts pem (the default). Any other value is a usage error.
+    trustprune create --file allowlist.yaml --format pem
+
+  An allowlist that matches no trusted certificate fails before any output file is created.
+  --out equal to the store path, or a path inside a directory store, is refused.
+
+APPS
+  Supported apps: ` + store.FormatAppsHelpLine(),
+		Flags: []cli.Flag{
+			flagFile("allowlist file", true),
+			flagApp(),
+			flagStore(),
+			flagBundle(),
+			flagCreateFormat(),
+			flagOut("write the PEM bundle to this path instead of stdout (mode 0644)", false),
+		},
+		ArgValidator: rejectPositionalArgs,
+		Before:       createBefore,
+		Action:       withTrace(st, createAction),
+	}
+}
+
+func createBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if _, err := cmd.NormalizeCreateFormat(c.String("format")); err != nil {
+		return ctx, usageExit(c, err.Error())
+	}
+	if err := checkBundleFlag(c); err != nil {
+		return ctx, err
+	}
+	if err := rejectStoreWithBundle(c, "create: --bundle names the openssl PEM to read; --store is only for java/certifi/poppler"); err != nil {
+		return ctx, err
+	}
+	return ctx, rejectIncompatibleStore(c)
+}
+
+func createAction(_ context.Context, c *cli.Command) error {
+	opts := cmd.CreateOptions{
+		AllowlistPath: flagString(c, "file"),
+		Format:        c.String("format"),
+		Out:           flagString(c, "out"),
+		Stdout:        c.Root().Writer,
+	}
+	app := flagString(c, "app")
+	bundle := flagString(c, "bundle")
+	path := storePath(c)
+	if app == "" {
+		return cmd.CreateForPlatform(opts)
+	}
+	if bundle != "" {
+		return cmd.CreateForBundle(app, bundle, opts)
+	}
+	if path != "" {
+		return cmd.CreateForAppWithStore(app, path, opts)
+	}
+	return cmd.CreateForApp(app, opts)
+}
+
 func diffCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "diff",

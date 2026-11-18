@@ -6,7 +6,7 @@
 
 In October 2026, the private keys of eight [eMudhra](https://emudhra.com/en/post/certificate-security-incident) intermediate CAs were compromised. Six of them could issue TLS certificates for any website. [Apple blocked](https://support.apple.com/en-us/149555) those certificates in Safari and system frameworks starting 19 October 2026, and later blocked the emSign ECC Root CA - G3. Command-line tools that still read `/etc/ssl/cert.pem` (git, curl, python3, and others) kept trusting the compromised chains until users removed the roots by hand — and a subsequent macOS update can restore Apple's copy of that file. The pattern is old: DigiNotar, Symantec, WoSign, and many others. The CA system still ships with more trust than most people need, and removing it is still harder than it should be.
 
-`trustprune` gives you a single CLI to **list**, **backup**, **allowlist** (distrust), and **restore** the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
+`trustprune` gives you a single CLI to **list**, **backup**, **allowlist** (distrust), **restore**, and **create** PEM bundles from the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
 
 Trust should be earned, not defaulted.
 
@@ -40,6 +40,9 @@ trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 # 4. Roll back if something breaks
 trustprune restore
 trustprune restore --app java
+
+# 5. Or write a PEM bundle and leave the store unchanged
+trustprune create --file urls.yaml --out ca-bundle.pem
 ```
 
 Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from hostnames, platform presets, or browser history.
@@ -55,6 +58,7 @@ Go programs can apply that allowlist without changing a store. `certpool.New` re
 | [list](docs/basics.md#list) | Show trusted certificates in a platform or app store (audit) |
 | [backup](docs/basics.md#backup-and-restore) / [restore](docs/basics.md#backup-and-restore) | Capture and roll back CA trust |
 | [allowlist](docs/allowlists.md#allowlisting) | Distrust certificates that are not on your allowlist |
+| [create](docs/usage.md#create) | Write a PEM bundle of allowlisted certificates from a store (read-only) |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
 | [diff](docs/usage.md#diff) | Compare two certificate files and print the fields that differ |
@@ -182,6 +186,10 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets -
 # Apply the result with the existing allowlist command (optionally a PEM bundle):
 #   trustprune allowlist --file allowlist.yaml
 #   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
+# Or write a PEM bundle and leave the store unchanged (--format pem is the default):
+#   trustprune create --file allowlist.yaml --out ca-bundle.pem
+#   trustprune create --file allowlist.yaml --app certifi --store /path/to/cacert.pem --out kept.pem
+#   trustprune create --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem --out kept.pem
 
 # Verify connectivity after a change
 trustprune connect google.com            # bare host; treated as https://google.com

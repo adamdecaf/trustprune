@@ -92,7 +92,7 @@ func TestCertManage_help(t *testing.T) {
 	}
 
 	// sub-command, but no args. Missing required --file is a usage error (exit 2).
-	subCommands := []string{"add", "allowlist"}
+	subCommands := []string{"add", "allowlist", "create"}
 	for i := range subCommands {
 		out, err := run(t, subCommands[i])
 		if err == nil || !strings.Contains(err.Error(), "exit status 2") {
@@ -104,7 +104,7 @@ func TestCertManage_help(t *testing.T) {
 	}
 
 	// sub-commands, with help flag
-	subCommands = []string{"add", "backup", "gen-allowlist", "list", "restore", "allowlist"}
+	subCommands = []string{"add", "backup", "gen-allowlist", "list", "restore", "allowlist", "create"}
 	for i := range subCommands {
 		for j := range helpChoices {
 			out, err := run(t, subCommands[i], helpChoices[j])

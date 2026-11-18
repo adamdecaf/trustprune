@@ -57,6 +57,13 @@ Allowlist completed successfully
 40 removed, 12 kept
 ```
 
+`create` uses the same allowlist file to write a PEM bundle and leaves the store unchanged. `--format` accepts `pem`. An allowlist that matches nothing fails and writes no file. Full flags: [usage](usage.md#create).
+
+```
+$ trustprune create --file wh.json --out kept.pem
+$ trustprune create --file wh.json --app java --out java-cas.pem
+```
+
 ## Generating allowlists
 
 `trustprune` generates allowlists by dialing HTTPS hosts and recording the CAs that signed them. Sources can be a few hostnames (`--hosts`), named platform presets (`--presets`), browser history (`--from`), and/or a URL list file (`--file`).

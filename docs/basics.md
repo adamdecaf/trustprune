@@ -252,6 +252,17 @@ Web UI: http://127.0.0.1:12345/
 
 <img src="./images/web.png" />
 
+## Create
+
+`create` writes a PEM bundle of the trusted certificates that match an allowlist. It reads the platform store, or an application store with the same `--app`, `--store`, and `--bundle` rules as `list`. The store is left unchanged. Guide-only apps return their existing guide error and write nothing.
+
+```
+$ trustprune create --file allowlist.yaml --out ca-bundle.pem
+$ trustprune create --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem --out kept.pem
+```
+
+`--format` accepts `pem` (the default). Omit `--out` and the PEM is written to stdout. The output file mode is `0644`. An allowlist that matches nothing fails before any output file is created. Full flags: [usage](usage.md#create).
+
 ## Backup and Restore
 
 It's important to be able to rollback changes to your certificate store. These changes can be dangerous if done incorrectly as many websites you visit might partially quit loading.
