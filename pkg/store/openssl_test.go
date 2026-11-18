@@ -17,6 +17,7 @@ package store
 import (
 	"bytes"
 	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -41,9 +42,28 @@ func isolateOpenSSLLookup(t *testing.T) {
 	t.Helper()
 	t.Setenv("SSL_CERT_FILE", "")
 	t.Setenv("CURL_CA_BUNDLE", "")
-	orig := gitHTTPSSLCAInfo
+	origGit := gitHTTPSSLCAInfo
 	gitHTTPSSLCAInfo = func() string { return "" }
-	t.Cleanup(func() { gitHTTPSSLCAInfo = orig })
+	origBins := libreSSLBinPaths
+	libreSSLBinPaths = nil
+	origCerts := libreSSLCertPaths
+	libreSSLCertPaths = nil
+	origLook := opensslLookPath
+	opensslLookPath = func(string) (string, error) {
+		return "", errors.New("openssl not on PATH")
+	}
+	origExists := libreSSLPathExists
+	origVersion := opensslVersionOutput
+	origGOOS := opensslGOOS
+	t.Cleanup(func() {
+		gitHTTPSSLCAInfo = origGit
+		libreSSLBinPaths = origBins
+		libreSSLCertPaths = origCerts
+		opensslLookPath = origLook
+		libreSSLPathExists = origExists
+		opensslVersionOutput = origVersion
+		opensslGOOS = origGOOS
+	})
 }
 
 func refuseIfSystemOpenSSL(t *testing.T, path string) {
