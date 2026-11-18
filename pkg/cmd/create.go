@@ -29,54 +29,82 @@ import (
 )
 
 // CreateFormats is the create --format list, in help text and errors.
-// pem is the only format in this slice. Java trust stores can be added later.
-const CreateFormats = "pem"
+// pem writes a certificate bundle. jks and pkcs12 write a Java truststore
+// through keytool (see create_java.go). There is no pure-Go JKS or PKCS#12
+// truststore writer in this module's dependencies.
+const CreateFormats = "pem, jks, pkcs12"
 
-const createFormatPEM = "pem"
+const (
+	createFormatPEM    = "pem"
+	createFormatJKS    = "jks"
+	createFormatPKCS12 = "pkcs12"
+)
 
 // createFilePerm is the mode of a PEM bundle written by create.
 // CA bundles are world-readable so other programs can load them.
 const createFilePerm os.FileMode = 0o644
 
 // ErrNoMatchingCerts is returned when no trusted certificate matches the
-// allowlist. create writes no PEM in that case. allowlist refuses an empty
-// result the same way, so an empty bundle is not a successful create.
-var ErrNoMatchingCerts = errors.New("no certificates matched the allowlist; refusing to write an empty PEM bundle")
+// allowlist. create writes nothing in that case. allowlist refuses an empty
+// result the same way, so an empty bundle or truststore is not a successful create.
+var ErrNoMatchingCerts = errors.New("no certificates matched the allowlist; refusing to write an empty output")
 
 // CreateOptions is the input to the create command.
 type CreateOptions struct {
 	// AllowlistPath is the allowlist file (--file). Required.
 	AllowlistPath string
-	// Format is "pem" (the default). Empty means pem.
+	// Format is pem (the default), jks, or pkcs12. Empty means pem.
 	// Matching is case-insensitive.
 	Format string
-	// Out is the PEM path (--out). Empty writes the bundle to Stdout.
+	// Out is the output path (--out). Empty writes a PEM bundle to Stdout.
+	// jks and pkcs12 require Out.
 	Out string
-	// Stdout receives the PEM when Out is empty. Nil means os.Stdout.
+	// Stdout receives the PEM when Out is empty and Format is pem.
+	// Nil means os.Stdout. Binary formats never write here.
 	Stdout io.Writer
 }
 
-// NormalizeCreateFormat accepts pem (the default, including "").
-// Matching is case-insensitive. Any other value is an error that lists the
-// valid formats. The returned name is lowercase. The error quotes format
-// unchanged so the caller can show what was passed.
+// NormalizeCreateFormat accepts pem (the default, including ""), jks, and
+// pkcs12. Matching is case-insensitive. Any other value is an error that
+// lists the valid formats. The returned name is lowercase. The error quotes
+// format unchanged so the caller can show what was passed.
 func NormalizeCreateFormat(format string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", createFormatPEM:
 		return createFormatPEM, nil
+	case createFormatJKS:
+		return createFormatJKS, nil
+	case createFormatPKCS12:
+		return createFormatPKCS12, nil
 	default:
 		return "", fmt.Errorf("unknown format %q (formats: %s)", format, CreateFormats)
 	}
 }
 
-// CreateForPlatform reads the platform store and writes a PEM bundle of the
-// trusted certificates that match the allowlist. The store is not modified.
+// CreateFormatRequiresOut reports whether format writes a binary truststore
+// and therefore needs --out. format must already be normalized.
+func CreateFormatRequiresOut(format string) bool {
+	switch format {
+	case createFormatJKS, createFormatPKCS12:
+		return true
+	default:
+		return false
+	}
+}
+
+// CreateOutRequiredError is returned when a binary format is missing --out.
+func CreateOutRequiredError(format string) error {
+	return fmt.Errorf("--out is required for format %s", format)
+}
+
+// CreateForPlatform reads the platform store and writes the trusted
+// certificates that match the allowlist. The store is not modified.
 func CreateForPlatform(opts CreateOptions) error {
 	return CreateFromStore(store.Platform(), opts)
 }
 
-// CreateForApp reads the named app store and writes a PEM bundle of the
-// trusted certificates that match the allowlist. The store is not modified.
+// CreateForApp reads the named app store and writes the trusted
+// certificates that match the allowlist. The store is not modified.
 func CreateForApp(app string, opts CreateOptions) error {
 	st, err := store.ForApp(app)
 	if err != nil {
@@ -87,7 +115,7 @@ func CreateForApp(app string, opts CreateOptions) error {
 
 // CreateForAppWithStore reads app with an explicit trust-store path (CLI
 // --store: java keystore, certifi bundle, or poppler NSS directory) and
-// writes a PEM bundle. The store is not modified.
+// writes the certificates that match the allowlist. The store is not modified.
 func CreateForAppWithStore(app, storePath string, opts CreateOptions) error {
 	st, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
@@ -97,7 +125,7 @@ func CreateForAppWithStore(app, storePath string, opts CreateOptions) error {
 }
 
 // CreateForBundle reads an explicit openssl PEM CA bundle (CLI --bundle)
-// and writes a PEM bundle of the certificates that match the allowlist.
+// and writes the certificates that match the allowlist.
 // app must be openssl. The source PEM is not modified.
 func CreateForBundle(app, bundle string, opts CreateOptions) error {
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
@@ -118,19 +146,26 @@ type createSource interface {
 }
 
 // CreateFromStore lists trusted certificates from st, keeps those
-// allowlist.Matches accepts, and writes a PEM bundle.
+// allowlist.Matches accepts, and writes them. pem writes a PEM bundle
+// (stdout when Out is empty). jks and pkcs12 write a Java truststore to
+// Out. The store is read-only.
 //
-// The store is read-only. This calls List and, when a file output path is
-// set, GetInfo. It does not call Add, Remove, Backup, Restore, or
-// GetLatestBackup. An output path that is the store, or a file inside a
-// directory store, is refused before any write. ErrNoMatchingCerts is
-// returned before any write when nothing matches.
+// This calls List and, when a file output path is set, GetInfo. It does
+// not call Add, Remove, Backup, Restore, or GetLatestBackup. An output
+// path that is the store, or a file inside a directory store, is refused
+// before any write. ErrNoMatchingCerts is returned before any write when
+// nothing matches. A binary format with no Out is refused before any read.
 func CreateFromStore(st createSource, opts CreateOptions) error {
 	if st == nil {
 		return errors.New("no certificate store")
 	}
-	if _, err := NormalizeCreateFormat(opts.Format); err != nil {
+	format, err := NormalizeCreateFormat(opts.Format)
+	if err != nil {
 		return err
+	}
+	out := strings.TrimSpace(opts.Out)
+	if CreateFormatRequiresOut(format) && out == "" {
+		return CreateOutRequiredError(format)
 	}
 	al, err := allowlist.FromFile(opts.AllowlistPath)
 	if err != nil {
@@ -144,30 +179,42 @@ func CreateFromStore(st createSource, opts CreateOptions) error {
 	if len(kept) == 0 {
 		return ErrNoMatchingCerts
 	}
-	body, err := encodeCreatePEM(kept)
+	if out != "" {
+		if info := st.GetInfo(); info != nil {
+			overlaps, err := createOutputOverlapsStore(info.Path, out)
+			if err != nil {
+				return err
+			}
+			if overlaps {
+				return fmt.Errorf("refusing to write %s over the certificate store; choose a different --out", out)
+			}
+		}
+	}
+	switch format {
+	case createFormatPEM:
+		return writeCreatePEM(out, opts.Stdout, kept)
+	case createFormatJKS, createFormatPKCS12:
+		return writeJavaTruststore(out, format, kept)
+	default:
+		return fmt.Errorf("unknown format %q (formats: %s)", format, CreateFormats)
+	}
+}
+
+func writeCreatePEM(out string, stdout io.Writer, certs []*x509.Certificate) error {
+	body, err := encodeCreatePEM(certs)
 	if err != nil {
 		return err
 	}
 	if len(body) == 0 {
 		return ErrNoMatchingCerts
 	}
-	out := strings.TrimSpace(opts.Out)
 	if out == "" {
-		w := opts.Stdout
+		w := stdout
 		if w == nil {
 			w = os.Stdout
 		}
 		_, err := w.Write(body)
 		return err
-	}
-	if info := st.GetInfo(); info != nil {
-		overlaps, err := createOutputOverlapsStore(info.Path, out)
-		if err != nil {
-			return err
-		}
-		if overlaps {
-			return fmt.Errorf("refusing to write %s over the certificate store; choose a different --out", out)
-		}
 	}
 	return writeCreateFile(out, body)
 }

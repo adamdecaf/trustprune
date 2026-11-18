@@ -6,7 +6,7 @@ nav_order: 4
 
 # Usage
 
-Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle. It leaves the store unchanged and has no `--dry-run` flag.
+Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -75,7 +75,7 @@ The on-disk Trusted Certificates list is **unverified**. Paths, the admin policy
 
 | Variable | Meaning |
 |----------|---------|
-| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `--app java`. Custom values are passed with keytool `-storepass:env` (trimmed value in the child environment; sudo uses `--preserve-env`) so the password never appears in keytool or sudo argv; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed. There is no CLI flag for this. |
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `--app java` and for `create --format jks` or `pkcs12`. Custom values are passed with keytool `-storepass:env` (trimmed value in the child environment; sudo uses `--preserve-env`) so the password never appears in keytool or sudo argv and is not logged; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed. There is no CLI flag for this. |
 
 ## list
 
@@ -365,7 +365,7 @@ countries:
 
 ## gen-allowlist
 
-Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). To write a PEM bundle from a store and leave that store unchanged, use [`trustprune create`](#create). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
+Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). To write a PEM bundle or Java truststore from a store and leave that store unchanged, use [`trustprune create`](#create). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
 
 ```bash
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
@@ -395,16 +395,20 @@ Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and
 
 ## create
 
-Write a PEM bundle of the trusted certificates that match an allowlist. The platform store is the default. `--app` selects an application store. `--store` overrides java, certifi, and poppler. `--bundle` with `--app openssl` reads that PEM. The command only reads that store: it does not add, remove, back up, or restore. Guide-only apps return their existing guide error and write nothing.
+Write the trusted certificates that match an allowlist. The platform store is the default. `--app` selects an application store. `--store` overrides java, certifi, and poppler. `--bundle` with `--app openssl` reads that PEM. The command only reads that store: it does not add, remove, back up, or restore. Guide-only apps return their existing guide error and write nothing.
 
-`--file` is the allowlist (YAML or JSON), the same file `allowlist` and `gen-allowlist` use. Matching uses that file's fingerprints and countries, including the built-in denylist and the Chromium and Mozilla blocklists, so a denied certificate is left out even when the file names it. `--format` accepts `pem` (the default). Any other value, including a Java trust store, is a usage error (exit 2) that names `pem`. Omit `--out` to write the PEM to stdout. With `--out`, stdout stays empty and the file mode is `0644`.
+`--file` is the allowlist (YAML or JSON), the same file `allowlist` and `gen-allowlist` use. Matching uses that file's fingerprints and countries, including the built-in denylist and the Chromium and Mozilla blocklists, so a denied certificate is left out even when the file names it. `--format` accepts `pem` (the default), `jks`, or `pkcs12`. Any other value is a usage error (exit 2) that names those formats. Omit `--out` with `pem` to write the bundle to stdout. With `--out`, stdout stays empty and the file mode is `0644`. `jks` and `pkcs12` require `--out` (exit 2 if it is omitted). They write a Java truststore that contains exactly the matching certificates. `keytool` creates it (`JAVA_HOME/bin`, then `PATH`, then `~/.local/bin`). A missing `keytool` is an error (exit 1) and no file is written. Each alias is `sha256-` plus the certificate's SHA-256 fingerprint, so aliases are stable and unique. The truststore is written to a temp file in the destination directory and renamed into place. The source store is not modified.
 
-An allowlist that matches no trusted certificate fails with exit 1 (`no certificates matched the allowlist; refusing to write an empty PEM bundle`) and creates no output file. That matches `allowlist` refusing to leave a bundle empty. `--out` set to the store path, or to a file inside a directory store, is refused before any write.
+The truststore password defaults to Java's `changeit`. Set `TRUSTPRUNE_JAVA_STOREPASS` to override it (trimmed; whitespace-only falls back to `changeit`). A custom password is passed to `keytool` with `-storepass:env`, not argv, and it is not logged. There is no password flag. `keytool` is non-interactive (`-noprompt`, no stdin) and each call has a timeout.
+
+An allowlist that matches no trusted certificate fails with exit 1 (`no certificates matched the allowlist; refusing to write an empty output`) and creates no output file. That matches `allowlist` refusing to leave a bundle empty. `--out` set to the store path, or to a file inside a directory store, is refused before any write.
 
 ```bash
 trustprune create --file allowlist.yaml
 trustprune create --file allowlist.yaml --out ca-bundle.pem
 trustprune create --file allowlist.yaml --format pem --out ca-bundle.pem
+trustprune create --file allowlist.yaml --format jks --out trusted.jks
+trustprune create --file allowlist.yaml --format pkcs12 --out trusted.p12
 trustprune create --file allowlist.yaml --app java --out java-cas.pem
 trustprune create --file allowlist.yaml --app certifi --store /path/to/cacert.pem --out kept.pem
 trustprune create --file allowlist.yaml --app poppler --store /path/to/nssdb --out kept.pem
@@ -417,8 +421,8 @@ trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundl
 | `--app <name>` | Read an application store. Omit it to read the platform store |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory |
 | `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |
-| `--format pem` | Output format. `pem` is the default and the only accepted value. Another name is a usage error (exit 2) |
-| `--out <path>` | Write the PEM bundle to this path (mode `0644`) instead of stdout. Stdout stays empty |
+| `--format <name>` | Output format: `pem` (default), `jks`, or `pkcs12`. `jks` and `pkcs12` write a Java truststore through `keytool`. Another name is a usage error (exit 2) |
+| `--out <path>` | Write the PEM bundle or Java truststore to this path (mode `0644`). Stdout stays empty. **Required** for `jks` and `pkcs12`. Omit it with `pem` to write the bundle to stdout |
 
 ## add
 

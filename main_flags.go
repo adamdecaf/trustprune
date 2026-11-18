@@ -194,8 +194,7 @@ func flagConnectFormat() *cli.StringFlag {
 	}
 }
 
-// flagCreateFormat is create --format pem.
-// pem is the only accepted value. Java trust stores can be added later.
+// flagCreateFormat is create --format pem (default), jks, or pkcs12.
 // Do not use ui.DefaultFormat here: that is the list table format.
 func flagCreateFormat() *cli.StringFlag {
 	return &cli.StringFlag{

@@ -43,7 +43,20 @@ func TestNormalizeCreateFormat(t *testing.T) {
 			t.Fatalf("format %q: got %q err=%v", format, got, err)
 		}
 	}
-	for _, format := range []string{"java", "jks", "pkcs12", "JAVA"} {
+	for _, tc := range []struct{ in, want string }{
+		{"jks", "jks"},
+		{"JKS", "jks"},
+		{" Jks ", "jks"},
+		{"pkcs12", "pkcs12"},
+		{"PKCS12", "pkcs12"},
+		{" Pkcs12 ", "pkcs12"},
+	} {
+		got, err := NormalizeCreateFormat(tc.in)
+		if err != nil || got != tc.want {
+			t.Fatalf("format %q: got %q err=%v", tc.in, got, err)
+		}
+	}
+	for _, format := range []string{"java", "p12", "der", "JAVA"} {
 		_, err := NormalizeCreateFormat(format)
 		if err == nil {
 			t.Fatalf("format %q: expected error", format)
@@ -276,7 +289,7 @@ func TestCreateFromStore_ErrorsLeaveOutputAbsent(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing allowlist")
 	}
-	err = CreateFromStore(st, CreateOptions{AllowlistPath: alPath, Format: "jks", Out: out})
+	err = CreateFromStore(st, CreateOptions{AllowlistPath: alPath, Format: "der", Out: out})
 	if err == nil || !strings.Contains(err.Error(), "unknown format") {
 		t.Fatalf("format: %v", err)
 	}

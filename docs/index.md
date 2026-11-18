@@ -2,7 +2,7 @@
 layout: default
 title: trustprune
 description: >-
-  List, backup, allowlist, restore, and create PEM bundles from CA trust stores
+  List, backup, allowlist, restore, and create PEM bundles or Java truststores from CA trust stores
   on your platform and in apps such as Java, Chrome, and Firefox. Trust should be earned, not defaulted.
 nav_order: 1
 permalink: /
@@ -12,7 +12,7 @@ permalink: /
 
 **Your machine trusts hundreds of Certificate Authorities by default. Most of them you have never heard of. One bad CA is enough to break HTTPS for everyone who trusts it.**
 
-`trustprune` is a single CLI to **list**, **backup**, **allowlist** (distrust), **restore**, and **create** PEM bundles from the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
+`trustprune` is a single CLI to **list**, **backup**, **allowlist** (distrust), **restore**, and **create** PEM bundles or Java truststores from the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
 
 Trust should be earned, not defaulted.
 

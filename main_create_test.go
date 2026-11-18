@@ -15,11 +15,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
@@ -42,12 +47,17 @@ func TestCreateCLI(t *testing.T) {
 		for _, needle := range []string{
 			"trustprune create --file allowlist.yaml",
 			"trustprune create --file allowlist.yaml --out ca-bundle.pem",
+			"--format jks --out trusted.jks",
+			"--format pkcs12 --out trusted.p12",
 			"--app certifi --store /path/to/cacert.pem",
 			"--app openssl --file allowlist.yaml --bundle",
 			"default: pem",
 			"options: pem",
 			"mode 0644",
 			"without changing the store",
+			"TRUSTPRUNE_JAVA_STOREPASS",
+			"--out is required",
+			"sha256-",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("create help missing %q:\n%s", needle, res.stdout)
@@ -168,7 +178,7 @@ func TestCreateCLI(t *testing.T) {
 		al := writeKeepFirstAllowlist(t, src)
 		res := runCLI(t, bin, home, "create", "--app", "certifi", "--store", bundle, "--file", al, "--format", "java")
 		assertUsageError(t, res, `unknown format "java"`)
-		if !strings.Contains(res.stderr, "pem") {
+		if !strings.Contains(res.stderr, "pem") || !strings.Contains(res.stderr, "jks") || !strings.Contains(res.stderr, "pkcs12") {
 			t.Fatalf("stderr=%q", res.stderr)
 		}
 		assertSameBytes(t, bundle, before)
@@ -181,6 +191,68 @@ func TestCreateCLI(t *testing.T) {
 		assertUsageError(t, res, "--bundle requires --app openssl")
 	})
 
+	t.Run("java truststore requires out", func(t *testing.T) {
+		home, bundle, before := certifiBundle(t, src)
+		al := writeKeepFirstAllowlist(t, src)
+		for _, format := range []string{"jks", "PKCS12"} {
+			res := runCLI(t, bin, home, "create", "--app", "certifi", "--store", bundle, "--file", al, "--format", format)
+			want := "--out is required for format " + strings.ToLower(format)
+			assertUsageError(t, res, want)
+			assertSameBytes(t, bundle, before)
+			assertNoBackupRoot(t, home)
+		}
+	})
+
+	t.Run("java truststore", func(t *testing.T) {
+		keytoolBin := testKeytool(t)
+		home, bundle, before := certifiBundle(t, src)
+		al := writeKeepFirstAllowlist(t, src)
+		for _, format := range []string{"jks", "pkcs12"} {
+			out := filepath.Join(t.TempDir(), "trusted."+format)
+			env := prependPath(envWithout(envWithHome(home), "TRUSTPRUNE_JAVA_STOREPASS="), filepath.Dir(keytoolBin))
+			res := runCLIWithEnv(t, bin, env, "create", "--app", "certifi", "--store", bundle, "--file", al, "--format", format, "--out", out)
+			if res.code != 0 {
+				t.Fatalf("%s code=%d stdout=%s stderr=%s", format, res.code, res.stdout, res.stderr)
+			}
+			if res.stdout != "" || res.stderr != "" {
+				t.Fatalf("%s stdout=%q stderr=%q", format, res.stdout, res.stderr)
+			}
+			assertSameBytes(t, bundle, before)
+			assertNoBackupRoot(t, home)
+			info, err := os.Stat(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runtime.GOOS != "windows" && info.Mode().Perm() != 0o644 {
+				t.Fatalf("%s mode=%o want 0644", format, info.Mode().Perm())
+			}
+			listed := cliListTruststore(t, keytoolBin, out, format, "changeit")
+			if len(listed) != 1 || listed[0] != keepFP {
+				t.Fatalf("%s certs=%v", format, listed)
+			}
+		}
+
+		const secret = "not-changeit-create-9f3a"
+		out := filepath.Join(t.TempDir(), "custom.jks")
+		env := prependPath(envWithout(envWithHome(home), "TRUSTPRUNE_JAVA_STOREPASS="), filepath.Dir(keytoolBin))
+		env = append(env, "TRUSTPRUNE_JAVA_STOREPASS="+secret)
+		res := runCLIWithEnv(t, bin, env, "create", "--app", "certifi", "--store", bundle, "--file", al, "--format", "jks", "--out", out)
+		if res.code != 0 {
+			t.Fatalf("custom code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, secret) || strings.Contains(res.stderr, secret) {
+			t.Fatalf("secret leaked stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		assertSameBytes(t, bundle, before)
+		listed := cliListTruststore(t, keytoolBin, out, "jks", secret)
+		if len(listed) != 1 || listed[0] != keepFP {
+			t.Fatalf("custom certs=%v", listed)
+		}
+		if err := cliListTruststoreErr(keytoolBin, out, "jks", "changeit"); err == nil {
+			t.Fatal("default password opened the custom truststore")
+		}
+	})
+
 	t.Run("stray args", func(t *testing.T) {
 		home, bundle, before := certifiBundle(t, src)
 		al := writeKeepFirstAllowlist(t, src)
@@ -189,4 +261,124 @@ func TestCreateCLI(t *testing.T) {
 		assertSameBytes(t, bundle, before)
 		assertNoBackupRoot(t, home)
 	})
+}
+
+func testKeytool(t *testing.T) string {
+	t.Helper()
+	if home := strings.TrimSpace(os.Getenv("JAVA_HOME")); home != "" {
+		names := []string{"keytool"}
+		if runtime.GOOS == "windows" {
+			names = []string{"keytool.exe", "keytool.bat", "keytool.cmd", "keytool"}
+		}
+		for _, name := range names {
+			p := filepath.Join(home, "bin", name)
+			st, err := os.Stat(p)
+			if err == nil && !st.IsDir() {
+				return p
+			}
+		}
+	}
+	if p, err := exec.LookPath("keytool"); err == nil {
+		return p
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		names := []string{"keytool"}
+		if runtime.GOOS == "windows" {
+			names = []string{"keytool.exe", "keytool.bat", "keytool.cmd", "keytool"}
+		}
+		for _, name := range names {
+			p := filepath.Join(home, ".local", "bin", name)
+			st, err := os.Stat(p)
+			if err == nil && !st.IsDir() {
+				return p
+			}
+		}
+	}
+	t.Skip("keytool not on PATH, in JAVA_HOME, or in ~/.local/bin")
+	return ""
+}
+
+func envWithout(env []string, prefix string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		if strings.HasPrefix(e, prefix) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func prependPath(env []string, dir string) []string {
+	for i, e := range env {
+		if strings.HasPrefix(e, "PATH=") {
+			env[i] = "PATH=" + dir + string(os.PathListSeparator) + strings.TrimPrefix(e, "PATH=")
+			return env
+		}
+	}
+	return append(env, "PATH="+dir)
+}
+
+func cliListTruststore(t *testing.T, bin, path, format, password string) []string {
+	t.Helper()
+	out, err := runCLIKeytoolList(bin, path, format, password)
+	if err != nil {
+		t.Fatalf("keytool -list: %v", err)
+	}
+	certs, err := certutil.ParsePEM(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fps := make([]string, 0, len(certs))
+	text := string(out)
+	for i := range certs {
+		fp := certutil.GetHexSHA256Fingerprint(*certs[i])
+		alias := "sha256-" + fp
+		if !strings.Contains(text, alias) {
+			t.Fatalf("alias %s missing from keytool output:\n%s", alias, text)
+		}
+		fps = append(fps, fp)
+	}
+	return fps
+}
+
+func cliListTruststoreErr(bin, path, format, password string) error {
+	_, err := runCLIKeytoolList(bin, path, format, password)
+	return err
+}
+
+func runCLIKeytoolList(bin, path, format, password string) ([]byte, error) {
+	storeType := "JKS"
+	if strings.EqualFold(format, "pkcs12") {
+		storeType = "PKCS12"
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	args := []string{"-list", "-rfc", "-noprompt", "-keystore", path, "-storetype", storeType, "-storepass:env", "TRUSTPRUNE_JAVA_STOREPASS"}
+	cmd := exec.CommandContext(ctx, bin, args...)
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		if strings.HasPrefix(e, "TRUSTPRUNE_JAVA_STOREPASS=") {
+			continue
+		}
+		env = append(env, e)
+	}
+	cmd.Env = append(env, "TRUSTPRUNE_JAVA_STOREPASS="+password)
+	cmd.Stdin = nil
+	cmd.WaitDelay = 2 * time.Second
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		detail := strings.TrimSpace(stderr.String())
+		if detail == "" {
+			detail = strings.TrimSpace(stdout.String())
+		}
+		if detail == "" {
+			return nil, err
+		}
+		return nil, errors.New(err.Error() + ": " + detail)
+	}
+	return stdout.Bytes(), nil
 }

@@ -6,7 +6,7 @@
 
 In October 2026, the private keys of eight [eMudhra](https://emudhra.com/en/post/certificate-security-incident) intermediate CAs were compromised. Six of them could issue TLS certificates for any website. [Apple blocked](https://support.apple.com/en-us/149555) those certificates in Safari and system frameworks starting 19 October 2026, and later blocked the emSign ECC Root CA - G3. Command-line tools that still read `/etc/ssl/cert.pem` (git, curl, python3, and others) kept trusting the compromised chains until users removed the roots by hand — and a subsequent macOS update can restore Apple's copy of that file. The pattern is old: DigiNotar, Symantec, WoSign, and many others. The CA system still ships with more trust than most people need, and removing it is still harder than it should be.
 
-`trustprune` gives you a single CLI to **list**, **backup**, **allowlist** (distrust), **restore**, and **create** PEM bundles from the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
+`trustprune` gives you a single CLI to **list**, **backup**, **allowlist** (distrust), **restore**, and **create** PEM bundles or Java truststores from the CA trust stores on your platform and in apps such as Java, Chrome, and Firefox.
 
 Trust should be earned, not defaulted.
 
@@ -41,8 +41,9 @@ trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 trustprune restore
 trustprune restore --app java
 
-# 5. Or write a PEM bundle and leave the store unchanged
+# 5. Or write a PEM bundle or Java truststore and leave the store unchanged
 trustprune create --file urls.yaml --out ca-bundle.pem
+trustprune create --file urls.yaml --format jks --out trusted.jks
 ```
 
 Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from hostnames, platform presets, or browser history.
@@ -58,7 +59,7 @@ Go programs can apply that allowlist without changing a store. `certpool.New` re
 | [list](docs/basics.md#list) | Show trusted certificates in a platform or app store (audit) |
 | [backup](docs/basics.md#backup-and-restore) / [restore](docs/basics.md#backup-and-restore) | Capture and roll back CA trust |
 | [allowlist](docs/allowlists.md#allowlisting) | Distrust certificates that are not on your allowlist |
-| [create](docs/usage.md#create) | Write a PEM bundle of allowlisted certificates from a store (read-only) |
+| [create](docs/usage.md#create) | Write a PEM bundle or Java truststore (`jks`, `pkcs12`) of allowlisted certificates from a store (read-only) |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
 | [diff](docs/usage.md#diff) | Compare two certificate files and print the fields that differ |
@@ -85,7 +86,7 @@ Honest status as of November 2026. Levels match what the code does today.
 
 | Level | Application | Notes |
 |-------|-------------|--------|
-| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `--app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv; no CLI flag; no other passwords are guessed). |
+| **Supported** | Java (`cacerts`) | Paths differ by distro and JDK vendor; use `--app java`. Windows needs a usable `JAVA_HOME` / cacerts path. Missing `cacerts`, a directory in its place, or a wrong keystore password fails immediately. Keystore password defaults to `changeit`; set `TRUSTPRUNE_JAVA_STOREPASS` to override (custom values use `-storepass:env`, not argv, and are not logged; no CLI flag; no other passwords are guessed). `create --format jks` or `pkcs12` writes a new truststore with that password and does not modify `cacerts`. |
 | **Partial** | Chrome | Linux uses NSS (`~/.pki/nssdb`); Darwin/Windows wrap the platform store. Linux NSS restore uses the same recorded-profile guard as Firefox (`--force` overrides a mismatch or a backup with no recorded profile). |
 | **Partial** | Firefox | NSS profile `cert8.db` / `cert9.db`. Backups record the profile directory; restore into a different profile, or from a backup with no recorded profile, is refused unless `--force`. |
 | **Partial** | pdfsig / poppler | NSS DB used by pdfsig (`--app poppler`). `--store <dir>` is `-nssdir` and skips discovery. Otherwise the directory is the newest Firefox profile whose name contains `default` and that has a regular non-empty `cert9.db` (cert8-only profiles are skipped) when `certutil -L -d sql:<dir>` succeeds, or when certutil cannot be found or run. A profile that fails to open falls back to `~/.pki/nssdb` and does not try `/etc/pki/nssdb`. With no cert9 profile, `/etc/pki/nssdb` is used when it has a regular non-empty `cert9.db` and the probe succeeds or certutil is unavailable; otherwise `~/.pki/nssdb`. `list` shows that path. `apps` marks poppler found only when the chosen directory contains `cert9.db`. Allowlist refuses a latest backup recorded for a different directory when this store has no backup of its own, unless `--force`. Built-in `libnssckbi` roots are listed. A root that exists only in that module is distrusted with a `p,p,p` override. |
@@ -103,7 +104,7 @@ Honest status as of November 2026. Levels match what the code does today.
 
 | Variable | Meaning |
 |----------|---------|
-| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `--app java`. Custom values are passed via keytool `-storepass:env` (child env + sudo --preserve-env) so the secret is not on the process or sudo command line; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
+| `TRUSTPRUNE_JAVA_STOREPASS` | When set (non-empty after trim), used as the keystore password for every `keytool` call under `--app java` and for `create --format jks` or `pkcs12`. Custom values are passed via keytool `-storepass:env` (child env + sudo --preserve-env) so the secret is not on the process or sudo command line and is not logged; the default `changeit` still uses `-storepass changeit`. Requires keytool `-storepass:env` (JDK 6+). Leading/trailing whitespace is stripped; whitespace-only falls back to `changeit`. No other passwords are guessed; there is no CLI flag. Details: [usage](docs/usage.md#environment). |
 
 ## Safety
 
@@ -186,8 +187,10 @@ trustprune gen-allowlist --out allowlist.yaml --hosts example.com --no-presets -
 # Apply the result with the existing allowlist command (optionally a PEM bundle):
 #   trustprune allowlist --file allowlist.yaml
 #   trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
-# Or write a PEM bundle and leave the store unchanged (--format pem is the default):
+# Or write a PEM bundle or Java truststore and leave the store unchanged (--format pem is the default):
 #   trustprune create --file allowlist.yaml --out ca-bundle.pem
+#   trustprune create --file allowlist.yaml --format jks --out trusted.jks
+#   trustprune create --file allowlist.yaml --format pkcs12 --out trusted.p12
 #   trustprune create --file allowlist.yaml --app certifi --store /path/to/cacert.pem --out kept.pem
 #   trustprune create --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem --out kept.pem
 
