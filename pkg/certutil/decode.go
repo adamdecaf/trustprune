@@ -17,8 +17,6 @@ package certutil
 import (
 	"bytes"
 	"crypto/x509"
-
-	"github.com/adamdecaf/extract-nss-root-certs"
 )
 
 type decoder func([]byte) ([]*x509.Certificate, error)
@@ -43,7 +41,13 @@ func Decode(bs []byte) ([]*x509.Certificate, error) {
 }
 
 func readNSSCerts(bs []byte) ([]*x509.Certificate, error) {
-	cfg := nsscerts.Config{}
-	r := bytes.NewReader(bs)
-	return nsscerts.List(r, &cfg)
+	entries, err := parseCertData(bytes.NewReader(bs))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*x509.Certificate, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.cert)
+	}
+	return out, nil
 }
