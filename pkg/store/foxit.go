@@ -198,7 +198,13 @@ func FoxitStore() Store {
 
 type foxitStore struct{}
 
-var _ Store = foxitStore{}
+var (
+	_ Store    = foxitStore{}
+	_ Lister   = foxitStore{}
+	_ Modifier = foxitStore{}
+	_ Saver    = foxitStore{}
+	_ Informer = foxitStore{}
+)
 
 func (foxitStore) GetInfo() *Info {
 	st := detectFoxit()

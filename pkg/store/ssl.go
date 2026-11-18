@@ -52,6 +52,14 @@ type sslStore struct {
 	path string
 }
 
+var (
+	_ Store    = sslStore{}
+	_ Lister   = sslStore{}
+	_ Modifier = sslStore{}
+	_ Saver    = sslStore{}
+	_ Informer = sslStore{}
+)
+
 // SSLStore returns the Darwin /etc/ssl/cert.pem store. On non-Darwin platforms
 // the store reports itself unavailable; use sslStoreAt in tests to inject a
 // temporary PEM path on any OS.

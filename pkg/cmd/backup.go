@@ -61,7 +61,7 @@ func BackupForAppWithFile(app, storePath string) error {
 // printBackupSuccess prints the dry-run notice, or the success phrase plus the
 // backup path from GetLatestBackup. A backup that already succeeded still
 // prints the historical phrase when that path cannot be resolved.
-func printBackupSuccess(s store.Store) {
+func printBackupSuccess(s store.Saver) {
 	if store.DryRun() {
 		fmt.Println("dry-run: no changes made")
 		return

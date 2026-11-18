@@ -68,17 +68,16 @@ type ListOptions struct {
 	// TODO(adam): Expired and Revoked
 }
 
-// Store represents a certificate store (set of x509 Certificates) and has
-// operations on it which can mutate the underlying state (e.g. a file or
-// directory).
-type Store interface {
-	// GetInfo returns basic information about the store
-	GetInfo() *Info
-
+// Lister lists certificates in a certificate store.
+type Lister interface {
 	// List returns the currently trusted X509 certificates contained
 	// within the cert store
 	List(opts *ListOptions) ([]*x509.Certificate, error)
+}
 
+// Modifier adds certificates to a store and distrusts certificates outside
+// an allowlist.
+type Modifier interface {
 	// Add certificate(s) into the store
 	Add([]*x509.Certificate) error
 
@@ -89,7 +88,10 @@ type Store interface {
 	// This is done when possible to limit the actual deletions to
 	// preserve restore capabilities
 	Remove(allowlist.Allowlist) error
+}
 
+// Saver backs up a certificate store and restores a previous backup.
+type Saver interface {
 	// Backup will attempt to save a backup of the certificate store
 	// on the local system
 	Backup() error
@@ -114,6 +116,26 @@ type Store interface {
 	// be verified are still properly installed and working after
 	// Restore() is called.
 	Restore(where string) error
+}
+
+// Informer reports human-readable information about a certificate store.
+type Informer interface {
+	// GetInfo returns basic information about the store
+	GetInfo() *Info
+}
+
+// Store represents a certificate store (set of x509 Certificates) and has
+// operations on it which can mutate the underlying state (e.g. a file or
+// directory).
+//
+// Store is the composition of Lister, Modifier, Saver, and Informer.
+// A concrete store implements Store and therefore each of those. Callers
+// that need only one of them should accept that smaller interface.
+type Store interface {
+	Lister
+	Modifier
+	Saver
+	Informer
 }
 
 // Info represents high-level information about a certificate store

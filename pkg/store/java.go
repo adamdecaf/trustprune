@@ -138,6 +138,14 @@ type javaStore struct {
 	keystoreOverride string
 }
 
+var (
+	_ Store    = javaStore{}
+	_ Lister   = javaStore{}
+	_ Modifier = javaStore{}
+	_ Saver    = javaStore{}
+	_ Informer = javaStore{}
+)
+
 // JavaStore returns an implementation of Store for Java certificate stores
 //
 // Docs:

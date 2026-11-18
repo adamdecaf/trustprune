@@ -71,6 +71,14 @@ type certifiStore struct {
 	path string
 }
 
+var (
+	_ Store    = certifiStore{}
+	_ Lister   = certifiStore{}
+	_ Modifier = certifiStore{}
+	_ Saver    = certifiStore{}
+	_ Informer = certifiStore{}
+)
+
 // CertifiStore returns the Python certifi CA bundle store. Path discovery uses
 // `python3 -c 'import certifi; print(certifi.where())'` (then python), then
 // pip's vendored certifi, then common site-packages fallbacks.

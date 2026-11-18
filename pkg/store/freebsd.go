@@ -29,6 +29,14 @@ import (
 // guards still work; live mutating ops fail explicitly.
 type freebsdStore struct{}
 
+var (
+	_ Store    = freebsdStore{}
+	_ Lister   = freebsdStore{}
+	_ Modifier = freebsdStore{}
+	_ Saver    = freebsdStore{}
+	_ Informer = freebsdStore{}
+)
+
 func platform() Store {
 	return freebsdStore{}
 }

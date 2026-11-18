@@ -46,7 +46,7 @@ func AddCertsToAppFromStore(app, storePath, certFile string) error {
 	return addCerts(st, certFile)
 }
 
-func addCerts(st store.Store, where string) error {
+func addCerts(st store.Modifier, where string) error {
 	bs, err := os.ReadFile(where)
 	if err != nil {
 		fmt.Println(err)

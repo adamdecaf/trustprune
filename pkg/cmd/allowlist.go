@@ -48,10 +48,19 @@ func AllowlistForPlatform(path string, stdout io.Writer) error {
 	return allowlistStore(store.Platform(), "", path, stdout)
 }
 
+// allowlistTarget is the store surface allowlist checks and edits.
+// It reads the latest backup, distrusts certificates outside the allowlist,
+// and reports store info for the NSS backup-path check. It does not list.
+type allowlistTarget interface {
+	store.Modifier
+	store.Saver
+	store.Informer
+}
+
 // allowlistStore applies the allowlist at path to s. app is the -app name, or
 // "" for the platform store. With no backup it refuses before any write,
 // dry-run included.
-func allowlistStore(s store.Store, app, path string, stdout io.Writer) error {
+func allowlistStore(s allowlistTarget, app, path string, stdout io.Writer) error {
 	al, err := allowlist.FromFile(path)
 	if err != nil {
 		return err

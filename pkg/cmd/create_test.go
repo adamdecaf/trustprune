@@ -427,6 +427,14 @@ func (f *fakeCreateStore) Restore(string) error {
 	return errors.New("restore called")
 }
 
+var (
+	_ store.Store    = (*fakeCreateStore)(nil)
+	_ store.Lister   = (*fakeCreateStore)(nil)
+	_ store.Modifier = (*fakeCreateStore)(nil)
+	_ store.Saver    = (*fakeCreateStore)(nil)
+	_ store.Informer = (*fakeCreateStore)(nil)
+)
+
 func mustCreateCert(t *testing.T, cn, country string, serial int64) *x509.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)

@@ -46,6 +46,14 @@ import (
 
 type windowsStore struct{}
 
+var (
+	_ Store    = windowsStore{}
+	_ Lister   = windowsStore{}
+	_ Modifier = windowsStore{}
+	_ Saver    = windowsStore{}
+	_ Informer = windowsStore{}
+)
+
 func platform() Store {
 	return windowsStore{}
 }
