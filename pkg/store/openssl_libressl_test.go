@@ -446,8 +446,9 @@ func TestLibreSSL_DirBackupRestoreRemoveUsesCerthash(t *testing.T) {
 	if err := s.Restore(""); err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
-	if _, err := os.Stat(removed); err != nil {
-		t.Fatalf("restored file missing: %v", err)
+	promoted := strings.TrimSuffix(removed, ".crt") + ".pem"
+	if _, err := os.Stat(promoted); err != nil {
+		t.Fatalf("restored file missing (expected certhash promotion to %s): %v", promoted, err)
 	}
 	resolved := mustEvalSymlinks(t, dir)
 	log := readCallLog(t, logPath)
@@ -645,6 +646,44 @@ func TestOpenSSLStore_AddDirRequiresCRehash(t *testing.T) {
 	}
 	if len(after) != len(before) {
 		t.Fatalf("add wrote without c_rehash: before=%d after=%d", len(before), len(after))
+	}
+}
+
+func TestLibreSSL_AddWritesPEMAndPromotesCRTs(t *testing.T) {
+	isolateOpenSSLLookup(t)
+	hideCRehash(t)
+	opensslTestHome(t)
+	bin, _ := writeFakeSSL(t, "LibreSSL 3.9.2", 0, 0)
+	libreSSLBinPaths = []string{bin}
+	s, dir, certs := opensslDirEnv(t)
+	extra := extraExampleCert(t)
+	SetDryRun(false)
+	if err := s.Add(extra); err != nil {
+		t.Fatal(err)
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*extra[0])
+	if _, err := os.Stat(filepath.Join(dir, fp+".pem")); err != nil {
+		t.Fatalf("added cert should be written as .pem: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, fp+".crt")); !os.IsNotExist(err) {
+		t.Fatal("added cert should not be left as .crt")
+	}
+	for i := range certs {
+		crt := filepath.Join(dir, fmt.Sprintf("ca-%d.crt", i))
+		pem := filepath.Join(dir, fmt.Sprintf("ca-%d.pem", i))
+		if _, err := os.Stat(pem); err != nil {
+			t.Fatalf("existing %s was not promoted for certhash: %v", crt, err)
+		}
+		if _, err := os.Stat(crt); !os.IsNotExist(err) {
+			t.Fatalf("leftover %s after certhash promotion", crt)
+		}
+	}
+	got, err := s.List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(certs)+len(extra) {
+		t.Fatalf("List len=%d want %d (duplicate .crt/.pem?)", len(got), len(certs)+len(extra))
 	}
 }
 

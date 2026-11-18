@@ -15,6 +15,8 @@
 package store
 
 import (
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -137,4 +139,43 @@ func rehashCommandDisplay(dir string) string {
 		return ""
 	}
 	return strings.Join(append([]string{bin}, args...), " ")
+}
+
+// opensslDirCertExt is the filename suffix used when adding a certificate
+// to a hashed cert directory. OpenSSL c_rehash accepts .crt and .pem.
+// LibreSSL certhash scans only *.pem and deletes hash links that do not
+// match a scanned file, so LibreSSL directories must use .pem.
+func opensslDirCertExt() string {
+	if findLibreSSLBin() != "" {
+		return ".pem"
+	}
+	return ".crt"
+}
+
+// promoteCRTsForCerthash renames regular *.crt files to *.pem before
+// LibreSSL certhash runs. Existing hash links to the old names are
+// rebuilt by certhash from the .pem files. A *.crt is left in place
+// when the corresponding *.pem already exists.
+func promoteCRTsForCerthash(dir string) error {
+	matches, err := filepath.Glob(filepath.Join(dir, "*.crt"))
+	if err != nil {
+		return err
+	}
+	for _, crt := range matches {
+		st, err := os.Lstat(crt)
+		if err != nil {
+			continue
+		}
+		if !st.Mode().IsRegular() {
+			continue
+		}
+		pem := strings.TrimSuffix(crt, ".crt") + ".pem"
+		if file.Exists(pem) {
+			continue
+		}
+		if err := os.Rename(crt, pem); err != nil {
+			return fmt.Errorf("rename %s to %s for certhash: %w", crt, pem, err)
+		}
+	}
+	return nil
 }

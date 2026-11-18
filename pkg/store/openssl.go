@@ -178,7 +178,7 @@ func (s opensslStore) addToDir(dir string, certs []*x509.Certificate) error {
 	}
 	for i := range certs {
 		fp := certutil.GetHexSHA256Fingerprint(*certs[i])
-		path := filepath.Join(dir, fmt.Sprintf("%s.crt", fp))
+		path := filepath.Join(dir, fp+opensslDirCertExt())
 		if err := certutil.ToFile(path, certs[i:i+1]); err != nil {
 			return err
 		}
@@ -1010,6 +1010,12 @@ func (s opensslStore) rehash(dir string, required bool) error {
 			return errors.New("unable to find openssl c_rehash binary")
 		}
 		return nil
+	}
+
+	if findLibreSSLBin() != "" {
+		if err := promoteCRTsForCerthash(dir); err != nil {
+			return err
+		}
 	}
 
 	cmd := exec.Command(bin, args...) // #nosec G204 -- bin is c_rehash or a discovered LibreSSL openssl; args are certhash and the cert dir
