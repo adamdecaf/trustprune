@@ -916,6 +916,9 @@ func opensslCertFiles(dir string) ([]string, error) {
 			if st.IsDir() {
 				continue
 			}
+			if isCerthashAliasPEM(m) {
+				continue
+			}
 			if _, ok := seen[m]; ok {
 				continue
 			}

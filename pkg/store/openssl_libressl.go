@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/file"
 )
 
@@ -152,10 +153,13 @@ func opensslDirCertExt() string {
 	return ".crt"
 }
 
-// promoteCRTsForCerthash renames regular *.crt files to *.pem before
-// LibreSSL certhash runs. Existing hash links to the old names are
-// rebuilt by certhash from the .pem files. A *.crt is left in place
-// when the corresponding *.pem already exists.
+// promoteCRTsForCerthash makes every *.crt visible to LibreSSL certhash,
+// which only scans *.pem and deletes hash links that do not match a
+// scanned file. Regular *.crt files are renamed to *.pem when that name
+// is free. Symlinks, and *.crt files whose *.pem name already holds a
+// different certificate, get a *.pem alias so existing hash access is
+// preserved. opensslCertFiles skips those aliases so List does not
+// double-count.
 func promoteCRTsForCerthash(dir string) error {
 	matches, err := filepath.Glob(filepath.Join(dir, "*.crt"))
 	if err != nil {
@@ -166,16 +170,100 @@ func promoteCRTsForCerthash(dir string) error {
 		if err != nil {
 			continue
 		}
-		if !st.Mode().IsRegular() {
+		if st.IsDir() {
 			continue
 		}
-		pem := strings.TrimSuffix(crt, ".crt") + ".pem"
-		if file.Exists(pem) {
-			continue
-		}
-		if err := os.Rename(crt, pem); err != nil {
-			return fmt.Errorf("rename %s to %s for certhash: %w", crt, pem, err)
+		if err := exposeCRTForCerthash(crt); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func exposeCRTForCerthash(crt string) error {
+	st, err := os.Lstat(crt)
+	if err != nil {
+		return err
+	}
+	pem := strings.TrimSuffix(crt, ".crt") + ".pem"
+	if st.Mode().IsRegular() && !file.Exists(pem) {
+		if err := os.Rename(crt, pem); err != nil {
+			return fmt.Errorf("rename %s to %s for certhash: %w", crt, pem, err)
+		}
+		return nil
+	}
+	if file.Exists(pem) && opensslCertFilesSame(crt, pem) {
+		return nil
+	}
+	if !file.Exists(pem) {
+		return aliasCRTAsPEM(crt, pem)
+	}
+	alias := crt + ".pem"
+	if file.Exists(alias) && opensslCertFilesSame(crt, alias) {
+		return nil
+	}
+	if file.Exists(alias) && !opensslCertFilesSame(crt, alias) {
+		return fmt.Errorf("cannot promote %s for certhash: %s already exists and is a different certificate", crt, alias)
+	}
+	return aliasCRTAsPEM(crt, alias)
+}
+
+func aliasCRTAsPEM(crt, pem string) error {
+	if err := os.Symlink(filepath.Base(crt), pem); err == nil {
+		return nil
+	}
+	if err := file.CopyFile(crt, pem); err != nil {
+		return fmt.Errorf("link or copy %s to %s for certhash: %w", crt, pem, err)
+	}
+	return nil
+}
+
+func opensslCertFilesSame(a, b string) bool {
+	if ra, err := filepath.EvalSymlinks(a); err == nil {
+		if rb, err := filepath.EvalSymlinks(b); err == nil && ra == rb {
+			return true
+		}
+	}
+	ca, err := certutil.FromFile(a)
+	if err != nil || len(ca) == 0 {
+		return false
+	}
+	cb, err := certutil.FromFile(b)
+	if err != nil || len(ca) != len(cb) {
+		return false
+	}
+	for i := range ca {
+		if certutil.GetHexSHA256Fingerprint(*ca[i]) != certutil.GetHexSHA256Fingerprint(*cb[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// isCerthashAliasPEM reports a *.pem file created only so certhash can
+// see a sibling *.crt. List skips these so the certificate is not counted twice.
+func isCerthashAliasPEM(path string) bool {
+	if !strings.HasSuffix(path, ".pem") {
+		return false
+	}
+	st, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	dir := filepath.Dir(path)
+	if st.Mode()&os.ModeSymlink != 0 {
+		target, err := os.Readlink(path)
+		if err != nil {
+			return false
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		return strings.HasSuffix(target, ".crt")
+	}
+	base := filepath.Base(path)
+	if strings.HasSuffix(base, ".crt.pem") {
+		return file.Exists(filepath.Join(dir, strings.TrimSuffix(base, ".pem")))
+	}
+	return false
 }

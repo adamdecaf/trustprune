@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -685,6 +686,161 @@ func TestLibreSSL_AddWritesPEMAndPromotesCRTs(t *testing.T) {
 	if len(got) != len(certs)+len(extra) {
 		t.Fatalf("List len=%d want %d (duplicate .crt/.pem?)", len(got), len(certs)+len(extra))
 	}
+}
+
+func TestLibreSSL_PromoteCRTSymlinkAndNameCollision(t *testing.T) {
+	dir := t.TempDir()
+	certs := loadLotsCerts(t, 3)
+	target := filepath.Join(dir, "target-cert")
+	if err := certutil.ToFile(target, certs[0:1]); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "linked.crt")
+	if err := os.Symlink(filepath.Base(target), link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	if err := certutil.ToFile(filepath.Join(dir, "both.crt"), certs[1:2]); err != nil {
+		t.Fatal(err)
+	}
+	if err := certutil.ToFile(filepath.Join(dir, "both.pem"), certs[2:3]); err != nil {
+		t.Fatal(err)
+	}
+	if err := promoteCRTsForCerthash(dir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "linked.pem")); err != nil {
+		t.Fatalf("symlink .crt was not aliased as .pem: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "both.crt.pem")); err != nil {
+		t.Fatalf("colliding .crt was not aliased: %v", err)
+	}
+	got, err := opensslStoreAt(dir).List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("List len=%d want 3 (alias should not be counted)", len(got))
+	}
+}
+
+func TestLibreSSL_RealCerthashHashLinks(t *testing.T) {
+	bin := findLibreSSLCerthash(t)
+	if bin == "" {
+		t.Skip("no LibreSSL openssl with working certhash")
+	}
+	isolateOpenSSLLookup(t)
+	hideCRehash(t)
+	opensslTestHome(t)
+	libreSSLBinPaths = []string{bin}
+	s, dir, certs := opensslDirEnv(t)
+	extra := extraExampleCert(t)
+	SetDryRun(false)
+	if err := s.Add(extra); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	got, err := s.List(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != len(certs)+len(extra) {
+		t.Fatalf("List len=%d want %d", len(got), len(certs)+len(extra))
+	}
+	pems, err := filepath.Glob(filepath.Join(dir, "*.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pems) == 0 {
+		t.Fatal("no .pem files for certhash to scan")
+	}
+	linked := pemsWithHashLinks(t, dir)
+	if len(linked) == 0 {
+		t.Fatal("certhash created no hash links")
+	}
+	for _, p := range pems {
+		if !linked[filepath.Base(p)] && !linked[p] {
+			t.Errorf("no hash link points at %s", p)
+		}
+	}
+}
+
+func findLibreSSLCerthash(t *testing.T) string {
+	t.Helper()
+	candidates := []string{
+		"/usr/local/opt/libressl/bin/openssl",
+		"/opt/homebrew/opt/libressl/bin/openssl",
+		darwinSystemOpenSSL,
+	}
+	if p, err := exec.LookPath("openssl"); err == nil {
+		candidates = append(candidates, p)
+	}
+	for _, bin := range candidates {
+		st, err := os.Stat(bin)
+		if err != nil || st.IsDir() {
+			continue
+		}
+		out, err := exec.Command(bin, "version").CombinedOutput()
+		if err != nil || !strings.HasPrefix(strings.TrimSpace(string(out)), "LibreSSL") {
+			continue
+		}
+		cmd := exec.Command(bin, "certhash", t.TempDir())
+		if err := cmd.Run(); err != nil {
+			continue
+		}
+		return bin
+	}
+	return ""
+}
+
+func pemsWithHashLinks(t *testing.T, dir string) map[string]bool {
+	t.Helper()
+	out := map[string]bool{}
+	ents, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ent := range ents {
+		name := ent.Name()
+		if !isOpenSSLHashLinkName(name) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		st, err := os.Lstat(path)
+		if err != nil || st.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("hash name %s is not a symlink", name)
+		}
+		target, err := os.Readlink(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[target] = true
+		out[filepath.Base(target)] = true
+	}
+	return out
+}
+
+func isOpenSSLHashLinkName(name string) bool {
+	if len(name) < 10 || name[8] != '.' {
+		return false
+	}
+	for i := 0; i < 8; i++ {
+		c := name[i]
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	rest := name[9:]
+	if strings.HasPrefix(rest, "r") {
+		rest = rest[1:]
+	}
+	if rest == "" {
+		return false
+	}
+	for i := 0; i < len(rest); i++ {
+		if rest[i] < '0' || rest[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func writeFakeSSL(t *testing.T, version string, versionExit, certhashExit int) (bin, logPath string) {
