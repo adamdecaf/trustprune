@@ -47,8 +47,10 @@ var (
 	javaCertManageDir       = "java"
 
 	// keytoolTimeout bounds every keytool process so a password prompt or a
-	// hung child cannot block forever. Tests override this to a short duration.
-	keytoolTimeout = 30 * time.Second
+	// hung child cannot block forever. JVM startup on slow or arm64 hosts can
+	// take tens of seconds, so leave generous headroom. Tests override this to
+	// a short duration.
+	keytoolTimeout = 2 * time.Minute
 
 	// keytoolWaitDelay bounds how long Run waits for I/O after the process is
 	// canceled. Needed when a child (keytool under sudo) keeps stdout open.
