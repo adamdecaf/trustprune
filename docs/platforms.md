@@ -5,6 +5,14 @@ nav_order: 7
 ---
 
 # Platforms and apps
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Status matches what the code on `master` does today.
 

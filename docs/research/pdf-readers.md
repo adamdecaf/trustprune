@@ -5,6 +5,14 @@ nav_exclude: true
 ---
 
 # PDF readers and document-signing trust
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Research note for [#360](https://github.com/adamdecaf/trustprune/issues/360). Foxit install detection and the pruning guide are implemented ([#392](https://github.com/adamdecaf/trustprune/issues/392)); see [Platforms](../platforms.md#foxit). poppler NSS is `--app poppler`; Okular is `--app okular`. Acrobat address book backup and restore, and a read-only AATL, EUTL, and Windows store settings report, are implemented ([#390](https://github.com/adamdecaf/trustprune/issues/390)). Listing address book entries read-only was not attempted. The file is treated as opaque. See [Platforms](../platforms.md#acrobat). Papers on an NSS backend is the poppler store and Evince has no signature validation ([platforms](../platforms.md)). The other items on this page are not. Researched November 2026.
 

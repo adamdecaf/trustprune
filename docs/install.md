@@ -5,6 +5,14 @@ nav_order: 2
 ---
 
 # Install
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Module version on `master` is `0.1.1-dev`. Tagged releases start at `0.1.0`. Building requires **Go 1.27**.
 
