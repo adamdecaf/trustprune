@@ -5,6 +5,14 @@ nav_exclude: true
 ---
 
 # iOS trusted roots
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Research note for [#364](https://github.com/adamdecaf/trustprune/issues/364). Nothing on this page is implemented. Researched November 2026.
 

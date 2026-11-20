@@ -4,6 +4,16 @@ title: Basics
 nav_order: 3
 ---
 
+# Basics
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
+
 Subcommands other than `connect` and `diff` accept only flags. `connect` accepts one URL. `diff` accepts exactly two certificate paths. An unexpected positional argument is rejected with exit status 2 before any write. Flags after a positional argument are still parsed, so a stray extra argument with `--dry-run` after it is still a usage error. A shell glob that expands into multiple files can cause that.
 
 ## Add

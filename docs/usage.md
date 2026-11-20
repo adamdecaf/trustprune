@@ -5,6 +5,14 @@ nav_order: 4
 ---
 
 # Usage
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Flags are per-command. Only flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag.
 

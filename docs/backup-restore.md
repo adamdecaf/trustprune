@@ -5,6 +5,14 @@ nav_order: 6
 ---
 
 # Backup and restore
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>Table of contents</summary>
+  {: .text-delta }
+1. TOC
+{:toc}
+</details>
 
 Certificate-store edits can break HTTPS for browsers, package managers, and language runtimes. Treat every change as privileged.
 
