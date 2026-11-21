@@ -789,35 +789,9 @@ func chainHostname(cert *x509.Certificate, host string) bool {
 	return false
 }
 
+// readChainFile reads path as a PEM bundle or one DER certificate.
 func readChainFile(path string) ([]*x509.Certificate, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("%s does not exist", path)
-		}
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	if bytes.Contains(body, []byte("-----BEGIN")) {
-		certs, err := parsePEMCertificates(body)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		if len(certs) == 0 {
-			return nil, fmt.Errorf("%s: no certificate", path)
-		}
-		return certs, nil
-	}
-	if len(bytes.TrimSpace(body)) == 0 {
-		return nil, fmt.Errorf("%s: no certificate", path)
-	}
-	// Parse the raw body. TrimSpace would drop a trailing signature byte
-	// that is whitespace (0x09, 0x0a, 0x20, ...) and the certificate
-	// would fail as malformed.
-	cert, err := certutil.ParseCertificate(body)
-	if err != nil {
-		return nil, fmt.Errorf("%s: not a PEM or DER certificate: %w", path, err)
-	}
-	return []*x509.Certificate{cert}, nil
+	return readCertificates(path)
 }
 
 // readChainCertificates dials u once and returns the leaf-first peer chain.

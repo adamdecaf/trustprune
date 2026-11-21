@@ -108,7 +108,9 @@ The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and t
 
 ## Diff
 
-`diff` compares two certificate files and prints the fields that differ. Each file is PEM or DER and must contain one certificate. The comparison does not use the network.
+`diff` compares two certificate files. There is no network access. PEM comments and other PEM block types are ignored. DER is one certificate. A file with no certificate is an error.
+
+When both files contain one certificate, diff prints the fields that differ.
 
 ```
 $ trustprune diff old.pem new.pem
@@ -118,9 +120,22 @@ sha256: "<64 hex>" != "<64 hex>"
 $ trustprune diff --format json old.pem new.der
 ```
 
-Exit status is 0 when the certificates match (`identical` on stdout) and 1 when a field differs. The field report has no `ERROR:` prefix. Unreadable files and files that are not a single certificate exit 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, exits 2.
+When either file contains more than one certificate, diff compares the bundles by SHA-256 fingerprint. Certificates only in the first file are removed. Certificates only in the second file are added. Duplicates in one file count once.
 
-Compared fields are subject, issuer, serial, validity, key type and size, SANs, the SHA-256 fingerprint, and the signature algorithm. Full detail: [usage](usage.md#diff).
+```
+$ trustprune diff backup.pem live.pem
+left: backup.pem
+right: live.pem
+Removed (1):
+Old CA <64 hex>
+Added (1):
+New CA <64 hex>
+Unchanged: 2
+```
+
+Exit status is 0 when the certificates match (`identical` for one certificate, or a line that the bundles hold the same certificates) and 1 when they differ. The report has no `ERROR:` prefix. Unreadable files and files with no certificate exit 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, exits 2.
+
+Compared fields for a single certificate are subject, issuer, serial, validity, key type and size, SANs, the SHA-256 fingerprint, and the signature algorithm. Full detail: [usage](usage.md#diff).
 
 ## List
 

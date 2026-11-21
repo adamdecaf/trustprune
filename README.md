@@ -62,7 +62,7 @@ Go programs can apply that allowlist without changing a store. `certpool.New` re
 | [create](docs/usage.md#create) | Write a PEM bundle or Java truststore (`jks`, `pkcs12`) of allowlisted certificates from a store (read-only) |
 | [add](docs/basics.md#add) | Add certificates to a store |
 | [connect](docs/basics.md#connect) | Probe a remote HTTPS host using a chosen store |
-| [diff](docs/usage.md#diff) | Compare two certificate files and print the fields that differ |
+| [diff](docs/usage.md#diff) | Compare two certificate files. One certificate each prints differing fields. PEM bundles are compared by SHA-256 fingerprint |
 | [chain](docs/usage.md#chain) | Show the certificate chain for a file or URL (read-only) |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
 | [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
@@ -211,7 +211,9 @@ trustprune chain --file leaf.pem --all         # untrusted, expired, not-yet-val
 trustprune chain --url example.com --remote    # TLS lookup when no local chain is found (30s timeout)
 
 # Compare two certificates (PEM or DER). Exit 0 when identical, 1 when a field differs.
+# A PEM bundle is compared by SHA-256 fingerprint (added, removed, unchanged).
 trustprune diff old.pem new.pem
+trustprune diff backup.pem live.pem
 trustprune diff --format json old.pem new.der
 
 trustprune version

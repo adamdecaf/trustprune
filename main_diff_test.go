@@ -52,6 +52,9 @@ func TestDiffCLI(t *testing.T) {
 			"signature_algorithm",
 			"PEM or DER",
 			"identical",
+			"Removed (1):",
+			"Unchanged:",
+			"the bundles hold the same certificates",
 			"default: text",
 			"options: json, text",
 		} {
@@ -182,8 +185,73 @@ func TestDiffCLI(t *testing.T) {
 		if res.code != 1 || res.stderr != "" {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.HasPrefix(res.stdout, "ERROR: ") || !strings.Contains(res.stdout, "expected one certificate") {
+		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stdout, "expected one certificate") {
 			t.Fatalf("stdout = %q", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "Removed (") || !strings.Contains(res.stdout, "Unchanged:") {
+			t.Fatalf("stdout = %q", res.stdout)
+		}
+	})
+
+	t.Run("bundle", func(t *testing.T) {
+		left, right := writeCLIBundle(t, home, example, local)
+		subject, fp := cliBundleCert(t, local)
+		res := runCLI(t, bin, home, "diff", left, right)
+		if res.code != 1 || res.stderr != "" {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		want := "left: " + left + "\n" +
+			"right: " + right + "\n" +
+			"Removed (1):\n" +
+			subject + " " + fp + "\n" +
+			"Unchanged: 1\n"
+		if res.stdout != want {
+			t.Fatalf("stdout =\n%s\nwant =\n%s", res.stdout, want)
+		}
+	})
+
+	t.Run("bundle identical", func(t *testing.T) {
+		left := filepath.Join(home, "same-left.pem")
+		right := filepath.Join(home, "same-right.pem")
+		ex := readTestFile(t, example)
+		loc := readTestFile(t, local)
+		if err := os.WriteFile(left, append(append([]byte{}, ex...), loc...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(right, append(append([]byte{}, loc...), ex...), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		res := runCLI(t, bin, home, "diff", left, right)
+		if res.code != 0 || res.stderr != "" {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if !strings.Contains(res.stdout, "Unchanged: 2\n") || !strings.Contains(res.stdout, "the bundles hold the same certificates\n") {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		if strings.Contains(res.stdout, "Removed (") || strings.Contains(res.stdout, "Added (") || strings.Contains(res.stdout, "ERROR:") {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+	})
+
+	t.Run("bundle json", func(t *testing.T) {
+		left, right := writeCLIBundle(t, home, example, local)
+		subject, fp := cliBundleCert(t, local)
+		res := runCLI(t, bin, home, "diff", "--format", "json", left, right)
+		if res.code != 1 || res.stderr != "" {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "ERROR:") || !strings.Contains(res.stdout, `"added": []`) {
+			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		doc := decodeCLIBundleDiff(t, res.stdout)
+		if doc.Identical || doc.Mode != "bundle" || doc.Left != left || doc.Right != right || doc.Unchanged != 1 {
+			t.Fatalf("json = %#v", doc)
+		}
+		if len(doc.Removed) != 1 || doc.Removed[0].Subject != subject || doc.Removed[0].SHA256 != fp {
+			t.Fatalf("removed = %#v", doc.Removed)
+		}
+		if len(doc.Added) != 0 {
+			t.Fatalf("added = %#v", doc.Added)
 		}
 	})
 
@@ -216,4 +284,56 @@ func decodeCLIDiff(t *testing.T, raw string) cliDiffJSON {
 		t.Fatalf("json: %v\n%s", err, raw)
 	}
 	return doc
+}
+
+type cliBundleDiffJSON struct {
+	Identical bool   `json:"identical"`
+	Left      string `json:"left"`
+	Right     string `json:"right"`
+	Mode      string `json:"mode"`
+	Removed   []struct {
+		Subject string `json:"subject"`
+		SHA256  string `json:"sha256"`
+	} `json:"removed"`
+	Added []struct {
+		Subject string `json:"subject"`
+		SHA256  string `json:"sha256"`
+	} `json:"added"`
+	Unchanged int `json:"unchanged"`
+}
+
+func decodeCLIBundleDiff(t *testing.T, raw string) cliBundleDiffJSON {
+	t.Helper()
+	var doc cliBundleDiffJSON
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, raw)
+	}
+	return doc
+}
+
+func writeCLIBundle(t *testing.T, home, kept, removed string) (left, right string) {
+	t.Helper()
+	left = filepath.Join(home, "bundle-left.pem")
+	right = filepath.Join(home, "bundle-right.pem")
+	keptBody := readTestFile(t, kept)
+	removedBody := readTestFile(t, removed)
+	if err := os.WriteFile(left, append(append([]byte{}, keptBody...), removedBody...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(right, keptBody, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return left, right
+}
+
+func cliBundleCert(t *testing.T, path string) (subject, sha256 string) {
+	t.Helper()
+	certs, err := certutil.FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 1 {
+		t.Fatalf("%s certs = %d", path, len(certs))
+	}
+	return certutil.StringifyPKIXName(certs[0].Subject), certutil.GetHexSHA256Fingerprint(*certs[0])
 }

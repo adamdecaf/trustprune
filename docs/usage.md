@@ -588,16 +588,19 @@ ERROR: https://untrusted.example: unknown authority
 
 ## diff
 
-Compare two certificate files and print the fields that differ. Each file is PEM or DER and must contain exactly one certificate. Comments around a PEM `CERTIFICATE` block are ignored, as are other PEM block types. The first path is the left side and the second path is the right side. There is no network access.
+Compare two certificate files. The first path is the left side and the second path is the right side. There is no network access. Each file is PEM or DER. Comments around a PEM `CERTIFICATE` block are ignored, as are other PEM block types. DER is one certificate. A file with no certificate is an error.
+
+When both files contain one certificate, diff prints the fields that differ. When either file contains more than one certificate, diff compares the bundles by SHA-256 fingerprint. A certificate only in the left file is removed. A certificate only in the right file is added. Duplicates inside one file count once.
 
 ```bash
 trustprune diff old.pem new.pem
 trustprune diff --format json old.pem new.der
+trustprune diff backup.pem live.pem
 ```
 
-Exit status is 0 when every compared field matches and 1 when any field differs. The report goes to stdout and is not an `ERROR:` line. A file that cannot be read, or that does not contain exactly one certificate, exits 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, is a usage error (exit 2) on stderr.
+Exit status is 0 when the certificates match and 1 when a field differs or a bundle certificate was added or removed. The report goes to stdout and is not an `ERROR:` line. A file that cannot be read, or that contains no certificate, exits 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, is a usage error (exit 2) on stderr.
 
-Text (the default) prints one line per differing field. Values are quoted. Identical certificates print `identical`.
+Text (the default) for one certificate prints one line per differing field. Values are quoted. Identical certificates print `identical`.
 
 ```text
 subject: "CN=Old" != "CN=New"
@@ -606,7 +609,7 @@ key: "RSA-2048" != "RSA-1024"
 sha256: "<64 hex>" != "<64 hex>"
 ```
 
-JSON is one object. `differences` lists only fields that differ, in the same order as text. `sha256` is the full fingerprint. An empty `differences` array means the certificates match.
+JSON for one certificate is one object. `differences` lists only fields that differ, in the same order as text. `sha256` is the full fingerprint. An empty `differences` array means the certificates match. Single-certificate JSON has no `mode` field.
 
 ```json
 {
@@ -629,6 +632,43 @@ JSON is one object. `differences` lists only fields that differ, in the same ord
 | `sans` | DNS names, email addresses, IP addresses, and URIs, in that order |
 | `sha256` | Hex SHA-256 fingerprint of the certificate |
 | `signature_algorithm` | Signature algorithm name, such as `SHA256-RSA` |
+
+Bundle text names the two files, then lists removed and added certificates. Each certificate is one line: the subject, then the full SHA-256 fingerprint. Lines are sorted by subject, then fingerprint. An empty Removed or Added section is omitted. `Unchanged` is how many certificates are in both files. When nothing was added or removed, the report says the bundles hold the same certificates.
+
+```text
+left: backup.pem
+right: live.pem
+Removed (1):
+Old CA <64 hex>
+Added (1):
+New CA <64 hex>
+Unchanged: 2
+```
+
+```text
+left: backup.pem
+right: live.pem
+Unchanged: 2
+the bundles hold the same certificates
+```
+
+Bundle JSON sets `mode` to `bundle`. `removed` and `added` are arrays of `subject` and `sha256`, and they are empty arrays when nothing changed.
+
+```json
+{
+  "identical": false,
+  "left": "backup.pem",
+  "right": "live.pem",
+  "mode": "bundle",
+  "removed": [
+    {"subject": "Old CA", "sha256": "<64 hex>"}
+  ],
+  "added": [
+    {"subject": "New CA", "sha256": "<64 hex>"}
+  ],
+  "unchanged": 2
+}
+```
 
 | Flag | Meaning |
 |------|---------|

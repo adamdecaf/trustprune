@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -47,8 +48,10 @@ type DiffOptions struct {
 }
 
 // ErrCertificatesDiffer is returned after the diff report is written when
-// at least one compared field differs. The report is the command output;
-// this error is only the signal that the certificates are not the same.
+// the certificates are not the same. For one certificate on each side, a
+// compared field differs. For a bundle, a certificate was added or removed.
+// The report is the command output; this error is only the signal that the
+// certificates are not the same.
 var ErrCertificatesDiffer = errors.New("certificates differ")
 
 // NormalizeDiffFormat accepts text (the default, including "") and json.
@@ -66,11 +69,19 @@ func NormalizeDiffFormat(format string) (string, error) {
 	}
 }
 
-// DiffCertificates reads two certificate files and writes which fields differ.
-// Each file is PEM or DER and must contain one certificate. The first path
-// is the left side. Text and JSON use the same fields. A nil error means
-// every field matches. ErrCertificatesDiffer means the report was written
-// and at least one field differs.
+// bundleSameCertificates is the bundle-mode text line used when the two
+// files contain the same certificates.
+const bundleSameCertificates = "the bundles hold the same certificates"
+
+// DiffCertificates reads two certificate files and writes how they differ.
+// Each file is PEM or DER. PEM may include comments and non-certificate
+// blocks. DER is one certificate. Zero certificates is an error. The first
+// path is the left side.
+//
+// When both files contain one certificate, the report is a field diff.
+// When either file contains more than one, certificates are matched by
+// SHA-256 fingerprint. A nil error means the certificates match.
+// ErrCertificatesDiffer means the report was written and they do not.
 func DiffCertificates(leftPath, rightPath string, opts DiffOptions) error {
 	return diffCertificates(os.Stdout, leftPath, rightPath, opts)
 }
@@ -80,23 +91,30 @@ func diffCertificates(w io.Writer, leftPath, rightPath string, opts DiffOptions)
 	if err != nil {
 		return err
 	}
-	left, err := readOneCertificate(leftPath)
+	left, err := readCertificates(leftPath)
 	if err != nil {
 		return err
 	}
-	right, err := readOneCertificate(rightPath)
+	right, err := readCertificates(rightPath)
 	if err != nil {
 		return err
 	}
-	changes := compareCerts(left, right)
+	if len(left) > 1 || len(right) > 1 {
+		return diffBundles(w, leftPath, rightPath, format, left, right)
+	}
+	changes := compareCerts(left[0], right[0])
 	out, err := formatDiff(leftPath, rightPath, format, changes)
 	if err != nil {
 		return err
 	}
+	return writeDiff(w, out, len(changes) > 0)
+}
+
+func writeDiff(w io.Writer, out string, differ bool) error {
 	if _, err := io.WriteString(w, out); err != nil {
 		return fmt.Errorf("writing diff: %w", err)
 	}
-	if len(changes) > 0 {
+	if differ {
 		return ErrCertificatesDiffer
 	}
 	return nil
@@ -245,10 +263,183 @@ func formatDiffJSON(leftPath, rightPath string, changes []diffChange) (string, e
 	return buf.String(), nil
 }
 
-// readOneCertificate reads path as one PEM or DER certificate.
-// A PEM file may contain comments and non-certificate blocks. More than
-// one CERTIFICATE block is an error. DER is the raw certificate encoding.
-func readOneCertificate(path string) (*x509.Certificate, error) {
+// bundleCert is one certificate in a bundle diff, matched by SHA-256.
+type bundleCert struct {
+	Subject string `json:"subject"`
+	SHA256  string `json:"sha256"`
+}
+
+// bundleDiffJSON is the document written by diff --format json for a bundle.
+// Single-certificate JSON does not use this shape and has no mode field.
+type bundleDiffJSON struct {
+	Identical bool         `json:"identical"`
+	Left      string       `json:"left"`
+	Right     string       `json:"right"`
+	Mode      string       `json:"mode"`
+	Removed   []bundleCert `json:"removed"`
+	Added     []bundleCert `json:"added"`
+	Unchanged int          `json:"unchanged"`
+}
+
+func diffBundles(w io.Writer, leftPath, rightPath, format string, left, right []*x509.Certificate) error {
+	removed, added, unchanged := compareBundles(left, right)
+	out, err := formatBundleDiff(leftPath, rightPath, format, removed, added, unchanged)
+	if err != nil {
+		return err
+	}
+	return writeDiff(w, out, len(removed) > 0 || len(added) > 0)
+}
+
+// compareBundles matches certificates by SHA-256 fingerprint.
+// A fingerprint only in left is removed. A fingerprint only in right is
+// added. unchanged is the number of fingerprints in both. A duplicate
+// fingerprint inside one file counts once. removed and added are non-nil.
+func compareBundles(left, right []*x509.Certificate) (removed, added []bundleCert, unchanged int) {
+	leftSet := indexBundle(left)
+	rightSet := indexBundle(right)
+	removed = bundleOnly(leftSet, rightSet)
+	added = bundleOnly(rightSet, leftSet)
+	for fp := range leftSet {
+		if _, ok := rightSet[fp]; ok {
+			unchanged++
+		}
+	}
+	return removed, added, unchanged
+}
+
+// indexBundle keys certificates by SHA-256. The first copy of a fingerprint
+// wins. Later copies in the same file are ignored.
+func indexBundle(certs []*x509.Certificate) map[string]bundleCert {
+	out := make(map[string]bundleCert, len(certs))
+	for _, c := range certs {
+		if c == nil {
+			continue
+		}
+		fp := formatSHA256(c)
+		if _, ok := out[fp]; ok {
+			continue
+		}
+		out[fp] = bundleCert{Subject: bundleSubject(c), SHA256: fp}
+	}
+	return out
+}
+
+// bundleOnly returns certificates in have whose fingerprint is not in other,
+// sorted by subject then fingerprint. The result is non-nil.
+func bundleOnly(have, other map[string]bundleCert) []bundleCert {
+	out := make([]bundleCert, 0)
+	for fp, entry := range have {
+		if _, ok := other[fp]; ok {
+			continue
+		}
+		out = append(out, entry)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Subject != out[j].Subject {
+			return out[i].Subject < out[j].Subject
+		}
+		return out[i].SHA256 < out[j].SHA256
+	})
+	return out
+}
+
+// bundleSubject is the name shown for a certificate in a bundle diff.
+// StringifyPKIXName is the subject display used by list. chainDisplayName
+// covers a certificate whose PKIX name string is empty.
+func bundleSubject(c *x509.Certificate) string {
+	if c == nil {
+		return ""
+	}
+	if name := certutil.StringifyPKIXName(c.Subject); name != "" {
+		return name
+	}
+	return chainDisplayName(c)
+}
+
+func formatBundleDiff(leftPath, rightPath, format string, removed, added []bundleCert, unchanged int) (string, error) {
+	switch format {
+	case diffFormatJSON:
+		return formatBundleJSON(leftPath, rightPath, removed, added, unchanged)
+	case diffFormatText:
+		return formatBundleText(leftPath, rightPath, removed, added, unchanged), nil
+	default:
+		return "", fmt.Errorf("unknown format %q (formats: %s)", format, DiffFormats)
+	}
+}
+
+// formatBundleText names the two files, then lists removed and added
+// certificates. An empty section is omitted. Unchanged is the count in both.
+// When nothing was added or removed, the report says the bundles hold the
+// same certificates.
+func formatBundleText(leftPath, rightPath string, removed, added []bundleCert, unchanged int) string {
+	var b strings.Builder
+	b.WriteString("left: ")
+	b.WriteString(leftPath)
+	b.WriteByte('\n')
+	b.WriteString("right: ")
+	b.WriteString(rightPath)
+	b.WriteByte('\n')
+	writeBundleSection(&b, "Removed", removed)
+	writeBundleSection(&b, "Added", added)
+	b.WriteString("Unchanged: ")
+	b.WriteString(strconv.Itoa(unchanged))
+	b.WriteByte('\n')
+	if len(removed) == 0 && len(added) == 0 {
+		b.WriteString(bundleSameCertificates)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func writeBundleSection(b *strings.Builder, title string, entries []bundleCert) {
+	if len(entries) == 0 {
+		return
+	}
+	b.WriteString(title)
+	b.WriteString(" (")
+	b.WriteString(strconv.Itoa(len(entries)))
+	b.WriteString("):\n")
+	for _, e := range entries {
+		b.WriteString(e.Subject)
+		b.WriteByte(' ')
+		b.WriteString(e.SHA256)
+		b.WriteByte('\n')
+	}
+}
+
+// formatBundleJSON formats a bundle diff as one JSON object.
+// removed and added are empty arrays when nothing changed.
+// The result ends with a newline. mode is "bundle".
+func formatBundleJSON(leftPath, rightPath string, removed, added []bundleCert, unchanged int) (string, error) {
+	if removed == nil {
+		removed = []bundleCert{}
+	}
+	if added == nil {
+		added = []bundleCert{}
+	}
+	doc := bundleDiffJSON{
+		Identical: len(removed) == 0 && len(added) == 0,
+		Left:      leftPath,
+		Right:     rightPath,
+		Mode:      "bundle",
+		Removed:   removed,
+		Added:     added,
+		Unchanged: unchanged,
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
+}
+
+// readCertificates reads path once as PEM certificates or one DER certificate.
+// A PEM file may contain comments and non-certificate blocks. Every
+// CERTIFICATE block is returned. DER is the raw certificate encoding and is
+// always one certificate. Zero certificates is an error.
+func readCertificates(path string) ([]*x509.Certificate, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -256,32 +447,31 @@ func readOneCertificate(path string) (*x509.Certificate, error) {
 		}
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return parseOneCertificate(path, body)
+	return parseCertificates(path, body)
 }
 
-func parseOneCertificate(path string, body []byte) (*x509.Certificate, error) {
+func parseCertificates(path string, body []byte) ([]*x509.Certificate, error) {
 	if bytes.Contains(body, []byte("-----BEGIN")) {
 		certs, err := parsePEMCertificates(body)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}
-		switch len(certs) {
-		case 0:
+		if len(certs) == 0 {
 			return nil, fmt.Errorf("%s: no certificate", path)
-		case 1:
-			return certs[0], nil
-		default:
-			return nil, fmt.Errorf("%s: expected one certificate, found %d", path, len(certs))
 		}
+		return certs, nil
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		return nil, fmt.Errorf("%s: no certificate", path)
 	}
+	// Parse the raw body. TrimSpace would drop a trailing signature byte
+	// that is whitespace (0x09, 0x0a, 0x20, ...) and the certificate
+	// would fail as malformed.
 	cert, err := certutil.ParseCertificate(body)
 	if err != nil {
 		return nil, fmt.Errorf("%s: not a PEM or DER certificate: %w", path, err)
 	}
-	return cert, nil
+	return []*x509.Certificate{cert}, nil
 }
 
 // parsePEMCertificates returns CERTIFICATE blocks in file order.
