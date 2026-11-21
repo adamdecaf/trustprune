@@ -248,7 +248,7 @@ func chainCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "chain",
 		Usage: "Show the certificate chain for a file or URL",
-		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote]
+		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote] [--format text|json]
 
 Show the certificate chain for a local file or a URL. The store is only listed.
 Nothing is added, removed, or backed up.
@@ -279,6 +279,7 @@ unless the matching flag is set. Included certificates are labeled
   Look up the TLS chain when no local certificate matches the host
     trustprune chain --url example.com --remote
     trustprune chain --url https://example.com --remote --untrusted
+    trustprune chain --url example.com --remote --format json
 
   --store overrides java, certifi, or poppler. --bundle requires --app openssl.
 
@@ -295,6 +296,7 @@ APPS
 			flagChainRevoked(),
 			flagChainAll(),
 			flagChainRemote(),
+			flagChainFormat(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       chainBefore,
@@ -303,6 +305,9 @@ APPS
 }
 
 func chainBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if _, err := cmd.NormalizeChainFormat(c.String("format")); err != nil {
+		return ctx, usageExit(c, err.Error())
+	}
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err
 	}
@@ -334,6 +339,7 @@ func chainAction(_ context.Context, c *cli.Command) error {
 		Revoked:   c.Bool("revoked"),
 		All:       c.Bool("all"),
 		Remote:    c.Bool("remote"),
+		Format:    c.String("format"),
 	}
 	if raw := flagString(c, "url"); raw != "" {
 		u, err := cmd.NormalizeConnectURL(raw)

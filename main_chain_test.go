@@ -20,6 +20,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"math/big"
 	"net/http"
 	"net/http/httptest"
@@ -54,6 +55,10 @@ func TestChainCLI(t *testing.T) {
 			"INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256",
 			"--app openssl --bundle",
 			"trustprune chain --url example.com --remote",
+			"trustprune chain --url example.com --remote --format json",
+			"default: text",
+			"options: json, text",
+			"--format text|json",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("chain help missing %q:\n%s", needle, res.stdout)
@@ -104,6 +109,59 @@ func TestChainCLI(t *testing.T) {
 		}
 		if !strings.Contains(res.stdout, "INDEX") {
 			t.Fatalf("missing table:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("unknown format", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", "--format", "nope")
+		assertUsageError(t, res, `unknown format "nope" (formats: json, text)`)
+		if strings.Contains(res.stdout+res.stderr, "provide a certificate file") {
+			t.Fatalf("format check ran after file/url: stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", bundle, "--format", "JSON")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if !strings.HasSuffix(res.stdout, "\n") {
+			t.Fatalf("json missing trailing newline: %q", res.stdout)
+		}
+		var doc struct {
+			Chain []struct {
+				Index    int      `json:"index"`
+				Subject  string   `json:"subject"`
+				Issuer   string   `json:"issuer"`
+				NotAfter string   `json:"not_after"`
+				SHA256   string   `json:"sha256"`
+				Labels   []string `json:"labels"`
+			} `json:"chain"`
+			Incomplete string `json:"incomplete"`
+		}
+		if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
+			t.Fatalf("json: %v\n%s", err, res.stdout)
+		}
+		if doc.Incomplete != "" {
+			t.Fatalf("incomplete = %q\n%s", doc.Incomplete, res.stdout)
+		}
+		if len(doc.Chain) != 1 {
+			t.Fatalf("chain len = %d\n%s", len(doc.Chain), res.stdout)
+		}
+		if doc.Chain[0].Index != 0 || doc.Chain[0].Subject != "chain-cli.example" {
+			t.Fatalf("cert = %+v", doc.Chain[0])
+		}
+		if doc.Chain[0].Labels == nil || len(doc.Chain[0].Labels) != 0 {
+			t.Fatalf("labels = %#v", doc.Chain[0].Labels)
+		}
+		if len(doc.Chain[0].SHA256) != 64 {
+			t.Fatalf("sha256 = %q", doc.Chain[0].SHA256)
+		}
+		if !strings.Contains(res.stdout, `"labels": []`) {
+			t.Fatalf("empty labels not encoded as []:\n%s", res.stdout)
+		}
+		if strings.Contains(res.stdout, "INDEX") {
+			t.Fatalf("text table in json output:\n%s", res.stdout)
 		}
 	})
 

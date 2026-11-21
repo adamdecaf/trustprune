@@ -19,6 +19,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -40,6 +41,14 @@ const chainRemoteTimeout = 30 * time.Second
 
 // chainMaxCerts stops a walk that never reaches a self-signed certificate.
 const chainMaxCerts = 16
+
+// ChainFormats is the chain --format list, in help text and errors.
+const ChainFormats = "json, text"
+
+const (
+	chainFormatText = "text"
+	chainFormatJSON = "json"
+)
 
 // ChainOptions selects the store and which certificates may appear in a chain.
 // The zero value reads the platform store, hides expired, not-yet-valid,
@@ -71,11 +80,29 @@ type ChainOptions struct {
 	All bool
 	// Remote dials URL when no local leaf is found.
 	Remote bool
+	// Format is "text" (the default) or "json".
+	// Empty means text. Matching is case-insensitive.
+	Format string
 	// Now is the time used for expiry. The zero value is time.Now.
 	Now time.Time
 	// Fetch overrides the TLS dial. Tests set it. Nil uses the default
 	// dial with chainRemoteTimeout.
 	Fetch func(*url.URL) ([]*x509.Certificate, error)
+}
+
+// NormalizeChainFormat accepts text (the default, including "") and json.
+// Matching is case-insensitive. Any other value is an error that lists the
+// valid formats. The returned name is lowercase. The error quotes format
+// unchanged so the caller can show what was passed.
+func NormalizeChainFormat(format string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", chainFormatText:
+		return chainFormatText, nil
+	case chainFormatJSON:
+		return chainFormatJSON, nil
+	default:
+		return "", fmt.Errorf("unknown format %q (formats: %s)", format, ChainFormats)
+	}
 }
 
 // errChainPresented stops the read-only handshake after PeerCertificates
@@ -96,6 +123,9 @@ type chainRow struct {
 	issuer   string
 	notAfter string
 	sha      string
+	sha256   string
+	name     string
+	labels   []string
 }
 
 type skipReason struct {
@@ -139,10 +169,16 @@ func (s skipReason) skipped() bool {
 // the offline Chromium or Mozilla blocklists. The leaf is shown when it
 // passes the validity and blocklist checks, even if it is not in the store.
 // With no labels, the table matches connect's verified chain table.
+// Format json prints one object; text (the default) is unchanged.
 func ShowChain(w io.Writer, opts ChainOptions) error {
 	if w == nil {
 		w = os.Stdout
 	}
+	format, err := NormalizeChainFormat(opts.Format)
+	if err != nil {
+		return err
+	}
+	opts.Format = format
 	opts = applyChainIncludes(opts)
 	var fileCerts []*x509.Certificate
 	if strings.TrimSpace(opts.File) != "" {
@@ -288,6 +324,10 @@ func applyChainIncludes(opts ChainOptions) ChainOptions {
 }
 
 func buildChain(in chainInput) (string, error) {
+	format, err := NormalizeChainFormat(in.opts.Format)
+	if err != nil {
+		return "", err
+	}
 	in.opts = applyChainIncludes(in.opts)
 	if in.leaf == nil {
 		return "", errors.New("no certificate")
@@ -308,6 +348,9 @@ func buildChain(in chainInput) (string, error) {
 	rows, note, err := walkChain(in.leaf, pool, trusted, in.opts, now, blocked)
 	if err != nil {
 		return "", err
+	}
+	if format == chainFormatJSON {
+		return formatChainJSON(rows, note)
 	}
 	return formatChain(rows, note), nil
 }
@@ -359,21 +402,28 @@ func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[str
 }
 
 func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct{}, now time.Time, blocked func(*x509.Certificate) bool) (chainRow, error) {
-	sum, err := connectSHA256Prefix(cert)
+	sum, err := connectSHA256(cert)
 	if err != nil {
 		return chainRow{}, err
 	}
+	inStore := chainInStore(cert, trusted)
+	validity := chainValidityTag(cert, now)
+	isBlocked := chainIsBlocked(blocked, cert)
+	name := chainDisplayName(cert)
+	labels := chainLabels(isLeaf, inStore, validity, isBlocked)
 	return chainRow{
-		subject:  chainSubject(cert, isLeaf, chainInStore(cert, trusted), chainValidityTag(cert, now), chainIsBlocked(blocked, cert)),
+		subject:  chainSubjectFrom(name, labels),
 		issuer:   connectName(cert.Issuer),
 		notAfter: cert.NotAfter.UTC().Format(connectDateLayout),
-		sha:      sum,
+		sha:      sum[:16],
+		sha256:   sum,
+		name:     name,
+		labels:   labels,
 	}, nil
 }
 
-func chainSubject(cert *x509.Certificate, isLeaf, inStore bool, validity string, blocked bool) string {
-	name := chainDisplayName(cert)
-	var tags []string
+func chainLabels(isLeaf, inStore bool, validity string, blocked bool) []string {
+	tags := make([]string, 0, 3)
 	// The leaf is the certificate the user asked about. It is shown even
 	// when it is not in the store, and that is not labeled untrusted.
 	if !isLeaf && !inStore {
@@ -385,10 +435,14 @@ func chainSubject(cert *x509.Certificate, isLeaf, inStore bool, validity string,
 	if blocked {
 		tags = append(tags, "blocklisted")
 	}
-	if len(tags) == 0 {
+	return tags
+}
+
+func chainSubjectFrom(name string, labels []string) string {
+	if len(labels) == 0 {
 		return name
 	}
-	return name + " (" + strings.Join(tags, ", ") + ")"
+	return name + " (" + strings.Join(labels, ", ") + ")"
 }
 
 func chainDisplayName(cert *x509.Certificate) string {
@@ -421,6 +475,58 @@ func formatChain(rows []chainRow, note string) string {
 		out += note + "\n"
 	}
 	return out
+}
+
+// chainJSON is the document written by chain --format json.
+type chainJSON struct {
+	Chain      []chainJSONCert `json:"chain"`
+	Incomplete string          `json:"incomplete,omitempty"`
+}
+
+// chainJSONCert is one certificate in the chain, leaf first.
+// subject is the display name without the label suffix. sha256 is the
+// full hex fingerprint. labels is never null.
+type chainJSONCert struct {
+	Index    int      `json:"index"`
+	Subject  string   `json:"subject"`
+	Issuer   string   `json:"issuer"`
+	NotAfter string   `json:"not_after"`
+	SHA256   string   `json:"sha256"`
+	Labels   []string `json:"labels"`
+}
+
+// formatChainJSON formats the chain as one JSON object.
+// chain is leaf-first. labels is an empty array when none apply.
+// incomplete is omitted when the chain is complete. sha256 is the full
+// hex fingerprint. not_after is the UTC date (YYYY-MM-DD). The result
+// ends with a newline.
+func formatChainJSON(rows []chainRow, note string) (string, error) {
+	entries := make([]chainJSONCert, len(rows))
+	for i, row := range rows {
+		labels := row.labels
+		if labels == nil {
+			labels = []string{}
+		}
+		entries[i] = chainJSONCert{
+			Index:    i,
+			Subject:  row.name,
+			Issuer:   row.issuer,
+			NotAfter: row.notAfter,
+			SHA256:   row.sha256,
+			Labels:   labels,
+		}
+	}
+	doc := chainJSON{
+		Chain:      entries,
+		Incomplete: note,
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(doc); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 func pickIssuer(child *x509.Certificate, pool []*x509.Certificate, trusted map[string]struct{}, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) (*x509.Certificate, skipReason, bool) {

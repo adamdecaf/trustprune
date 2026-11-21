@@ -230,6 +230,18 @@ func flagDiffFormat() *cli.StringFlag {
 	}
 }
 
+// flagChainFormat is chain --format text (default) or json.
+// Do not use ui.DefaultFormat here: that is the list table format.
+func flagChainFormat() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:        "format",
+		Usage:       "output format (default: text, options: " + cmd.ChainFormats + ")",
+		Value:       "text",
+		HideDefault: true,
+		Local:       true,
+	}
+}
+
 func flagGenAllowlistVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "v",
