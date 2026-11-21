@@ -31,6 +31,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 func TestNormalizeDiffFormat(t *testing.T) {
@@ -99,16 +101,23 @@ func TestDiffSameFixtureIdentical(t *testing.T) {
 	if !strings.Contains(buf.String(), `"differences": []`) {
 		t.Fatalf("missing empty differences:\n%s", buf.String())
 	}
+	if strings.Contains(buf.String(), `"mode"`) {
+		t.Fatalf("single-cert json includes mode:\n%s", buf.String())
+	}
 }
 
 func TestDiffPEMAndDERIdentical(t *testing.T) {
 	t.Parallel()
 
 	pemPath := diffTestdata(t, "example.crt")
-	cert, err := readOneCertificate(pemPath)
+	certs, err := readCertificates(pemPath)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(certs) != 1 {
+		t.Fatalf("certs = %d", len(certs))
+	}
+	cert := certs[0]
 	derPath := filepath.Join(t.TempDir(), "example.der")
 	if err := os.WriteFile(derPath, cert.Raw, 0o600); err != nil {
 		t.Fatal(err)
@@ -205,6 +214,9 @@ func TestDiffExampleAndLocalCert(t *testing.T) {
 			t.Fatalf("json[%d] = %#v, text = %#v", i, got, ch)
 		}
 	}
+	if strings.Contains(buf.String(), `"mode"`) {
+		t.Fatalf("single-cert json includes mode:\n%s", buf.String())
+	}
 }
 
 func TestDiffRejectsBadFiles(t *testing.T) {
@@ -245,14 +257,6 @@ func TestDiffRejectsBadFiles(t *testing.T) {
 		}
 		err := diffCertificates(&bytes.Buffer{}, path, good, DiffOptions{})
 		if err == nil || !strings.Contains(err.Error(), "not a PEM or DER certificate") {
-			t.Fatalf("err = %v", err)
-		}
-	})
-
-	t.Run("many", func(t *testing.T) {
-		t.Parallel()
-		err := diffCertificates(&bytes.Buffer{}, diffTestdata(t, "lots.crt"), good, DiffOptions{})
-		if err == nil || !strings.Contains(err.Error(), "expected one certificate, found") {
 			t.Fatalf("err = %v", err)
 		}
 	})
@@ -517,5 +521,319 @@ func assertCanonicalDiffOrder(t *testing.T, got []string) {
 			t.Fatalf("order %v is not canonical", got)
 		}
 		i++
+	}
+}
+
+func TestDiffBundleText(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	mid, _ := mintCA(t, "m.example", notBefore, notAfter)
+	zeta, _ := mintCA(t, "z.example", notBefore, notAfter)
+	beta, _ := mintCA(t, "b.example", notBefore, notAfter)
+
+	// File order is not the report order. alpha is duplicated.
+	leftPath := writeDiffPEM(t, "left.pem", zeta, mid, alpha, alpha)
+	rightPath := writeDiffPEM(t, "right.pem", beta, mid)
+
+	var buf bytes.Buffer
+	err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("err = %v", err)
+	}
+	want := "left: " + leftPath + "\n" +
+		"right: " + rightPath + "\n" +
+		"Removed (2):\n" +
+		bundleLine(alpha) + "\n" +
+		bundleLine(zeta) + "\n" +
+		"Added (1):\n" +
+		bundleLine(beta) + "\n" +
+		"Unchanged: 1\n"
+	if buf.String() != want {
+		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	}
+}
+
+func TestDiffBundleIdentical(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	beta, _ := mintCA(t, "b.example", notBefore, notAfter)
+	leftPath := writeDiffPEM(t, "left.pem", alpha, beta, alpha)
+	rightPath := writeDiffPEM(t, "right.pem", beta, alpha, beta)
+
+	var buf bytes.Buffer
+	if err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	want := "left: " + leftPath + "\n" +
+		"right: " + rightPath + "\n" +
+		"Unchanged: 2\n" +
+		bundleSameCertificates + "\n"
+	if buf.String() != want {
+		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	}
+}
+
+func TestDiffBundleDuplicates(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	leftPath := writeDiffPEM(t, "left.pem", alpha, alpha)
+	rightPath := writeDiffPEM(t, "right.pem", alpha)
+
+	var buf bytes.Buffer
+	if err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{}); err != nil {
+		t.Fatalf("err = %v", err)
+	}
+	want := "left: " + leftPath + "\n" +
+		"right: " + rightPath + "\n" +
+		"Unchanged: 1\n" +
+		bundleSameCertificates + "\n"
+	if buf.String() != want {
+		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	}
+}
+
+func TestDiffBundleOneVsMany(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	beta, _ := mintCA(t, "b.example", notBefore, notAfter)
+
+	t.Run("pem", func(t *testing.T) {
+		t.Parallel()
+		leftPath := writeDiffPEM(t, "one.pem", alpha)
+		rightPath := writeDiffPEM(t, "many.pem", alpha, beta)
+		var buf bytes.Buffer
+		err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{})
+		if !errors.Is(err, ErrCertificatesDiffer) {
+			t.Fatalf("err = %v", err)
+		}
+		want := "left: " + leftPath + "\n" +
+			"right: " + rightPath + "\n" +
+			"Added (1):\n" +
+			bundleLine(beta) + "\n" +
+			"Unchanged: 1\n"
+		if buf.String() != want {
+			t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+		}
+	})
+
+	t.Run("der", func(t *testing.T) {
+		t.Parallel()
+		leftPath := writeDiffDER(t, "one.der", alpha)
+		rightPath := writeDiffPEM(t, "many.pem", beta, alpha)
+		var buf bytes.Buffer
+		err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{})
+		if !errors.Is(err, ErrCertificatesDiffer) {
+			t.Fatalf("err = %v", err)
+		}
+		text := buf.String()
+		if strings.Contains(text, "Removed (") || strings.Contains(text, " != ") {
+			t.Fatalf("text =\n%s", text)
+		}
+		if !strings.Contains(text, "Added (1):\n"+bundleLine(beta)+"\n") || !strings.Contains(text, "Unchanged: 1\n") {
+			t.Fatalf("text =\n%s", text)
+		}
+	})
+}
+
+func TestDiffBundleSameSubjectOrder(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	first, _ := mintCA(t, "same.example", notBefore, notAfter)
+	second, _ := mintCA(t, "same.example", notBefore, notAfter)
+	other, _ := mintCA(t, "other.example", notBefore, notAfter)
+	if formatSHA256(first) == formatSHA256(second) {
+		t.Fatal("minted certificates share a fingerprint")
+	}
+	leftPath := writeDiffPEM(t, "left.pem", second, first)
+	rightPath := writeDiffPEM(t, "right.pem", other)
+
+	var buf bytes.Buffer
+	err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("err = %v", err)
+	}
+	ordered := []string{bundleLine(first), bundleLine(second)}
+	if formatSHA256(second) < formatSHA256(first) {
+		ordered = []string{bundleLine(second), bundleLine(first)}
+	}
+	want := "left: " + leftPath + "\n" +
+		"right: " + rightPath + "\n" +
+		"Removed (2):\n" +
+		ordered[0] + "\n" +
+		ordered[1] + "\n" +
+		"Added (1):\n" +
+		bundleLine(other) + "\n" +
+		"Unchanged: 0\n"
+	if buf.String() != want {
+		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	}
+}
+
+func TestDiffBundleJSON(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	beta, _ := mintCA(t, "b.example", notBefore, notAfter)
+	gamma, _ := mintCA(t, "g.example", notBefore, notAfter)
+	leftPath := writeDiffPEM(t, "left.pem", alpha, beta)
+	rightPath := writeDiffPEM(t, "right.pem", beta, gamma)
+
+	var buf bytes.Buffer
+	err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{Format: "json"})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("err = %v", err)
+	}
+	raw := buf.String()
+	doc := decodeBundleDiffJSON(t, raw)
+	if doc.Identical || doc.Mode != "bundle" || doc.Left != leftPath || doc.Right != rightPath || doc.Unchanged != 1 {
+		t.Fatalf("json = %#v", doc)
+	}
+	if len(doc.Removed) != 1 || doc.Removed[0] != bundleEntry(alpha) {
+		t.Fatalf("removed = %#v", doc.Removed)
+	}
+	if len(doc.Added) != 1 || doc.Added[0] != bundleEntry(gamma) {
+		t.Fatalf("added = %#v", doc.Added)
+	}
+	assertJSONKeyOrder(t, raw, []string{"identical", "left", "right", "mode", "removed", "added", "unchanged"})
+
+	buf.Reset()
+	sameRight := writeDiffPEM(t, "same.pem", alpha, beta, beta)
+	if err := diffCertificates(&buf, leftPath, sameRight, DiffOptions{Format: "JSON"}); err != nil {
+		t.Fatal(err)
+	}
+	raw = buf.String()
+	if !strings.Contains(raw, `"removed": []`) || !strings.Contains(raw, `"added": []`) {
+		t.Fatalf("empty arrays missing:\n%s", raw)
+	}
+	if strings.Contains(raw, "null") {
+		t.Fatalf("null in json:\n%s", raw)
+	}
+	doc = decodeBundleDiffJSON(t, raw)
+	if !doc.Identical || doc.Mode != "bundle" || doc.Unchanged != 2 || len(doc.Removed) != 0 || len(doc.Added) != 0 {
+		t.Fatalf("json = %#v", doc)
+	}
+}
+
+func TestDiffBundleDisplayName(t *testing.T) {
+	t.Parallel()
+
+	// localcert has no common name. The bundle line uses the list subject
+	// ("Acme Co"), not the raw subject "O=Acme Co".
+	localCerts, err := readCertificates(diffTestdata(t, "localcert.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exampleCerts, err := readCertificates(diffTestdata(t, "example.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(localCerts) != 1 || len(exampleCerts) != 1 {
+		t.Fatalf("certs = %d %d", len(localCerts), len(exampleCerts))
+	}
+	if got := bundleSubject(localCerts[0]); got != "Acme Co" {
+		t.Fatalf("subject = %q", got)
+	}
+	leftPath := writeDiffPEM(t, "left.pem", exampleCerts[0], localCerts[0])
+	var buf bytes.Buffer
+	err = diffCertificates(&buf, leftPath, diffTestdata(t, "example.crt"), DiffOptions{})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("err = %v", err)
+	}
+	text := buf.String()
+	if strings.Contains(text, "O=Acme Co") || strings.Contains(text, "Added (") {
+		t.Fatalf("text =\n%s", text)
+	}
+	wantLine := "Acme Co " + formatSHA256(localCerts[0])
+	if !strings.Contains(text, "Removed (1):\n"+wantLine+"\n") || !strings.Contains(text, "Unchanged: 1\n") {
+		t.Fatalf("text =\n%s", text)
+	}
+}
+
+func TestDiffTwoDERStaySingle(t *testing.T) {
+	t.Parallel()
+
+	notBefore, notAfter := diffBundleWindow()
+	alpha, _ := mintCA(t, "a.example", notBefore, notAfter)
+	beta, _ := mintCA(t, "b.example", notBefore, notAfter)
+	leftPath := writeDiffDER(t, "left.der", alpha)
+	rightPath := writeDiffDER(t, "right.der", beta)
+
+	var buf bytes.Buffer
+	err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{Format: "json"})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("err = %v", err)
+	}
+	raw := buf.String()
+	if strings.Contains(raw, `"mode"`) || strings.Contains(raw, `"removed"`) {
+		t.Fatalf("der pair used bundle json:\n%s", raw)
+	}
+	doc := decodeDiffJSON(t, raw)
+	if doc.Identical || len(doc.Differences) == 0 {
+		t.Fatalf("json = %#v", doc)
+	}
+}
+
+func diffBundleWindow() (time.Time, time.Time) {
+	start := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	return start, start.Add(365 * 24 * time.Hour)
+}
+
+func writeDiffPEM(t *testing.T, name string, certs ...*x509.Certificate) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := certutil.ToFile(path, certs); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeDiffDER(t *testing.T, name string, cert *x509.Certificate) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, cert.Raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func bundleLine(c *x509.Certificate) string {
+	return bundleSubject(c) + " " + formatSHA256(c)
+}
+
+func bundleEntry(c *x509.Certificate) bundleCert {
+	return bundleCert{Subject: bundleSubject(c), SHA256: formatSHA256(c)}
+}
+
+func decodeBundleDiffJSON(t *testing.T, raw string) bundleDiffJSON {
+	t.Helper()
+	var doc bundleDiffJSON
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, raw)
+	}
+	if !strings.HasSuffix(raw, "\n") {
+		t.Fatal("json missing trailing newline")
+	}
+	return doc
+}
+
+func assertJSONKeyOrder(t *testing.T, raw string, keys []string) {
+	t.Helper()
+	prev := -1
+	for _, k := range keys {
+		i := strings.Index(raw, `"`+k+`"`)
+		if i < 0 || i <= prev {
+			t.Fatalf("key %s order in\n%s", k, raw)
+		}
+		prev = i
 	}
 }

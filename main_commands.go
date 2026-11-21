@@ -533,15 +533,22 @@ func diffCommand(st *runState) *cli.Command {
 		Usage: "Compare two certificate files",
 		UsageText: `trustprune diff [--format text|json] <left> <right>
 
-Compare two certificate files and print the fields that differ.
-Each file is PEM or DER and must contain exactly one certificate.
-Comments around a PEM CERTIFICATE block are ignored. Other PEM block
-types are ignored. The first path is the left side and the second is
-the right side.
+Compare two certificate files. The first path is the left side and the
+second is the right side. There is no network access.
 
-Exit status is 0 when every field matches and 1 when any field differs.
+Each file is PEM or DER. Comments around a PEM CERTIFICATE block are
+ignored. Other PEM block types are ignored. DER is one certificate.
+A file with no certificate is an error.
+
+When both files contain one certificate, diff prints the fields that
+differ. When either file contains more than one, diff compares the
+bundles by SHA-256 fingerprint. A certificate only in the left file is
+removed. A certificate only in the right file is added. Duplicates in
+one file count once.
+
+Exit status is 0 when the certificates match and 1 when they differ.
 The report is on stdout and is not an ERROR: line. A file that cannot
-be read, or that is not one certificate, exits 1 with ERROR: on stdout.
+be read, or that contains no certificate, exits 1 with ERROR: on stdout.
 The wrong number of paths, or an unknown --format, is a usage error
 (exit 2).
 
@@ -565,7 +572,25 @@ certificates print "identical".
   trustprune diff --format json old.pem new.der
 
 JSON is one object. differences lists only fields that differ.
+Single-certificate JSON has no mode field.
 An unknown format is a usage error and names json and text.
+
+Bundle text names left and right, then lists removed and added
+certificates (subject and SHA-256). An empty section is omitted.
+Unchanged is the count in both files. Identical bundles print that
+the bundles hold the same certificates.
+
+  trustprune diff backup.pem live.pem
+  left: backup.pem
+  right: live.pem
+  Removed (1):
+  Old CA <64 hex>
+  Added (1):
+  New CA <64 hex>
+  Unchanged: 2
+
+Bundle JSON sets mode to "bundle". removed and added are arrays of
+subject and sha256. They are empty arrays when nothing changed.
 `,
 		Flags: []cli.Flag{
 			flagDiffFormat(),
