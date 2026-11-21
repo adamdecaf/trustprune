@@ -40,6 +40,10 @@ import (
 //     net/data/ssl/blocklist (the archive blocklist_gen.go downloads).
 //     Symantec legacy roots come from Mozilla's Removed CA Certificate
 //     Report (bugs 1670769 and 1686854), checked against that report's PEM.
+//     eMudhra G3 intermediates use those same Chromium PEMs for the
+//     certificate hash. Their SPKI hashes match crypto/x509
+//     distrustedSPKIHashes in Go 1.27.3 (src/crypto/x509/verify.go) and
+//     Mozilla bug 2083449.
 //  2. Record the lowercase hex SHA-256 of the certificate DER and of
 //     cert.RawSubjectPublicKeyInfo. The certificate hash must match the
 //     source. Leave the entry out if you are not sure.
@@ -239,6 +243,56 @@ var deniedCerts = []deniedCert{
 		name:        "VeriSign Universal Root Certification Authority",
 		fingerprint: "2399561127a57125de8cefea610ddf2fa078b5c8067f4e828290bfb860e84b3c",
 		spki:        "967b0cd93fcef7f27ce2c245767ae9b05a776b0649f9965b6290968469686872",
+	},
+
+	// eMudhra G3 intermediates, October 2026 key compromise. Certificate
+	// SHA-256 values are from Chromium's net/data/ssl/blocklist PEMs (the
+	// archive blocklist_gen.go downloads) and match the fingerprints in
+	// blocklist.go. The eight SPKI hashes match crypto/x509
+	// distrustedSPKIHashes in Go 1.27.3 (src/crypto/x509/verify.go).
+	// Mozilla bug 2083449. Sectigo cross-signed certificates share these
+	// keys and chain to AAA Certificate Services, so the SPKI entry rejects
+	// them too. eMudhra roots (emSign Root CA - G1, G3, and others) stay
+	// out of scope: vendors disagree on the roots.
+	{
+		name:        "EM DV TLS CA - G3C",
+		fingerprint: "0164d7ceae5bb909c272af151ff44b1177ae9b47d9424b94f1d9558c30934d19",
+		spki:        "49dd353dc2b919a3770645117d0e60c16115e7d1bc259eefe734b00ea434fe5f",
+	},
+	{
+		name:        "EM DV TLS CA - G3B",
+		fingerprint: "42c4accd12c4f59597925e1a08a7a90102608543809308d50ec427e118ba1493",
+		spki:        "ebed6475c2c2d80fcb199f3fe8dd6e6b3ce60b77eb15d4e42c3dec0c6f5b5105",
+	},
+	{
+		name:        "EM EV TLS CA - G3C",
+		fingerprint: "432ec25f0d28de9006d97bf752f17bbb2cd41f669933fcb072d9a1148d0261f3",
+		spki:        "5c0660a2b164910d8ff589c18e14552e9e0ec237dcefe2cb736d41a4811f81a0",
+	},
+	{
+		name:        "EM EV TLS CA - G3B",
+		fingerprint: "e7568fe6e12331f4fd7de61da4c7559d0f8eb192a218d4741a3ba75184333838",
+		spki:        "e0254c7fcdc265e2f0f8a428dabb75ab4ae039b4872d62f5ee57f0877d5a8a41",
+	},
+	{
+		name:        "EM OV TLS CA - G3C",
+		fingerprint: "cb6e15165ac802e9b3f993f16c25d41f4e81c21ebde71ae1b012ac00bf9c7c3f",
+		spki:        "63ecefee431d49523bc1136c4e72d0206a477086caf606cd5cf025686c109cf8",
+	},
+	{
+		name:        "EM OV TLS CA - G3B",
+		fingerprint: "98b896625c0c230adeec3eb2cf6aad5001ecf9156a68644e82374ce5833bc25b",
+		spki:        "43bffa19d6ef651451f6841e019931e96f6f2eaeff28ab4b6f1ce4576de2717b",
+	},
+	{
+		name:        "EM OV CS CA - G3C",
+		fingerprint: "4b2460a466f95fd40113bcdcca2ceb29b3b093921de45474da7df48874c630b1",
+		spki:        "92c063d67e8f14db71d288e11266ffdaf69cbf115f7bab14f3bc2f68d25e0e30",
+	},
+	{
+		name:        "EM OV CS CA - G3B",
+		fingerprint: "9e39de2881273acc225a149c72ba3e0f51424963669ab633ee1dc7df5db067b4",
+		spki:        "ec4ffa1ad0ac88081314b7aaffef6a91f97cd57291bb5ba686c5415f5eb4f6b6",
 	},
 }
 
