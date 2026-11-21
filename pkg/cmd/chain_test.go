@@ -23,6 +23,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"errors"
 	"math/big"
 	"net"
@@ -370,6 +371,229 @@ func TestBuildChainAllLabels(t *testing.T) {
 	}
 	if !strings.Contains(out, "priv.example (untrusted, expired, blocklisted)") {
 		t.Fatalf("combined label missing:\n%s", out)
+	}
+}
+
+func TestNormalizeChainFormat(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		in      string
+		want    string
+		wantErr string
+	}{
+		{in: "", want: "text"},
+		{in: "text", want: "text"},
+		{in: "TEXT", want: "text"},
+		{in: " json ", want: "json"},
+		{in: "JSON", want: "json"},
+		{in: "table", wantErr: `unknown format "table" (formats: json, text)`},
+		{in: "Short", wantErr: `unknown format "Short" (formats: json, text)`},
+		{in: "nope", wantErr: `unknown format "nope" (formats: json, text)`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			t.Parallel()
+			got, err := NormalizeChainFormat(tc.in)
+			if tc.wantErr != "" {
+				if err == nil || err.Error() != tc.wantErr {
+					t.Fatalf("NormalizeChainFormat(%q) error = %v, want %q", tc.in, err, tc.wantErr)
+				}
+				if got != "" {
+					t.Fatalf("NormalizeChainFormat(%q) = %q, want empty", tc.in, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizeChainFormat(%q): %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("NormalizeChainFormat(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestBuildChainJSON(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty labels", func(t *testing.T) {
+		t.Parallel()
+		leaf, ca := mintLeafAndCA(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+		out, err := buildChain(chainInput{
+			leaf:    leaf,
+			trusted: []*x509.Certificate{ca},
+			opts:    ChainOptions{Now: chainTestNow, Format: "json"},
+			blocked: func(*x509.Certificate) bool { return false },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := decodeChainJSON(t, out)
+		if doc.Incomplete != "" {
+			t.Fatalf("incomplete = %q", doc.Incomplete)
+		}
+		if strings.Contains(out, `"incomplete"`) {
+			t.Fatalf("incomplete present when chain is complete:\n%s", out)
+		}
+		if len(doc.Chain) != 2 {
+			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
+		}
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "ca.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), nil)
+		assertChainJSONCert(t, doc.Chain[1], 1, "ca.example", "ca.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), nil)
+		if !strings.Contains(out, `"labels": []`) {
+			t.Fatalf("empty labels not encoded as []:\n%s", out)
+		}
+		if strings.Contains(out, `"labels": null`) {
+			t.Fatalf("labels encoded as null:\n%s", out)
+		}
+		assertChainJSONIndent(t, out, doc)
+	})
+
+	t.Run("labels", func(t *testing.T) {
+		t.Parallel()
+		notBefore := time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC)
+		ca, key := mintCA(t, "priv.example", notBefore, time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC))
+		leaf := mintChild(t, "leaf.example", ca, key, chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour), false)
+		out, err := buildChain(chainInput{
+			leaf:   leaf,
+			extras: []*x509.Certificate{ca},
+			opts:   ChainOptions{Now: chainTestNow, All: true, Format: "json"},
+			blocked: func(c *x509.Certificate) bool {
+				return chainFP(c) == chainFP(ca)
+			},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := decodeChainJSON(t, out)
+		if doc.Incomplete != "" {
+			t.Fatalf("incomplete = %q", doc.Incomplete)
+		}
+		if len(doc.Chain) != 2 {
+			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
+		}
+		if strings.Contains(doc.Chain[0].Subject, "(") || strings.Contains(doc.Chain[1].Subject, "(") {
+			t.Fatalf("subject includes label suffix:\n%s", out)
+		}
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
+		assertChainJSONCert(t, doc.Chain[1], 1, "priv.example", "priv.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), []string{"untrusted", "expired", "blocklisted"})
+		assertChainJSONIndent(t, out, doc)
+	})
+
+	t.Run("not yet valid", func(t *testing.T) {
+		t.Parallel()
+		future := time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC)
+		ca, key := mintCA(t, "future.example", future, future.Add(365*24*time.Hour))
+		leaf := mintChild(t, "leaf.example", ca, key, chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour), false)
+		out, err := buildChain(chainInput{
+			leaf:    leaf,
+			trusted: []*x509.Certificate{ca},
+			opts:    ChainOptions{Now: chainTestNow, Expired: true, Format: "json"},
+			blocked: func(*x509.Certificate) bool { return false },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := decodeChainJSON(t, out)
+		if len(doc.Chain) != 2 {
+			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
+		}
+		assertChainJSONCert(t, doc.Chain[1], 1, "future.example", "future.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), []string{"not yet valid"})
+	})
+
+	t.Run("incomplete", func(t *testing.T) {
+		t.Parallel()
+		leaf, ca := mintLeafAndCA(t, "leaf.example", "priv.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+		out, err := buildChain(chainInput{
+			leaf:   leaf,
+			extras: []*x509.Certificate{ca},
+			opts:   ChainOptions{Now: chainTestNow, Format: "json"},
+			blocked: func(*x509.Certificate) bool { return false },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := decodeChainJSON(t, out)
+		wantNote := "incomplete: no issuer for leaf.example; pass --untrusted"
+		if doc.Incomplete != wantNote {
+			t.Fatalf("incomplete = %q, want %q\n%s", doc.Incomplete, wantNote, out)
+		}
+		if len(doc.Chain) != 1 {
+			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
+		}
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
+		if !strings.Contains(out, `"labels": []`) {
+			t.Fatalf("empty labels not encoded as []:\n%s", out)
+		}
+		assertChainJSONIndent(t, out, doc)
+	})
+}
+
+func TestShowChainUnknownFormat(t *testing.T) {
+	t.Parallel()
+	err := ShowChain(&bytes.Buffer{}, ChainOptions{Format: "nope"})
+	if err == nil || err.Error() != `unknown format "nope" (formats: json, text)` {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func decodeChainJSON(t *testing.T, out string) chainJSON {
+	t.Helper()
+	if !strings.HasSuffix(out, "\n") {
+		t.Fatalf("json missing trailing newline: %q", out)
+	}
+	var doc chainJSON
+	if err := json.Unmarshal([]byte(out), &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	return doc
+}
+
+func assertChainJSONCert(t *testing.T, got chainJSONCert, index int, subject, issuer, notAfter, sha256 string, labels []string) {
+	t.Helper()
+	if got.Index != index {
+		t.Fatalf("index = %d, want %d", got.Index, index)
+	}
+	if got.Subject != subject {
+		t.Fatalf("subject = %q, want %q", got.Subject, subject)
+	}
+	if got.Issuer != issuer {
+		t.Fatalf("issuer = %q, want %q", got.Issuer, issuer)
+	}
+	if got.NotAfter != notAfter {
+		t.Fatalf("not_after = %q, want %q", got.NotAfter, notAfter)
+	}
+	if got.SHA256 != sha256 {
+		t.Fatalf("sha256 = %q, want %q", got.SHA256, sha256)
+	}
+	if len(got.SHA256) != 64 {
+		t.Fatalf("sha256 length = %d, want 64", len(got.SHA256))
+	}
+	if labels == nil {
+		labels = []string{}
+	}
+	if got.Labels == nil {
+		t.Fatal("labels is nil")
+	}
+	if len(got.Labels) != len(labels) {
+		t.Fatalf("labels = %#v, want %#v", got.Labels, labels)
+	}
+	for i := range labels {
+		if got.Labels[i] != labels[i] {
+			t.Fatalf("labels = %#v, want %#v", got.Labels, labels)
+		}
+	}
+}
+
+func assertChainJSONIndent(t *testing.T, got string, doc chainJSON) {
+	t.Helper()
+	enc, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != string(enc)+"\n" {
+		t.Fatalf("json =\n%s\nwant\n%s\n", got, string(enc)+"\n")
 	}
 }
 

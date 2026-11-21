@@ -449,6 +449,8 @@ The default table uses trusted, in-date certificates that are not on the offline
 
 An incomplete chain prints a note and names the flags that would include a skipped issuer.
 
+`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (without the label suffix), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. An incomplete chain adds `incomplete` with the same note the text table prints.
+
 ```bash
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
 trustprune chain --file leaf.pem --untrusted
@@ -457,6 +459,7 @@ trustprune chain --file leaf.pem --revoked
 trustprune chain --file leaf.pem --all
 trustprune chain --url example.com --remote
 trustprune chain --url https://example.com --remote --untrusted
+trustprune chain --url example.com --remote --format json
 trustprune chain --app java --store /path/to/cacerts --file leaf.pem
 ```
 
@@ -464,6 +467,14 @@ trustprune chain --app java --store /path/to/cacerts --file leaf.pem
 INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 0      leaf.example ca.example  2027-06-01  <16 hex>
 1      ca.example   ca.example  2027-06-01  <16 hex>
+```
+
+```json
+{
+  "chain": [
+    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
+  ]
+}
 ```
 
 | Flag | Meaning |
@@ -478,6 +489,7 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 | `--revoked` | Include certificates on the offline Chromium and Mozilla blocklists (labeled `blocklisted`; no OCSP or CRL) |
 | `--all` | Include untrusted, expired, not-yet-valid, and blocklisted certificates |
 | `--remote` | Look up the TLS chain when no local chain is found (30s timeout) |
+| `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 
 ## add
 
