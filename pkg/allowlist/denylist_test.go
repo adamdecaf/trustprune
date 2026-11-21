@@ -20,7 +20,10 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"math/big"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -160,6 +163,152 @@ func TestAllowlist_denylistSPKICatchesReissue(t *testing.T) {
 	alOther := Allowlist{Fingerprints: []string{otherFP}}
 	if !alOther.Matches(other) {
 		t.Fatal("unrelated certificate must still match")
+	}
+}
+
+func TestDenylist_eMudhraG3Intermediates(t *testing.T) {
+	want := []deniedCert{
+		{
+			name:        "EM DV TLS CA - G3C",
+			fingerprint: "0164d7ceae5bb909c272af151ff44b1177ae9b47d9424b94f1d9558c30934d19",
+			spki:        "49dd353dc2b919a3770645117d0e60c16115e7d1bc259eefe734b00ea434fe5f",
+		},
+		{
+			name:        "EM DV TLS CA - G3B",
+			fingerprint: "42c4accd12c4f59597925e1a08a7a90102608543809308d50ec427e118ba1493",
+			spki:        "ebed6475c2c2d80fcb199f3fe8dd6e6b3ce60b77eb15d4e42c3dec0c6f5b5105",
+		},
+		{
+			name:        "EM EV TLS CA - G3C",
+			fingerprint: "432ec25f0d28de9006d97bf752f17bbb2cd41f669933fcb072d9a1148d0261f3",
+			spki:        "5c0660a2b164910d8ff589c18e14552e9e0ec237dcefe2cb736d41a4811f81a0",
+		},
+		{
+			name:        "EM EV TLS CA - G3B",
+			fingerprint: "e7568fe6e12331f4fd7de61da4c7559d0f8eb192a218d4741a3ba75184333838",
+			spki:        "e0254c7fcdc265e2f0f8a428dabb75ab4ae039b4872d62f5ee57f0877d5a8a41",
+		},
+		{
+			name:        "EM OV TLS CA - G3C",
+			fingerprint: "cb6e15165ac802e9b3f993f16c25d41f4e81c21ebde71ae1b012ac00bf9c7c3f",
+			spki:        "63ecefee431d49523bc1136c4e72d0206a477086caf606cd5cf025686c109cf8",
+		},
+		{
+			name:        "EM OV TLS CA - G3B",
+			fingerprint: "98b896625c0c230adeec3eb2cf6aad5001ecf9156a68644e82374ce5833bc25b",
+			spki:        "43bffa19d6ef651451f6841e019931e96f6f2eaeff28ab4b6f1ce4576de2717b",
+		},
+		{
+			name:        "EM OV CS CA - G3C",
+			fingerprint: "4b2460a466f95fd40113bcdcca2ceb29b3b093921de45474da7df48874c630b1",
+			spki:        "92c063d67e8f14db71d288e11266ffdaf69cbf115f7bab14f3bc2f68d25e0e30",
+		},
+		{
+			name:        "EM OV CS CA - G3B",
+			fingerprint: "9e39de2881273acc225a149c72ba3e0f51424963669ab633ee1dc7df5db067b4",
+			spki:        "ec4ffa1ad0ac88081314b7aaffef6a91f97cd57291bb5ba686c5415f5eb4f6b6",
+		},
+	}
+	if len(want) != 8 {
+		t.Fatalf("eMudhra G3 case list has %d entries, want 8", len(want))
+	}
+	byFP := make(map[string]deniedCert, len(deniedCerts))
+	for _, e := range deniedCerts {
+		byFP[e.fingerprint] = e
+	}
+	seenSPKI := make(map[string]string, len(want))
+	for _, w := range want {
+		e, ok := byFP[w.fingerprint]
+		if !ok {
+			t.Errorf("missing eMudhra G3 fingerprint %s (%s)", w.fingerprint, w.name)
+			continue
+		}
+		if e.spki != w.spki {
+			t.Errorf("%s spki=%s, want %s", w.name, e.spki, w.spki)
+		}
+		if e.name != w.name {
+			t.Errorf("fingerprint %s name=%q, want %q", w.fingerprint, e.name, w.name)
+		}
+		if prev, ok := seenSPKI[w.spki]; ok {
+			t.Errorf("duplicate eMudhra SPKI %s (%s and %s)", w.spki, prev, w.name)
+		}
+		seenSPKI[w.spki] = w.name
+	}
+}
+
+func TestDenied_eMudhraG3SPKIRejectsNewCert(t *testing.T) {
+	const (
+		wantFP   = "0164d7ceae5bb909c272af151ff44b1177ae9b47d9424b94f1d9558c30934d19"
+		wantSPKI = "49dd353dc2b919a3770645117d0e60c16115e7d1bc259eefe734b00ea434fe5f"
+		wantName = "EM DV TLS CA - G3C"
+	)
+	// #nosec G304 -- testdata fixture, not user input
+	raw, err := os.ReadFile(filepath.Join("testdata", "em-dv-tls-ca-g3c.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatal("testdata PEM has no CERTIFICATE block")
+	}
+	original, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := certutil.GetHexSHA256Fingerprint(*original); got != wantFP {
+		t.Fatalf("fixture fingerprint %s, want %s", got, wantFP)
+	}
+	if got := spkiSHA256(original); got != wantSPKI {
+		t.Fatalf("fixture SPKI %s, want %s", got, wantSPKI)
+	}
+	if denied, name := Denied(original); !denied || name != wantName {
+		t.Fatalf("Denied(fixture)=%v %q", denied, name)
+	}
+
+	parentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := &x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			CommonName: "Test Parent",
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber: big.NewInt(2),
+		Subject: pkix.Name{
+			CommonName: "Reissued EM DV TLS CA - G3C",
+			Country:    []string{"US"},
+		},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		PublicKey:             original.PublicKey,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, tmpl.PublicKey, parentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reissued, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if certutil.GetHexSHA256Fingerprint(*reissued) == wantFP {
+		t.Fatal("reissued certificate must not keep the denylisted certificate fingerprint")
+	}
+	if spkiSHA256(reissued) != wantSPKI {
+		t.Fatalf("reissued SPKI %s, want %s", spkiSHA256(reissued), wantSPKI)
+	}
+	if denied, name := Denied(reissued); !denied || name != wantName {
+		t.Fatalf("Denied(reissued)=%v %q", denied, name)
 	}
 }
 
