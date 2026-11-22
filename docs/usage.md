@@ -472,7 +472,8 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 ```json
 {
   "chain": [
-    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
+    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []},
+    {"index": 1, "subject": "ca.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
   ],
   "complete": true
 }
