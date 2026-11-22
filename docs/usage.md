@@ -449,7 +449,7 @@ The default table uses trusted, in-date certificates that are not on the offline
 
 An incomplete chain prints a note and names the flags that would include a skipped issuer.
 
-`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (without the label suffix), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. An incomplete chain adds `incomplete` with the same note the text table prints.
+`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (without the label suffix), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. `complete` is always present: `true` when the chain reaches a self-signed certificate, `false` when it does not. An incomplete chain adds `incomplete` with the same note the text table prints. When the walk stopped because no issuer was found, `missing_issuer` is the display name of that certificate. Cycle and too-long chains omit `missing_issuer`.
 
 ```bash
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
@@ -472,8 +472,10 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 ```json
 {
   "chain": [
-    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
-  ]
+    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []},
+    {"index": 1, "subject": "ca.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
+  ],
+  "complete": true
 }
 ```
 

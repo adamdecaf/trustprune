@@ -137,13 +137,30 @@ func TestChainCLI(t *testing.T) {
 				SHA256   string   `json:"sha256"`
 				Labels   []string `json:"labels"`
 			} `json:"chain"`
-			Incomplete string `json:"incomplete"`
+			Complete      bool   `json:"complete"`
+			Incomplete    string `json:"incomplete"`
+			MissingIssuer string `json:"missing_issuer"`
 		}
 		if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
 			t.Fatalf("json: %v\n%s", err, res.stdout)
 		}
+		if !doc.Complete {
+			t.Fatalf("complete = false\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, `"complete": true`) {
+			t.Fatalf("complete not encoded as true:\n%s", res.stdout)
+		}
 		if doc.Incomplete != "" {
 			t.Fatalf("incomplete = %q\n%s", doc.Incomplete, res.stdout)
+		}
+		if strings.Contains(res.stdout, `"incomplete"`) {
+			t.Fatalf("incomplete present when chain is complete:\n%s", res.stdout)
+		}
+		if doc.MissingIssuer != "" {
+			t.Fatalf("missing_issuer = %q\n%s", doc.MissingIssuer, res.stdout)
+		}
+		if strings.Contains(res.stdout, `"missing_issuer"`) {
+			t.Fatalf("missing_issuer present when chain is complete:\n%s", res.stdout)
 		}
 		if len(doc.Chain) != 1 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), res.stdout)
@@ -162,6 +179,44 @@ func TestChainCLI(t *testing.T) {
 		}
 		if strings.Contains(res.stdout, "INDEX") {
 			t.Fatalf("text table in json output:\n%s", res.stdout)
+		}
+	})
+
+	t.Run("json incomplete", func(t *testing.T) {
+		file := writeChainCLILeafAndCA(t)
+		res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", file, "--format", "json")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		var doc struct {
+			Chain []struct {
+				Subject string `json:"subject"`
+			} `json:"chain"`
+			Complete      bool   `json:"complete"`
+			Incomplete    string `json:"incomplete"`
+			MissingIssuer string `json:"missing_issuer"`
+		}
+		if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
+			t.Fatalf("json: %v\n%s", err, res.stdout)
+		}
+		if doc.Complete {
+			t.Fatalf("complete = true\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, `"complete": false`) {
+			t.Fatalf("complete not encoded as false:\n%s", res.stdout)
+		}
+		wantNote := "incomplete: no issuer for leaf.example; pass --untrusted"
+		if doc.Incomplete != wantNote {
+			t.Fatalf("incomplete = %q, want %q\n%s", doc.Incomplete, wantNote, res.stdout)
+		}
+		if doc.MissingIssuer != "leaf.example" {
+			t.Fatalf("missing_issuer = %q\n%s", doc.MissingIssuer, res.stdout)
+		}
+		if !strings.Contains(res.stdout, `"missing_issuer": "leaf.example"`) {
+			t.Fatalf("missing_issuer not encoded:\n%s", res.stdout)
+		}
+		if len(doc.Chain) != 1 || doc.Chain[0].Subject != "leaf.example" {
+			t.Fatalf("chain = %+v\n%s", doc.Chain, res.stdout)
 		}
 	})
 
@@ -241,6 +296,59 @@ func writeChainCLICert(t *testing.T) string {
 	}
 	path := filepath.Join(t.TempDir(), "ca.pem")
 	if err := certutil.ToFile(path, []*x509.Certificate{cert}); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func writeChainCLILeafAndCA(t *testing.T) string {
+	t.Helper()
+	now := time.Now()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	caTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "priv.example"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		IsCA:                  true,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, caTmpl, caTmpl, &caKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ca, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafTmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "leaf.example"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(365 * 24 * time.Hour),
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		DNSNames:              []string{"leaf.example"},
+	}
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, ca, &leafKey.PublicKey, caKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(leafDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "leaf.pem")
+	if err := certutil.ToFile(path, []*x509.Certificate{leaf, ca}); err != nil {
 		t.Fatal(err)
 	}
 	return path

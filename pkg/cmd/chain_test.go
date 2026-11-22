@@ -430,12 +430,7 @@ func TestBuildChainJSON(t *testing.T) {
 			t.Fatal(err)
 		}
 		doc := decodeChainJSON(t, out)
-		if doc.Incomplete != "" {
-			t.Fatalf("incomplete = %q", doc.Incomplete)
-		}
-		if strings.Contains(out, `"incomplete"`) {
-			t.Fatalf("incomplete present when chain is complete:\n%s", out)
-		}
+		assertChainJSONComplete(t, out, doc)
 		if len(doc.Chain) != 2 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
@@ -467,9 +462,7 @@ func TestBuildChainJSON(t *testing.T) {
 			t.Fatal(err)
 		}
 		doc := decodeChainJSON(t, out)
-		if doc.Incomplete != "" {
-			t.Fatalf("incomplete = %q", doc.Incomplete)
-		}
+		assertChainJSONComplete(t, out, doc)
 		if len(doc.Chain) != 2 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
@@ -496,6 +489,7 @@ func TestBuildChainJSON(t *testing.T) {
 			t.Fatal(err)
 		}
 		doc := decodeChainJSON(t, out)
+		assertChainJSONComplete(t, out, doc)
 		if len(doc.Chain) != 2 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
@@ -506,9 +500,9 @@ func TestBuildChainJSON(t *testing.T) {
 		t.Parallel()
 		leaf, ca := mintLeafAndCA(t, "leaf.example", "priv.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
 		out, err := buildChain(chainInput{
-			leaf:   leaf,
-			extras: []*x509.Certificate{ca},
-			opts:   ChainOptions{Now: chainTestNow, Format: "json"},
+			leaf:    leaf,
+			extras:  []*x509.Certificate{ca},
+			opts:    ChainOptions{Now: chainTestNow, Format: "json"},
 			blocked: func(*x509.Certificate) bool { return false },
 		})
 		if err != nil {
@@ -516,9 +510,7 @@ func TestBuildChainJSON(t *testing.T) {
 		}
 		doc := decodeChainJSON(t, out)
 		wantNote := "incomplete: no issuer for leaf.example; pass --untrusted"
-		if doc.Incomplete != wantNote {
-			t.Fatalf("incomplete = %q, want %q\n%s", doc.Incomplete, wantNote, out)
-		}
+		assertChainJSONIncomplete(t, out, doc, wantNote, "leaf.example")
 		if len(doc.Chain) != 1 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
@@ -526,6 +518,26 @@ func TestBuildChainJSON(t *testing.T) {
 		if !strings.Contains(out, `"labels": []`) {
 			t.Fatalf("empty labels not encoded as []:\n%s", out)
 		}
+		assertChainJSONIndent(t, out, doc)
+	})
+
+	t.Run("cycle", func(t *testing.T) {
+		t.Parallel()
+		aSelf, aKey := mintCA(t, "a.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour))
+		bSelf, bKey := mintCA(t, "b.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(24*time.Hour))
+		a := mintSigned(t, "a.example", bSelf, bKey, &aKey.PublicKey)
+		b := mintSigned(t, "b.example", aSelf, aKey, &bKey.PublicKey)
+		out, err := buildChain(chainInput{
+			leaf:    a,
+			extras:  []*x509.Certificate{b},
+			opts:    ChainOptions{Now: chainTestNow, Untrusted: true, Format: "json"},
+			blocked: func(*x509.Certificate) bool { return false },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc := decodeChainJSON(t, out)
+		assertChainJSONIncomplete(t, out, doc, "incomplete: cycle at a.example", "")
 		assertChainJSONIndent(t, out, doc)
 	})
 }
@@ -548,6 +560,53 @@ func decodeChainJSON(t *testing.T, out string) chainJSON {
 		t.Fatalf("json: %v\n%s", err, out)
 	}
 	return doc
+}
+
+func assertChainJSONComplete(t *testing.T, out string, doc chainJSON) {
+	t.Helper()
+	if !doc.Complete {
+		t.Fatalf("complete = false\n%s", out)
+	}
+	if !strings.Contains(out, `"complete": true`) {
+		t.Fatalf("complete not encoded as true:\n%s", out)
+	}
+	if doc.Incomplete != "" {
+		t.Fatalf("incomplete = %q", doc.Incomplete)
+	}
+	if strings.Contains(out, `"incomplete"`) {
+		t.Fatalf("incomplete present when chain is complete:\n%s", out)
+	}
+	if doc.MissingIssuer != "" {
+		t.Fatalf("missing_issuer = %q", doc.MissingIssuer)
+	}
+	if strings.Contains(out, `"missing_issuer"`) {
+		t.Fatalf("missing_issuer present when chain is complete:\n%s", out)
+	}
+}
+
+func assertChainJSONIncomplete(t *testing.T, out string, doc chainJSON, incomplete, missingIssuer string) {
+	t.Helper()
+	if doc.Complete {
+		t.Fatalf("complete = true\n%s", out)
+	}
+	if !strings.Contains(out, `"complete": false`) {
+		t.Fatalf("complete not encoded as false:\n%s", out)
+	}
+	if doc.Incomplete != incomplete {
+		t.Fatalf("incomplete = %q, want %q\n%s", doc.Incomplete, incomplete, out)
+	}
+	if doc.MissingIssuer != missingIssuer {
+		t.Fatalf("missing_issuer = %q, want %q\n%s", doc.MissingIssuer, missingIssuer, out)
+	}
+	if missingIssuer == "" {
+		if strings.Contains(out, `"missing_issuer"`) {
+			t.Fatalf("missing_issuer present:\n%s", out)
+		}
+		return
+	}
+	if !strings.Contains(out, `"missing_issuer": "`+missingIssuer+`"`) {
+		t.Fatalf("missing_issuer not encoded as %q:\n%s", missingIssuer, out)
+	}
 }
 
 func assertChainJSONCert(t *testing.T, got chainJSONCert, index int, subject, issuer, notAfter, sha256 string, labels []string) {
