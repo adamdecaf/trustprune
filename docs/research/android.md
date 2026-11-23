@@ -44,7 +44,7 @@ The primary user on a normal phone is userid `0`. A work profile is another user
 
 `/data/misc` is not readable by the shell user. `adb pull` of either directory fails on a stock device. `adb root` works on `userdebug` and `eng` builds and is refused on a production `user` build. Reading these directories on a retail phone takes root.
 
-Turning a system root off records that certificate in `cacerts-removed` for that user, under the same hash name. The file in the system directory stays. On AOSP, trust evaluation for that user skips a system file when `cacerts-removed` has a file of the same name. Turning the root back on removes the `cacerts-removed` entry. A user CA is a certificate file in `cacerts-added` under the same kind of name. AOSP writes the files in `cacerts-added` and `cacerts-removed` as DER, not PEM with OpenSSL text like the system image. trustprune reads PEM, so convert each file before listing it (see the audit section).
+Turning a system root off records that certificate in `cacerts-removed` for that user, under the same hash name. The file in the system directory stays. On AOSP, trust evaluation for that user skips a system certificate when `cacerts-removed` holds that same certificate. The store looks up the entry by hash and then compares certificate contents across the `.0`, `.1`, ... suffixes, so when two roots share a subject hash, the suffix in `cacerts-removed` does not have to match the system file name. Match removals by certificate, not by file name. Turning the root back on removes the `cacerts-removed` entry. A user CA is a certificate file in `cacerts-added` under the same kind of name. AOSP writes the files in `cacerts-added` and `cacerts-removed` as DER, not PEM with OpenSSL text like the system image. trustprune reads PEM, so convert each file before listing it (see the audit section).
 
 This note did not check, on a device, whether a `cacerts-removed` entry still matches after a Conscrypt update or an OS update replaces the system file. That match is **unverified**.
 
@@ -115,10 +115,10 @@ adb pull /apex/com.android.conscrypt/cacerts /tmp/android-cacerts
 
 API 33 and earlier: use `/system/etc/security/cacerts` in both commands. If the APEX listing fails, try the older path.
 
-`adb pull` of a directory copies that directory. Concatenate the hash files inside the directory that actually contains them (`adb pull` sometimes nests an extra `cacerts` folder). The names are `*.0`, plus `*.1` or `*.2` when a subject hash collided:
+`adb pull` of a directory copies that directory. Concatenate the hash files inside the directory that actually contains them (`adb pull` sometimes nests an extra `cacerts` folder). The names are `*.0`, plus `*.1`, `*.2`, and so on (possibly more than one digit) when a subject hash collided:
 
 ```bash
-cat /tmp/android-cacerts/*.[0-9] > /tmp/android-system-cas.pem
+find /tmp/android-cacerts -maxdepth 1 -type f -name '*.[0-9]*' -exec cat {} + > /tmp/android-system-cas.pem
 trustprune list --file /tmp/android-system-cas.pem
 ```
 
@@ -131,9 +131,14 @@ trustprune list --file /tmp/android-system-cas.pem
 The result is the system set as shipped on the device. `cacerts-added` and `cacerts-removed` are not in it. With a root shell those directories can be pulled too, but their files are DER, so concatenating them as-is does not produce a PEM bundle (`list` reports `no certificates to display`, and `--count` prints zero). Convert each non-empty file to PEM first:
 
 ```bash
-for f in /tmp/android-cacerts-added/*.[0-9]; do
-  [ -s "$f" ] && openssl x509 -inform DER -in "$f" -outform PEM
-done > /tmp/android-user-cas.pem
+#!/bin/sh
+# Run as a script. It stops instead of listing a partial bundle.
+: > /tmp/android-user-cas.pem
+for f in /tmp/android-cacerts-added/*.[0-9]*; do
+  [ -s "$f" ] || continue
+  openssl x509 -inform DER -in "$f" -outform PEM >> /tmp/android-user-cas.pem \
+    || { echo "cannot convert $f; stopping" >&2; exit 1; }
+done
 trustprune list --file /tmp/android-user-cas.pem
 ```
 
@@ -157,7 +162,7 @@ Not the default, and not implemented.
 On a rooted phone, or on a `userdebug` image where `adb root` is accepted:
 
 - Read `cacerts-added` and `cacerts-removed`, convert each DER file to PEM, concatenate them, and list them with `trustprune list --file`.
-- Copy the system certificate file into `cacerts-removed` (same hash name) to match **Turn off**, or delete that entry to match **Turn on**. On Android 14 and later an app process can keep the mounted view it started with until it starts again.
+- Write the system certificate into `cacerts-removed` under its hash name, using the next free suffix if another certificate already has that hash, to match **Turn off**, or delete that entry to match **Turn on**. On Android 14 and later an app process can keep the mounted view it started with until it starts again.
 - Overlay `/system/etc/security/cacerts` on Android 13 and earlier, or bind-mount the Conscrypt APEX path inside app namespaces on Android 14 and later. Updates drop that overlay, and the overlay voids the stock security model. Out of scope for automation by default.
 
 On a managed device, a device-owner or profile-owner app can install a user CA with `DevicePolicyManager.installCaCert` and remove it with `uninstallCaCert`, for the user that admin manages. It cannot turn off a preinstalled root through device policy. The supported step for a system root is still the Settings toggle, which the policy cannot flip.
