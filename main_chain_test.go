@@ -292,7 +292,10 @@ func TestChainCLI(t *testing.T) {
 			t.Fatalf("directory\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
 		}
 		assertChainURLNotDialed(t, pos)
-		if strings.Contains(pos.stdout+pos.stderr, "directory") {
+		// Match only file-read errors. The temp path can itself contain
+		// "directory" because it includes the subtest name.
+		out := pos.stdout + pos.stderr
+		if strings.Contains(out, "is a directory") || strings.Contains(out, "Incorrect function") {
 			t.Fatalf("directory opened as --file:\nstdout=%s\nstderr=%s", pos.stdout, pos.stderr)
 		}
 	})
