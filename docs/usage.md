@@ -14,7 +14,7 @@ nav_order: 4
 {:toc}
 </details>
 
-Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
+Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -29,7 +29,7 @@ ERROR: unknown flag --foo
 run 'trustprune list --help' for usage
 ```
 
-Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` accepts one optional positional URL (or `--url`, not both). `diff` accepts exactly two certificate paths.
+Unexpected positional arguments are rejected with exit status 2 before any write (`unexpected argument(s): …`). Flags after a positional argument are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands into multiple files can produce those extra arguments and is rejected the same way. `connect` accepts one optional positional URL (or `--url`, not both). `chain` accepts one optional positional target (an existing regular file is `--file`; anything else is `--url`; not together with `--file` or `--url`). `diff` accepts exactly two certificate paths.
 
 
 ## apps
@@ -253,6 +253,7 @@ Darwin `/etc/ssl/cert.pem` is **not** selected as an openssl default. Use `--app
 trustprune list --app openssl
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune chain --app openssl --bundle /path/to/ca-bundle.pem --file leaf.pem
+trustprune chain --app openssl --bundle /path/to/ca-bundle.pem leaf.pem
 trustprune backup --app openssl
 trustprune backup --app openssl --bundle /path/to/ca-bundle.pem
 trustprune allowlist --app openssl --file allowlist.yaml --dry-run
@@ -443,7 +444,7 @@ trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundl
 
 Show the certificate chain for a local file or a URL. The selected store is only listed. Nothing is added, removed, or backed up.
 
-`--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. The leaf is the first certificate in the file or store that matches that host. `--remote` dials that host only when no local leaf is found. The dial uses a 30 second timeout and does not treat the server as trusted.
+`--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. One positional argument replaces `--file` or `--url`. If it names an existing regular file, it is read like `--file`. Otherwise it is a host or URL, like `--url`. Combining that argument with `--file` or `--url` is a usage error (exit 2). More than one positional argument is a usage error. The leaf for a URL is the first certificate in the file or store that matches that host. `--remote` dials that host only when no local leaf is found. A positional URL dials on the same rule. The dial uses a 30 second timeout and does not treat the server as trusted.
 
 The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. Other certificates outside the store, expired or not-yet-valid certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `(untrusted)`, `(expired)`, `(not yet valid)`, and/or `(blocklisted)`. `--expired` includes a certificate whose `NotAfter` is in the past and a certificate whose `NotBefore` is in the future. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
 
@@ -453,15 +454,18 @@ An incomplete chain prints a note and names the flags that would include a skipp
 
 ```bash
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+trustprune chain leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem -v
 trustprune chain --file leaf.pem --untrusted
 trustprune chain --file leaf.pem --expired
 trustprune chain --file leaf.pem --revoked
 trustprune chain --file leaf.pem --all
 trustprune chain --url example.com --remote
+trustprune chain example.com --remote
 trustprune chain --url https://example.com --remote --untrusted
 trustprune chain --url example.com --remote --format json
 trustprune chain --app java --store /path/to/cacerts --file leaf.pem
+trustprune chain --app java --store /path/to/cacerts leaf.pem
 ```
 
 ```text
@@ -482,8 +486,8 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 
 | Flag | Meaning |
 |------|---------|
-| `--file <path>` | Certificate file (PEM or DER) to show a chain for |
-| `--url <url>` | Host or URL to show a chain for. A bare host is treated as `https` |
+| `--file <path>` | Certificate file (PEM or DER) to show a chain for, instead of a positional path |
+| `--url <url>` | Host or URL to show a chain for, instead of a positional URL. A bare host is treated as `https`. A positional URL also needs `--remote` to dial |
 | `--app <name>` | Use that application's store to decide which certificates are trusted |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery |
 | `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |

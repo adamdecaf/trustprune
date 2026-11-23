@@ -250,10 +250,14 @@ func chainCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "chain",
 		Usage: "Show the certificate chain for a file or URL",
-		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote] [--format text|json] [-v]
+		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] (--file <path> | <path> | --url <url> | <url>) [--untrusted] [--expired] [--revoked] [--all] [--remote] [--format text|json] [-v]
 
 Show the certificate chain for a local file or a URL. The store is only listed.
-Nothing is added, removed, or backed up.
+Nothing is added, removed, or backed up. Pass the target as --file <path>,
+--url <url>, or one positional argument. A positional argument that names an
+existing regular file is read like --file. Any other positional argument is a
+host or URL, like --url. A bare host is treated as https. Do not combine a
+positional argument with --file or --url. A URL dials only when --remote is set.
 
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
@@ -268,6 +272,7 @@ and/or (blocklisted). --expired covers a past NotAfter and a future NotBefore.
 
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+    trustprune chain leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem -v
 
   Include a private CA that is not in the trusted store
@@ -280,8 +285,10 @@ and/or (blocklisted). --expired covers a past NotAfter and a future NotBefore.
   Include untrusted, expired, not-yet-valid, and blocklisted certificates
     trustprune chain --file leaf.pem --all
 
-  Look up the TLS chain when no local certificate matches the host
+  Look up the TLS chain when no local certificate matches the host.
+  --url and a positional URL dial only with --remote.
     trustprune chain --url example.com --remote
+    trustprune chain example.com --remote
     trustprune chain --url https://example.com --remote --untrusted
     trustprune chain --url example.com --remote --format json
 
@@ -293,8 +300,8 @@ APPS
 			flagApp(),
 			flagStore(),
 			flagBundle(),
-			flagFile("certificate file (PEM or DER) to show a chain for", false),
-			flagURL("host or URL to show a chain for"),
+			flagFile("certificate file (PEM or DER) to show a chain for (instead of a positional path)", false),
+			flagURL("host or URL to show a chain for (instead of a positional URL)"),
 			flagChainUntrusted(),
 			flagChainExpired(),
 			flagChainRevoked(),
@@ -302,7 +309,7 @@ APPS
 			flagChainRemote(),
 			flagChainFormat(),
 		},
-		ArgValidator: rejectPositionalArgs,
+		ArgValidator: chainArgValidator,
 		Before:       chainBefore,
 		Action:       withTrace(st, chainAction),
 	}
@@ -321,23 +328,32 @@ func chainBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 	if err := rejectIncompatibleStore(c); err != nil {
 		return ctx, err
 	}
-	file := flagString(c, "file")
-	urlRaw := flagString(c, "url")
-	if c.Bool("remote") && urlRaw == "" {
+	target, err := parseChainTarget(flagString(c, "file"), flagString(c, "url"), c.Args().Slice())
+	if err != nil {
+		return ctx, usageExit(c, err.Error())
+	}
+	if c.Bool("remote") && target.url == "" {
 		return ctx, usageExit(c, "--remote requires a URL")
 	}
-	if file == "" && urlRaw == "" {
+	if target.file == "" && target.url == "" {
 		return ctx, usageExit(c, "provide a certificate file (--file) or a URL (--url)")
 	}
 	return ctx, nil
 }
 
 func chainAction(_ context.Context, c *cli.Command) error {
+	target, err := parseChainTarget(flagString(c, "file"), flagString(c, "url"), c.Args().Slice())
+	if err != nil {
+		if isUsageErr(err) {
+			return usageExit(c, err.Error())
+		}
+		return err
+	}
 	opts := cmd.ChainOptions{
 		App:       flagString(c, "app"),
 		StorePath: storePath(c),
 		Bundle:    flagString(c, "bundle"),
-		File:      flagString(c, "file"),
+		File:      target.file,
 		Untrusted: c.Bool("untrusted"),
 		Expired:   c.Bool("expired"),
 		Revoked:   c.Bool("revoked"),
@@ -346,8 +362,8 @@ func chainAction(_ context.Context, c *cli.Command) error {
 		Format:    c.String("format"),
 		Verbose:   isVerbose(c),
 	}
-	if raw := flagString(c, "url"); raw != "" {
-		u, err := cmd.NormalizeConnectURL(raw)
+	if target.url != "" {
+		u, err := cmd.NormalizeConnectURL(target.url)
 		if err != nil {
 			return err
 		}
