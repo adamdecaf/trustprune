@@ -44,11 +44,11 @@ The primary user on a normal phone is userid `0`. A work profile is another user
 
 `/data/misc` is not readable by the shell user. `adb pull` of either directory fails on a stock device. `adb root` works on `userdebug` and `eng` builds and is refused on a production `user` build. Reading these directories on a retail phone takes root.
 
-Turning a system root off records that certificate in `cacerts-removed` for that user, under the same hash name. The file in the system directory stays. On AOSP, trust evaluation for that user skips a system file when `cacerts-removed` has a file of the same name. Turning the root back on removes the `cacerts-removed` entry. A user CA is a certificate file in `cacerts-added` under the same kind of name. Whether those runtime-written files also append the OpenSSL text used in the system image is **unverified**. `list --file` reads the PEM block either way.
+Turning a system root off records that certificate in `cacerts-removed` for that user, under the same hash name. The file in the system directory stays. On AOSP, trust evaluation for that user skips a system file when `cacerts-removed` has a file of the same name. Turning the root back on removes the `cacerts-removed` entry. A user CA is a certificate file in `cacerts-added` under the same kind of name. AOSP writes the files in `cacerts-added` and `cacerts-removed` as DER, not PEM with OpenSSL text like the system image. trustprune reads PEM, so convert each file before listing it (see the audit section).
 
 This note did not check, on a device, whether a `cacerts-removed` entry still matches after a Conscrypt update or an OS update replaces the system file. That match is **unverified**.
 
-Android 14 and later prepare, in the app's mount namespace, the store that app actually trusts: the Conscrypt directory, plus that user's `cacerts-added`, minus that user's `cacerts-removed`. A process started before the change can keep the previous view until it starts again. The mount setup differs by release. The on-disk record of a disable is still `cacerts-removed`.
+Android keeps user anchors separate from the system store. The system source is the Conscrypt (or older system) directory, filtered against that user's `cacerts-removed`. The user source is that user's `cacerts-added`. An app's network security config selects which sources it trusts, so a new user CA does not reach an app that uses the default configuration for API 24 and later. On Android 14 and later the Conscrypt directory itself is mounted into app namespaces; that mount carries the system roots, not a merged set with user CAs. Trust code caches certificates it has loaded, so a running process may not see a change until it reloads or restarts. The on-disk record of a disable is still `cacerts-removed`.
 
 ## Installing a user CA
 
@@ -98,7 +98,7 @@ A user-store change and a system-root disable reach different apps:
 
 - A CA in `cacerts-added` is trusted by apps that trust user anchors: apps still targeting API 23 or lower, and apps that opt in. A typical app that targets API 24 or higher and leaves the default in place ignores the user store. Removing the user CA drops it for the apps that did trust it.
 - A system root turned off drops out of the system anchors for that Android user. Apps that trust those anchors, including the API 24 default, stop trusting chains under that root.
-- An app that pins, trusts only a bundled anchor, or uses its own TrustManager or TLS stack follows its own anchors.
+- An app that trusts only a bundled anchor, or uses its own TrustManager or TLS stack with independent anchors, follows its own anchors. Key pinning alone is not one of these: an app that trusts system anchors and pins a key still fails chain validation when its only system root is turned off, before the pin is checked.
 
 WebView in an app uses that app's network security config. Whether current Chrome on Android verifies public sites with the Chrome Root Store, the Android system store, or both was not checked for this note and is **unverified**.
 
@@ -128,13 +128,22 @@ trustprune list --file /tmp/android-system-cas.pem
 
 `allowlist --file` is an allowlist document, not this bundle.
 
-The result is the system set as shipped on the device. `cacerts-added` and `cacerts-removed` are not in it. With a root shell those directories are the same kind of files, and the same concatenate and `list --file` steps list them. A stock `user` build cannot do that read.
+The result is the system set as shipped on the device. `cacerts-added` and `cacerts-removed` are not in it. With a root shell those directories can be pulled too, but their files are DER, so concatenating them as-is does not produce a PEM bundle (`list` reports `no certificates to display`, and `--count` prints zero). Convert each non-empty file to PEM first:
+
+```bash
+for f in /tmp/android-cacerts-added/*.[0-9]; do
+  [ -s "$f" ] && openssl x509 -inform DER -in "$f" -outform PEM
+done > /tmp/android-user-cas.pem
+trustprune list --file /tmp/android-user-cas.pem
+```
+
+A stock `user` build cannot do that read.
 
 ## Guided distrust plan
 
 These are taps on the phone. The computer does not write the store.
 
-1. To turn off a preinstalled root, open **Settings > Security > Encryption & credentials > Trusted credentials > System**, tap the certificate, and choose **Turn off**. That root is untrusted for this user. The system file stays, and **Turn on** restores it. Apps that trust system anchors see the change. Apps that pin or ship their own anchors keep them. Another user, including a work profile, is unchanged.
+1. To turn off a preinstalled root, open **Settings > Security > Encryption & credentials > Trusted credentials > System**, tap the certificate, and choose **Turn off**. That root is untrusted for this user. The system file stays, and **Turn on** restores it. Apps that trust system anchors see the change, including apps that also pin a key. Apps that ship independent anchors or do their own trust validation keep them. Another user, including a work profile, is unchanged.
 2. To remove a CA installed by hand, open **Trusted credentials > User**, tap it, and remove it. That deletes the user CA. System roots stay as they are. Apps that do not trust user CAs are unchanged.
 3. To add a CA, open **Install a certificate > CA certificate** and accept the warning. Since Android 11 an app cannot open that screen for a CA. The new certificate is a user CA, and most apps will not trust it.
 4. If a user CA cannot be removed from the User tab, a device owner or profile owner likely installed it. That administrator removes it with `uninstallCaCert` or the MDM console.
@@ -147,7 +156,7 @@ Not the default, and not implemented.
 
 On a rooted phone, or on a `userdebug` image where `adb root` is accepted:
 
-- Read `cacerts-added` and `cacerts-removed`, concatenate the `.0` files, and list them with `trustprune list --file`.
+- Read `cacerts-added` and `cacerts-removed`, convert each DER file to PEM, concatenate them, and list them with `trustprune list --file`.
 - Copy the system certificate file into `cacerts-removed` (same hash name) to match **Turn off**, or delete that entry to match **Turn on**. On Android 14 and later an app process can keep the mounted view it started with until it starts again.
 - Overlay `/system/etc/security/cacerts` on Android 13 and earlier, or bind-mount the Conscrypt APEX path inside app namespaces on Android 14 and later. Updates drop that overlay, and the overlay voids the stock security model. Out of scope for automation by default.
 
