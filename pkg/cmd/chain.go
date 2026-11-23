@@ -83,6 +83,10 @@ type ChainOptions struct {
 	// Format is "text" (the default) or "json".
 	// Empty means text. Matching is case-insensitive.
 	Format string
+	// Verbose prints the full 64-character SHA-256 in the text table.
+	// The default table uses a 16-character prefix. JSON always uses
+	// the full fingerprint.
+	Verbose bool
 	// Now is the time used for expiry. The zero value is time.Now.
 	Now time.Time
 	// Fetch overrides the TLS dial. Tests set it. Nil uses the default
@@ -361,7 +365,7 @@ func buildChain(in chainInput) (string, error) {
 	if format == chainFormatJSON {
 		return formatChainJSON(rows, note)
 	}
-	return formatChain(rows, note.incomplete), nil
+	return formatChain(rows, note.incomplete, in.opts.Verbose), nil
 }
 
 func rejectLeaf(leaf *x509.Certificate, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) error {
@@ -474,11 +478,15 @@ func incompleteNote(current *x509.Certificate, skip skipReason) chainNote {
 	return chainNote{incomplete: note, missingIssuer: name}
 }
 
-func formatChain(rows []chainRow, note string) string {
+func formatChain(rows []chainRow, note string, verbose bool) string {
 	headers := []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256"}
 	body := make([][]string, len(rows))
 	for i, row := range rows {
-		body[i] = []string{strconv.Itoa(i), row.subject, row.issuer, row.notAfter, row.sha}
+		sha := row.sha
+		if verbose {
+			sha = row.sha256
+		}
+		body[i] = []string{strconv.Itoa(i), row.subject, row.issuer, row.notAfter, sha}
 	}
 	out := alignTable(headers, body)
 	if note != "" {

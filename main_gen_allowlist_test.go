@@ -41,14 +41,11 @@ func TestCLIGenAllowlistFlags(t *testing.T) {
 		if !strings.Contains(body, "--no-presets") {
 			t.Fatalf("help missing --no-presets:\n%s", body)
 		}
-		if !strings.Contains(body, "show full fingerprints in the summary table") {
+		if !strings.Contains(body, "--verbose") || !strings.Contains(body, "full fingerprints in the summary table") {
 			t.Fatalf("help missing gen-allowlist -v usage:\n%s", body)
 		}
 		if !strings.Contains(body, "--stats") || !strings.Contains(body, "print connection and timing stats to stderr") {
 			t.Fatalf("help missing --stats:\n%s", body)
-		}
-		if strings.Contains(body, "serials, and paths") {
-			t.Fatalf("gen-allowlist reused list -v usage:\n%s", body)
 		}
 	})
 

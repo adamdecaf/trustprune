@@ -113,7 +113,7 @@ Certificate-store edits can break HTTPS for browsers, package managers, and lang
 
 1. **Backup first.** Allowlisting without a prior backup fails on purpose. Run `trustprune backup` (and `--app …` when targeting an app) before any allowlist. `restore` (and `restore --dry-run`) with no backup for that store also refuses before any write and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl`. Discovery-based OpenSSL restore (no `--bundle`) follows the discovered PEM: it uses a backup recorded for that file (a legacy backup with no `source` still matches) and refuses a backup recorded for a different bundle unless `--force`. Allowlist of a discovered PEM uses those same candidates, not merely the newest openssl backup. A legacy backup with no `source` may belong to another PEM and does not show the live file is recoverable. With `--bundle <pem>`, backup records that file and restore refuses a different path unless `--force`.
 2. **Prefer temp or container stores** when experimenting. Do not point destructive tests at real `/etc` or `/usr` CA paths.
-3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store. `allowlist --dry-run` lists kept certificates and ends with `dry-run: N kept, M removed`; `-v` adds per-certificate remove and keep lines. A completed allowlist ends with `N removed, M kept`. `--count` prints only that removed count.
+3. **Preview with `--dry-run`.** `add`, `backup`, `restore`, and `allowlist` accept `--dry-run` to print the plan without writing to any store. `allowlist --dry-run` lists kept certificates and ends with `dry-run: N kept, M removed`; `-v`/`--verbose` adds per-certificate remove and keep lines. A completed allowlist ends with `N removed, M kept`. `--count` prints only that removed count. `-v`/`--verbose` is accepted on every command and before the subcommand (`trustprune -v list …`).
 4. **Elevation on Linux/unix.** CA refresh and root-owned file copies escalate with `sudo` when present on `PATH`, otherwise `su root -c …`. Already-root processes run the command directly. Password prompts use the controlling TTY; non-interactive hosts need cached credentials or a root shell.
 5. **No stray positionals.** Commands other than `connect` and `diff` accept only flags. `connect` accepts one URL (`--url` or one positional, not both). `diff` accepts exactly two certificate paths. Any other positional argument is rejected with exit 2 before any write (`unexpected argument(s): …`). Flags after a positional are still parsed, so `trustprune add --file x.pem extra --dry-run` is still a usage error and does not write. A shell glob that expands to more than one file can produce those extra arguments and is rejected the same way.
 
@@ -145,6 +145,7 @@ go install github.com/adamdecaf/trustprune@master
 # Platform store
 trustprune list                          # table (default); formats: table, long, json, openssl, observatory
 trustprune list -v                       # full fingerprint, serial, path, NOT-BEFORE, NOT-AFTER
+trustprune -v list                       # same; -v/--verbose is accepted on every command and before the subcommand
 trustprune list --format long           # multi-line dump
 trustprune list --format openssl
 trustprune list --format json --out certs.json          # --out writes every list format and --count; stdout stays empty
@@ -204,8 +205,9 @@ trustprune connect --format json google.com
 trustprune connect --app java https://example.com
 # ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
-# Show a certificate chain (read-only). Default table matches connect -v.
+# Show a certificate chain (read-only). Default table matches connect -v (16-hex SHA256).
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+trustprune chain -v --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem  # full 64-hex SHA256
 trustprune chain --file leaf.pem --untrusted   # include a private CA
 trustprune chain --file leaf.pem --all         # untrusted, expired, not-yet-valid, and blocklisted
 trustprune chain --url example.com --remote    # TLS lookup when no local chain is found (30s timeout)

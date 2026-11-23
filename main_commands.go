@@ -80,7 +80,7 @@ func allowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "allowlist",
 		Usage: "Remove trust from certificates which do not match the allowlist in <path>",
-		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [--v]
+		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [-v]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist --file allowlist.json
@@ -102,6 +102,9 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file allowlist.yaml --count
     trustprune allowlist --file allowlist.yaml --dry-run --count
 
+  With --dry-run, -v / --verbose adds per-certificate remove and keep details
+    trustprune allowlist --file allowlist.yaml --dry-run -v
+
   Remove untrusted certificates in an explicit OpenSSL PEM CA bundle
     trustprune allowlist --app openssl --file allowlist.json --bundle /path/to/ca-bundle.pem
 
@@ -115,7 +118,6 @@ APPS
 			flagAllowlistForce(),
 			flagDryRun(),
 			flagAllowlistCount(),
-			flagAllowlistVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       allowlistBefore,
@@ -135,7 +137,7 @@ func allowlistBefore(ctx context.Context, c *cli.Command) (context.Context, erro
 
 func allowlistAction(_ context.Context, c *cli.Command) error {
 	applyDryRun(c)
-	store.SetDryRunVerbose(c.Bool("v"))
+	store.SetDryRunVerbose(isVerbose(c))
 	store.SetForceRestore(c.Bool("force"))
 	store.SetAllowlistCountOnly(c.Bool("count"))
 	file := flagString(c, "file")
@@ -248,23 +250,25 @@ func chainCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "chain",
 		Usage: "Show the certificate chain for a file or URL",
-		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote] [--format text|json]
+		UsageText: `trustprune chain [--app <name>] [--store <path>] [--bundle <pem>] [--file <path>] [--url <url>] [--untrusted] [--expired] [--revoked] [--all] [--remote] [--format text|json] [-v]
 
 Show the certificate chain for a local file or a URL. The store is only listed.
 Nothing is added, removed, or backed up.
 
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
-INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. The leaf is shown even when it
-is not in the store. Other certificates outside the store, expired or
-not-yet-valid certificates, and blocklisted certificates are omitted
-unless the matching flag is set. Included certificates are labeled
-(untrusted), (expired), (not yet valid), and/or (blocklisted).
---expired covers a past NotAfter and a future NotBefore.
+INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. SHA256 is a 16-character prefix.
+-v, --verbose prints the full 64-character SHA-256 in that table. JSON always
+uses the full fingerprint. The leaf is shown even when it is not in the store.
+Other certificates outside the store, expired or not-yet-valid certificates,
+and blocklisted certificates are omitted unless the matching flag is set.
+Included certificates are labeled (untrusted), (expired), (not yet valid),
+and/or (blocklisted). --expired covers a past NotAfter and a future NotBefore.
 --revoked does not use OCSP or CRLs.
 
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+    trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem -v
 
   Include a private CA that is not in the trusted store
     trustprune chain --file leaf.pem --untrusted
@@ -340,6 +344,7 @@ func chainAction(_ context.Context, c *cli.Command) error {
 		All:       c.Bool("all"),
 		Remote:    c.Bool("remote"),
 		Format:    c.String("format"),
+		Verbose:   isVerbose(c),
 	}
 	if raw := flagString(c, "url"); raw != "" {
 		u, err := cmd.NormalizeConnectURL(raw)
@@ -392,7 +397,6 @@ APPS
 			flagApp(),
 			flagStore(),
 			flagURL("remote URL to connect to (instead of a positional URL)"),
-			flagConnectVerbose(),
 			flagConnectFormat(),
 		},
 		ArgValidator: connectArgValidator,
@@ -419,7 +423,7 @@ func connectAction(_ context.Context, c *cli.Command) error {
 		return err
 	}
 	opts := cmd.ConnectOptions{
-		Verbose: c.Bool("verbose"),
+		Verbose: isVerbose(c),
 		Format:  c.String("format"),
 	}
 	if app == "" {
@@ -531,7 +535,7 @@ func diffCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "diff",
 		Usage: "Compare two certificate files",
-		UsageText: `trustprune diff [--format text|json] <left> <right>
+		UsageText: `trustprune diff [--format text|json] [-v] <left> <right>
 
 Compare two certificate files. The first path is the left side and the
 second is the right side. There is no network access.
@@ -624,7 +628,7 @@ func genAllowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "gen-allowlist",
 		Usage: "Create an allowlist from various sources",
-		UsageText: `trustprune gen-allowlist --out <where> [--hosts <hosts>] [--presets <names>] [--no-presets] [--file <file>] [--from <type>] [--stats]
+		UsageText: `trustprune gen-allowlist --out <where> [--hosts <hosts>] [--presets <names>] [--no-presets] [--file <file>] [--from <type>] [--stats] [-v]
 
   Generate an allowlist and write it to the filesystem. (At wherever --out points to.)
   The --out extension chooses the format: .json writes JSON; .yaml or .yml writes YAML.
@@ -656,6 +660,9 @@ func genAllowlistCommand(st *runState) *cli.Command {
   Print connection and timing stats to stderr
     trustprune gen-allowlist --out allowlist.yaml --hosts example.com --stats
 
+  -v, --verbose prints full fingerprints in the summary table. The default
+  prints the first 16 characters.
+
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{
@@ -665,7 +672,6 @@ APPS
 			flagNoPresets(),
 			flagFile("newline-delimited https URLs or a Tranco-style rank,domain CSV", false),
 			flagFrom(),
-			flagGenAllowlistVerbose(),
 			flagGenAllowlistStats(),
 		},
 		ArgValidator: rejectPositionalArgs,
@@ -706,7 +712,7 @@ func genAllowlistAction(_ context.Context, c *cli.Command) error {
 		Hosts:     hosts,
 		Presets:   presets,
 		NoPresets: c.Bool("no-presets"),
-		Verbose:   c.Bool("v"),
+		Verbose:   isVerbose(c),
 		Stats:     c.Bool("stats"),
 	})
 }
@@ -749,8 +755,9 @@ FORMATTING
     trustprune list --format openssl
     trustprune list --format json
 
-  Table output (the default) adds KEY and DAYS; -v adds the full fingerprint, serial, and path
+  Table output (the default) adds KEY and DAYS; -v / --verbose adds the full fingerprint, serial, and path
     trustprune list -v
+    trustprune list --verbose
 
   DAYS (non-verbose table): "expired" when NotAfter is past; "N!" when 0 <= N < 90 days
   remain; plain N otherwise. -v and --format json keep numeric days (json also has expired).
@@ -786,7 +793,6 @@ APPS
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
 			flagUI(),
 			flagListAllowlist(),
-			flagVerbose(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       listBefore,

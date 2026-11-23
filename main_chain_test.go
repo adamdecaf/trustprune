@@ -53,6 +53,8 @@ func TestChainCLI(t *testing.T) {
 			"no OCSP or CRL",
 			"30s timeout",
 			"INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256",
+			"16-character prefix",
+			"full 64-character SHA-256",
 			"--app openssl --bundle",
 			"trustprune chain --url example.com --remote",
 			"trustprune chain --url example.com --remote --format json",

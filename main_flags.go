@@ -174,24 +174,25 @@ func flagCount() *cli.BoolFlag {
 	}
 }
 
+// flagVerbose is the shared -v/--verbose flag. It is persistent (Local is
+// false) so it is accepted on the root before a subcommand
+// (trustprune -v list) and on every command (trustprune list -v). Do not
+// also attach it to subcommands: a second definition panics or shadows
+// the root value. Read it with isVerbose so both names work.
 func flagVerbose() *cli.BoolFlag {
-	return &cli.BoolFlag{
-		Name:        "v",
-		Usage:       "show full fingerprints, serials, and paths in table output",
-		HideDefault: true,
-		Local:       true,
-	}
-}
-
-// flagConnectVerbose is the connect command's -v/--verbose chain table.
-func flagConnectVerbose() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "verbose",
 		Aliases:     []string{"v"},
-		Usage:       "print the certificate chain, including the chain the server presented when verification fails",
+		Usage:       "verbose output",
 		HideDefault: true,
-		Local:       true,
 	}
+}
+
+// isVerbose reports whether -v or --verbose was set on c or an ancestor.
+// urfave/cli v3 looks up both the flag name and its aliases, so either
+// form sets the same value.
+func isVerbose(c *cli.Command) bool {
+	return c.Bool("verbose") || c.Bool("v")
 }
 
 // flagConnectFormat is connect --format text (default) or json.
@@ -242,15 +243,6 @@ func flagChainFormat() *cli.StringFlag {
 	}
 }
 
-func flagGenAllowlistVerbose() *cli.BoolFlag {
-	return &cli.BoolFlag{
-		Name:        "v",
-		Usage:       "show full fingerprints in the summary table",
-		HideDefault: true,
-		Local:       true,
-	}
-}
-
 func flagGenAllowlistStats() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "stats",
@@ -269,15 +261,6 @@ func flagDryRun() *cli.BoolFlag {
 	}
 }
 
-func flagAllowlistVerbose() *cli.BoolFlag {
-	return &cli.BoolFlag{
-		Name:        "v",
-		Usage:       "show per-certificate remove/keep details in --dry-run output",
-		HideDefault: true,
-		Local:       true,
-	}
-}
-
 // flagAllowlistCount prints only how many certificates allowlist removed
 // or untrusted. It is separate from list --count, which counts certificates
 // in a store.
@@ -291,7 +274,7 @@ func flagAllowlistCount() *cli.BoolFlag {
 }
 
 // flagVersion is the root --version alias of the version command.
-// There is no -v alias: list uses -v for verbose table output.
+// There is no -v alias: -v/--verbose is flagVerbose on every command.
 func flagVersion() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "version",

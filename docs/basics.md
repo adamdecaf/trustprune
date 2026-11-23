@@ -104,7 +104,7 @@ $ trustprune chain --file leaf.pem --all
 $ trustprune chain --url example.com --remote
 ```
 
-The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
+The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
 
 ## Diff
 
@@ -152,7 +152,7 @@ Entrust Root Certification Authority - …  =       ECDSA-384  4369  02ed0eb28c1
 ...
 ```
 
-`-v` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER.
+`-v` / `--verbose` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER. The same flag is accepted globally (`trustprune -v list`).
 
 ```
 $ trustprune list -v
