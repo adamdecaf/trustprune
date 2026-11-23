@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -280,9 +281,7 @@ func TestChainCLI(t *testing.T) {
 		if pos.code != flagged.code || pos.stdout != flagged.stdout {
 			t.Fatalf("missing path\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
 		}
-		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
-			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
-		}
+		assertChainURLNotDialed(t, pos)
 	})
 
 	t.Run("positional directory matches --url", func(t *testing.T) {
@@ -292,9 +291,7 @@ func TestChainCLI(t *testing.T) {
 		if pos.code != flagged.code || pos.stdout != flagged.stdout {
 			t.Fatalf("directory\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
 		}
-		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
-			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
-		}
+		assertChainURLNotDialed(t, pos)
 		if strings.Contains(pos.stdout+pos.stderr, "directory") {
 			t.Fatalf("directory opened as --file:\nstdout=%s\nstderr=%s", pos.stdout, pos.stderr)
 		}
@@ -443,4 +440,18 @@ func writeChainCLILeafAndCA(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// assertChainURLNotDialed checks that a local path taken as a URL exits 1
+// without dialing. A Windows absolute path such as C:\... is not a valid
+// host, so it fails URL parsing there instead of asking for --remote.
+func assertChainURLNotDialed(t *testing.T, res cliResult) {
+	t.Helper()
+	want := "pass --remote"
+	if runtime.GOOS == "windows" {
+		want = "failed to parse"
+	}
+	if res.code != 1 || !strings.Contains(res.stdout, want) {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
 }
