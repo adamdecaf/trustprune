@@ -14,7 +14,7 @@ nav_order: 3
 {:toc}
 </details>
 
-Subcommands other than `connect` and `diff` accept only flags. `connect` accepts one URL. `diff` accepts exactly two certificate paths. An unexpected positional argument is rejected with exit status 2 before any write. Flags after a positional argument are still parsed, so a stray extra argument with `--dry-run` after it is still a usage error. A shell glob that expands into multiple files can cause that.
+Subcommands other than `connect`, `chain`, and `diff` accept only flags. `connect` accepts one URL. `chain` accepts one target: an existing regular file, or a host or URL. `diff` accepts exactly two certificate paths. An unexpected positional argument is rejected with exit status 2 before any write. Flags after a positional argument are still parsed, so a stray extra argument with `--dry-run` after it is still a usage error. A shell glob that expands into multiple files can cause that.
 
 ## Add
 
@@ -93,8 +93,11 @@ An unknown `--format` is a usage error (exit 2) and names the valid formats (`js
 
 The `chain` command prints the certificate chain for a local file or a URL. The selected store is only listed. Use it to see which CA a leaf chains to, including a private CA with `--untrusted`.
 
+Pass the target as `--file`, `--url`, or one positional argument. An existing regular file is read like `--file`. Anything else is a host or URL, like `--url` (a bare host is `https`). A positional URL still needs `--remote` to dial.
+
 ```
 $ trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
+$ trustprune chain leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
 INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 0      leaf.example ca.example  2027-06-01  <16 hex>
 1      ca.example   ca.example  2027-06-01  <16 hex>
@@ -102,6 +105,7 @@ INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
 $ trustprune chain --file leaf.pem --untrusted
 $ trustprune chain --file leaf.pem --all
 $ trustprune chain --url example.com --remote
+$ trustprune chain example.com --remote
 ```
 
 The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
@@ -169,7 +173,7 @@ Certificate
   SerialNumber: 946069240
   Subject: Entrust.net Certification Authority (2048)
   Issuer: Entrust.net Certification Authority (2048)
-  NotBefore: 1999-12-24 17:50:51 +0000 UTC | NotAfter: 2029-07-24 14:15:12 +0000 UTC
+  NotBefore: 1999-12-24T17:50:51Z | NotAfter: 2029-07-24T14:15:12Z
   KEY: RSA-2048
   DAYS: 1300
   IsCA: true
@@ -252,7 +256,7 @@ Certificate
   SerialNumber: 4835703278459707669005204
   Subject: GlobalSign Root CA
   Issuer: GlobalSign Root CA
-  NotBefore: 1998-09-01 12:00:00 +0000 UTC | NotAfter: 2028-01-28 12:00:00 +0000 UTC
+  NotBefore: 1998-09-01T12:00:00Z | NotAfter: 2028-01-28T12:00:00Z
   IsCA: true
 ...
 ```
