@@ -162,7 +162,7 @@ Not the default, and not implemented.
 On a rooted phone, or on a `userdebug` image where `adb root` is accepted:
 
 - Read `cacerts-added` and `cacerts-removed`, convert each DER file to PEM, concatenate them, and list them with `trustprune list --file`.
-- Write the system certificate into `cacerts-removed` under its hash name, using the next free suffix if another certificate already has that hash, to match **Turn off**, or delete that entry to match **Turn on**. On Android 14 and later an app process can keep the mounted view it started with until it starts again.
+- Write the system certificate into `cacerts-removed` under the same file name as the system file (same hash and suffix, so name-only and content matching agree) to match **Turn off**, or delete that entry to match **Turn on**. On Android 14 and later an app process can keep the mounted view it started with until it starts again.
 - Overlay `/system/etc/security/cacerts` on Android 13 and earlier, or bind-mount the Conscrypt APEX path inside app namespaces on Android 14 and later. Updates drop that overlay, and the overlay voids the stock security model. Out of scope for automation by default.
 
 On a managed device, a device-owner or profile-owner app can install a user CA with `DevicePolicyManager.installCaCert` and remove it with `uninstallCaCert`, for the user that admin manages. It cannot turn off a preinstalled root through device policy. The supported step for a system root is still the Settings toggle, which the policy cannot flip.
