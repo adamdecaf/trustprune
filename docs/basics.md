@@ -124,16 +124,14 @@ When either file contains more than one certificate, diff compares the bundles b
 
 ```
 $ trustprune diff backup.pem live.pem
-left: backup.pem
-right: live.pem
-Removed (1):
-Old CA <64 hex>
-Added (1):
-New CA <64 hex>
-Unchanged: 2
+- <64 hex> Old CA
++ <64 hex> New CA
+removed 1 added 1 unchanged 2
 ```
 
-Exit status is 0 when the certificates match (`identical` for one certificate, or a line that the bundles hold the same certificates) and 1 when they differ. The report has no `ERROR:` prefix. Unreadable files and files with no certificate exit 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, exits 2.
+`-` is a certificate only in the first file. `+` is a certificate only in the second file. Each line is the SHA-256 fingerprint, then the subject. Removed lines come first. The last line is `removed N added N unchanged N`. Identical bundles print `identical`, the same word one certificate uses. `-v` prints `left:` and `right:` paths before that bundle text.
+
+Exit status is 0 when the certificates match (`identical`) and 1 when they differ. The report has no `ERROR:` prefix. Unreadable files and files with no certificate exit 1 with `ERROR:` on stdout. The wrong number of paths, or an unknown `--format`, exits 2.
 
 Compared fields for a single certificate are subject, issuer, serial, validity, key type and size, SANs, the SHA-256 fingerprint, and the signature algorithm. Full detail: [usage](usage.md#diff).
 

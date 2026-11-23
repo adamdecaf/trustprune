@@ -52,9 +52,10 @@ func TestDiffCLI(t *testing.T) {
 			"signature_algorithm",
 			"PEM or DER",
 			"identical",
-			"Removed (1):",
-			"Unchanged:",
-			"the bundles hold the same certificates",
+			"- <64 hex> Old CA",
+			"+ <64 hex> New CA",
+			"removed 1 added 1 unchanged 2",
+			"left: backup.pem",
 			"default: text",
 			"options: json, text",
 		} {
@@ -185,10 +186,10 @@ func TestDiffCLI(t *testing.T) {
 		if res.code != 1 || res.stderr != "" {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stdout, "expected one certificate") {
+		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stdout, "expected one certificate") || strings.Contains(res.stdout, "left:") {
 			t.Fatalf("stdout = %q", res.stdout)
 		}
-		if !strings.Contains(res.stdout, "Removed (") || !strings.Contains(res.stdout, "Unchanged:") {
+		if !strings.HasPrefix(res.stdout, "- ") || !strings.Contains(res.stdout, "removed ") || !strings.Contains(res.stdout, " unchanged ") {
 			t.Fatalf("stdout = %q", res.stdout)
 		}
 	})
@@ -200,13 +201,32 @@ func TestDiffCLI(t *testing.T) {
 		if res.code != 1 || res.stderr != "" {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		want := "left: " + left + "\n" +
-			"right: " + right + "\n" +
-			"Removed (1):\n" +
-			subject + " " + fp + "\n" +
-			"Unchanged: 1\n"
+		want := "- " + fp + " " + subject + "\n" +
+			"removed 1 added 0 unchanged 1\n"
 		if res.stdout != want {
 			t.Fatalf("stdout =\n%s\nwant =\n%s", res.stdout, want)
+		}
+	})
+
+	t.Run("bundle verbose", func(t *testing.T) {
+		left, right := writeCLIBundle(t, home, example, local)
+		subject, fp := cliBundleCert(t, local)
+		want := "left: " + left + "\n" +
+			"right: " + right + "\n" +
+			"- " + fp + " " + subject + "\n" +
+			"removed 1 added 0 unchanged 1\n"
+		for _, args := range [][]string{
+			{"diff", "-v", left, right},
+			{"diff", "--verbose", left, right},
+			{"-v", "diff", left, right},
+		} {
+			res := runCLI(t, bin, home, args...)
+			if res.code != 1 || res.stderr != "" {
+				t.Fatalf("%v code=%d stdout=%q stderr=%q", args, res.code, res.stdout, res.stderr)
+			}
+			if res.stdout != want {
+				t.Fatalf("%v stdout =\n%s\nwant =\n%s", args, res.stdout, want)
+			}
 		}
 	})
 
@@ -222,14 +242,15 @@ func TestDiffCLI(t *testing.T) {
 			t.Fatal(err)
 		}
 		res := runCLI(t, bin, home, "diff", left, right)
-		if res.code != 0 || res.stderr != "" {
+		if res.code != 0 || res.stderr != "" || res.stdout != "identical\n" {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "Unchanged: 2\n") || !strings.Contains(res.stdout, "the bundles hold the same certificates\n") {
-			t.Fatalf("stdout =\n%s", res.stdout)
-		}
-		if strings.Contains(res.stdout, "Removed (") || strings.Contains(res.stdout, "Added (") || strings.Contains(res.stdout, "ERROR:") {
-			t.Fatalf("stdout =\n%s", res.stdout)
+		verbose := runCLI(t, bin, home, "diff", "-v", left, right)
+		want := "left: " + left + "\n" +
+			"right: " + right + "\n" +
+			"identical\n"
+		if verbose.code != 0 || verbose.stderr != "" || verbose.stdout != want {
+			t.Fatalf("verbose code=%d stdout=%q stderr=%q", verbose.code, verbose.stdout, verbose.stderr)
 		}
 	})
 
@@ -252,6 +273,10 @@ func TestDiffCLI(t *testing.T) {
 		}
 		if len(doc.Added) != 0 {
 			t.Fatalf("added = %#v", doc.Added)
+		}
+		verbose := runCLI(t, bin, home, "diff", "--format", "json", "-v", left, right)
+		if verbose.code != 1 || verbose.stderr != "" || verbose.stdout != res.stdout {
+			t.Fatalf("verbose json code=%d stdout=%q stderr=%q", verbose.code, verbose.stdout, verbose.stderr)
 		}
 	})
 

@@ -88,6 +88,14 @@ func TestDiffSameFixtureIdentical(t *testing.T) {
 	}
 
 	buf.Reset()
+	if err := diffCertificates(&buf, path, path, DiffOptions{Verbose: true}); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "identical\n" {
+		t.Fatalf("verbose stdout = %q", buf.String())
+	}
+
+	buf.Reset()
 	if err := diffCertificates(&buf, path, path, DiffOptions{Format: "JSON"}); err != nil {
 		t.Fatal(err)
 	}
@@ -195,6 +203,15 @@ func TestDiffExampleAndLocalCert(t *testing.T) {
 		t.Fatalf("text missing %q\n%s", wantSig, text)
 	}
 	assertCanonicalDiffOrder(t, order)
+
+	buf.Reset()
+	err = diffCertificates(&buf, leftPath, rightPath, DiffOptions{Verbose: true})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("verbose err = %v", err)
+	}
+	if buf.String() != text {
+		t.Fatalf("verbose text =\n%s\nwant =\n%s", buf.String(), text)
+	}
 
 	buf.Reset()
 	err = diffCertificates(&buf, leftPath, rightPath, DiffOptions{Format: "json"})
@@ -542,16 +559,27 @@ func TestDiffBundleText(t *testing.T) {
 	if !errors.Is(err, ErrCertificatesDiffer) {
 		t.Fatalf("err = %v", err)
 	}
-	want := "left: " + leftPath + "\n" +
-		"right: " + rightPath + "\n" +
-		"Removed (2):\n" +
-		bundleLine(alpha) + "\n" +
-		bundleLine(zeta) + "\n" +
-		"Added (1):\n" +
-		bundleLine(beta) + "\n" +
-		"Unchanged: 1\n"
+	want := bundleChangeLine("-", alpha) + "\n" +
+		bundleChangeLine("-", zeta) + "\n" +
+		bundleChangeLine("+", beta) + "\n" +
+		bundleSummary(2, 1, 1) + "\n"
 	if buf.String() != want {
 		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	}
+	if strings.Contains(buf.String(), "left:") || strings.Contains(buf.String(), "right:") {
+		t.Fatalf("paths printed without verbose:\n%s", buf.String())
+	}
+
+	buf.Reset()
+	err = diffCertificates(&buf, leftPath, rightPath, DiffOptions{Verbose: true})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("verbose err = %v", err)
+	}
+	verbose := "left: " + leftPath + "\n" +
+		"right: " + rightPath + "\n" +
+		want
+	if buf.String() != verbose {
+		t.Fatalf("verbose text =\n%s\nwant =\n%s", buf.String(), verbose)
 	}
 }
 
@@ -568,12 +596,19 @@ func TestDiffBundleIdentical(t *testing.T) {
 	if err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{}); err != nil {
 		t.Fatal(err)
 	}
+	if buf.String() != "identical\n" {
+		t.Fatalf("text =\n%s", buf.String())
+	}
+
+	buf.Reset()
+	if err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{Verbose: true}); err != nil {
+		t.Fatal(err)
+	}
 	want := "left: " + leftPath + "\n" +
 		"right: " + rightPath + "\n" +
-		"Unchanged: 2\n" +
-		bundleSameCertificates + "\n"
+		"identical\n"
 	if buf.String() != want {
-		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+		t.Fatalf("verbose text =\n%s\nwant =\n%s", buf.String(), want)
 	}
 }
 
@@ -589,12 +624,8 @@ func TestDiffBundleDuplicates(t *testing.T) {
 	if err := diffCertificates(&buf, leftPath, rightPath, DiffOptions{}); err != nil {
 		t.Fatalf("err = %v", err)
 	}
-	want := "left: " + leftPath + "\n" +
-		"right: " + rightPath + "\n" +
-		"Unchanged: 1\n" +
-		bundleSameCertificates + "\n"
-	if buf.String() != want {
-		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
+	if buf.String() != "identical\n" {
+		t.Fatalf("text =\n%s", buf.String())
 	}
 }
 
@@ -614,11 +645,8 @@ func TestDiffBundleOneVsMany(t *testing.T) {
 		if !errors.Is(err, ErrCertificatesDiffer) {
 			t.Fatalf("err = %v", err)
 		}
-		want := "left: " + leftPath + "\n" +
-			"right: " + rightPath + "\n" +
-			"Added (1):\n" +
-			bundleLine(beta) + "\n" +
-			"Unchanged: 1\n"
+		want := bundleChangeLine("+", beta) + "\n" +
+			bundleSummary(0, 1, 1) + "\n"
 		if buf.String() != want {
 			t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
 		}
@@ -634,10 +662,10 @@ func TestDiffBundleOneVsMany(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 		text := buf.String()
-		if strings.Contains(text, "Removed (") || strings.Contains(text, " != ") {
+		if strings.Contains(text, "Removed (") || strings.Contains(text, " != ") || strings.Contains(text, "left:") {
 			t.Fatalf("text =\n%s", text)
 		}
-		if !strings.Contains(text, "Added (1):\n"+bundleLine(beta)+"\n") || !strings.Contains(text, "Unchanged: 1\n") {
+		if !strings.Contains(text, bundleChangeLine("+", beta)+"\n") || !strings.Contains(text, bundleSummary(0, 1, 1)+"\n") {
 			t.Fatalf("text =\n%s", text)
 		}
 	})
@@ -661,18 +689,14 @@ func TestDiffBundleSameSubjectOrder(t *testing.T) {
 	if !errors.Is(err, ErrCertificatesDiffer) {
 		t.Fatalf("err = %v", err)
 	}
-	ordered := []string{bundleLine(first), bundleLine(second)}
+	ordered := []string{bundleChangeLine("-", first), bundleChangeLine("-", second)}
 	if formatSHA256(second) < formatSHA256(first) {
-		ordered = []string{bundleLine(second), bundleLine(first)}
+		ordered = []string{bundleChangeLine("-", second), bundleChangeLine("-", first)}
 	}
-	want := "left: " + leftPath + "\n" +
-		"right: " + rightPath + "\n" +
-		"Removed (2):\n" +
-		ordered[0] + "\n" +
+	want := ordered[0] + "\n" +
 		ordered[1] + "\n" +
-		"Added (1):\n" +
-		bundleLine(other) + "\n" +
-		"Unchanged: 0\n"
+		bundleChangeLine("+", other) + "\n" +
+		bundleSummary(2, 1, 0) + "\n"
 	if buf.String() != want {
 		t.Fatalf("text =\n%s\nwant =\n%s", buf.String(), want)
 	}
@@ -697,6 +721,14 @@ func TestDiffBundleJSON(t *testing.T) {
 	doc := decodeBundleDiffJSON(t, raw)
 	if doc.Identical || doc.Mode != "bundle" || doc.Left != leftPath || doc.Right != rightPath || doc.Unchanged != 1 {
 		t.Fatalf("json = %#v", doc)
+	}
+	buf.Reset()
+	err = diffCertificates(&buf, leftPath, rightPath, DiffOptions{Format: "json", Verbose: true})
+	if !errors.Is(err, ErrCertificatesDiffer) {
+		t.Fatalf("verbose json err = %v", err)
+	}
+	if buf.String() != raw {
+		t.Fatalf("json changed with verbose:\n%s", buf.String())
 	}
 	if len(doc.Removed) != 1 || doc.Removed[0] != bundleEntry(alpha) {
 		t.Fatalf("removed = %#v", doc.Removed)
@@ -750,11 +782,11 @@ func TestDiffBundleDisplayName(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 	text := buf.String()
-	if strings.Contains(text, "O=Acme Co") || strings.Contains(text, "Added (") {
+	if strings.Contains(text, "O=Acme Co") || strings.Contains(text, "+ ") || strings.Contains(text, "left:") {
 		t.Fatalf("text =\n%s", text)
 	}
-	wantLine := "Acme Co " + formatSHA256(localCerts[0])
-	if !strings.Contains(text, "Removed (1):\n"+wantLine+"\n") || !strings.Contains(text, "Unchanged: 1\n") {
+	wantLine := "- " + formatSHA256(localCerts[0]) + " Acme Co"
+	if !strings.Contains(text, wantLine+"\n") || !strings.Contains(text, bundleSummary(1, 0, 1)+"\n") {
 		t.Fatalf("text =\n%s", text)
 	}
 }
@@ -806,8 +838,12 @@ func writeDiffDER(t *testing.T, name string, cert *x509.Certificate) string {
 	return path
 }
 
-func bundleLine(c *x509.Certificate) string {
-	return bundleSubject(c) + " " + formatSHA256(c)
+func bundleChangeLine(mark string, c *x509.Certificate) string {
+	return mark + " " + formatSHA256(c) + " " + bundleSubject(c)
+}
+
+func bundleSummary(removed, added, unchanged int) string {
+	return "removed " + strconv.Itoa(removed) + " added " + strconv.Itoa(added) + " unchanged " + strconv.Itoa(unchanged)
 }
 
 func bundleEntry(c *x509.Certificate) bundleCert {

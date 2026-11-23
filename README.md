@@ -212,8 +212,11 @@ trustprune chain --file leaf.pem --untrusted   # include a private CA
 trustprune chain --file leaf.pem --all         # untrusted, expired, not-yet-valid, and blocklisted
 trustprune chain --url example.com --remote    # TLS lookup when no local chain is found (30s timeout)
 
-# Compare two certificates (PEM or DER). Exit 0 when identical, 1 when a field differs.
-# A PEM bundle is compared by SHA-256 fingerprint (added, removed, unchanged).
+# Compare two certificates (PEM or DER). Exit 0 when identical, 1 when they differ.
+# One certificate each prints differing fields. Identical output is "identical".
+# A bundle prints "- <sha256> <subject>" (removed) and "+ <sha256> <subject>" (added),
+# then "removed N added N unchanged N". Identical bundles print "identical".
+# -v prints left: and right: paths on bundle text. JSON ignores -v.
 trustprune diff old.pem new.pem
 trustprune diff backup.pem live.pem
 trustprune diff --format json old.pem new.der
