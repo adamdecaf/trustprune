@@ -166,7 +166,7 @@ Researched but not yet supported:
 - Node
 - Registry CAs
 - .NET
-- Android
+- Android. See the [research note](research/android.md).
 - Kubernetes
 - iOS. See the [research note](research/ios.md).
 - PDF reader document-signing trust other than pdfsig's NSS DB (`--app poppler`), Okular (`--app okular`), and the Acrobat address book backup plus read-only settings report ([Acrobat](#acrobat)): listing or pruning Acrobat address book entries, and poppler/Okular GPG backends (Papers on the NSS backend is covered by `--app poppler`; Evince has no signature validation). See the [research note](research/pdf-readers.md). Foxit install detection and the pruning guide are in [Foxit](#foxit)
