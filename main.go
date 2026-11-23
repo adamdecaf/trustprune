@@ -194,7 +194,7 @@ func newApp(st *runState) *cli.Command {
 		Name:  "trustprune",
 		Usage: "list, backup, allowlist, restore, and create PEM bundles from CA trust stores",
 		// HideVersion skips urfave's VersionFlag, which aliases -v.
-		// list already uses -v for verbose output. Root --version is flagVersion.
+		// -v/--verbose is flagVerbose. Root --version is flagVersion.
 		HideVersion:                   true,
 		Writer:                        st.stdout,
 		ErrWriter:                     st.stderr,
@@ -204,7 +204,7 @@ func newApp(st *runState) *cli.Command {
 		OnUsageError:                  onUsageError,
 		ArgValidator:                  rejectUnknownCommand,
 		Action:                        withTrace(st, rootHelpAction),
-		Flags:                         []cli.Flag{flagVersion()},
+		Flags:                         []cli.Flag{flagVersion(), flagVerbose()},
 		Commands: []*cli.Command{
 			addCommand(st),
 			allowlistCommand(st),
@@ -389,7 +389,7 @@ func listConfig(c *cli.Command) *ui.Config {
 		Format:        strings.ToLower(c.String("format")),
 		Outfile:       c.String("out"),
 		UI:            c.String("ui"),
-		Verbose:       c.Bool("v"),
+		Verbose:       isVerbose(c),
 		AllowlistPath: flagString(c, "allowlist"),
 	}
 }

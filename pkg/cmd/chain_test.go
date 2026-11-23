@@ -64,6 +64,58 @@ func TestBuildChainDefaultMatchesConnectTable(t *testing.T) {
 	}
 }
 
+func TestBuildChainVerboseFullSHA256(t *testing.T) {
+	t.Parallel()
+	leaf, ca := mintLeafAndCA(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	in := chainInput{
+		leaf:    leaf,
+		trusted: []*x509.Certificate{ca},
+		opts:    ChainOptions{Now: chainTestNow},
+		blocked: func(*x509.Certificate) bool { return false },
+	}
+	plain, err := buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.opts.Verbose = true
+	verbose, err := buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafFP := certutil.GetHexSHA256Fingerprint(*leaf)
+	caFP := certutil.GetHexSHA256Fingerprint(*ca)
+	if len(leafFP) != 64 || len(caFP) != 64 {
+		t.Fatalf("fingerprint lengths leaf=%d ca=%d", len(leafFP), len(caFP))
+	}
+	if !strings.Contains(plain, leafFP[:16]) || strings.Contains(plain, leafFP) {
+		t.Fatalf("default table should use 16-hex prefix:\n%s", plain)
+	}
+	if !strings.Contains(plain, caFP[:16]) || strings.Contains(plain, caFP) {
+		t.Fatalf("default table missing CA prefix:\n%s", plain)
+	}
+	if !strings.Contains(verbose, leafFP) || !strings.Contains(verbose, caFP) {
+		t.Fatalf("verbose table missing full sha256:\n%s", verbose)
+	}
+	if verbose == plain {
+		t.Fatal("verbose table matched the 16-hex table")
+	}
+
+	in.opts.Verbose = false
+	in.opts.Format = "json"
+	jsonPlain, err := buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.opts.Verbose = true
+	jsonVerbose, err := buildChain(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if jsonPlain != jsonVerbose {
+		t.Fatalf("json changed with verbose:\n got %s\nwant %s", jsonVerbose, jsonPlain)
+	}
+}
+
 func TestBuildChainUntrusted(t *testing.T) {
 	t.Parallel()
 	leaf, ca := mintLeafAndCA(t, "leaf.example", "priv.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))

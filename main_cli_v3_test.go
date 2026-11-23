@@ -277,10 +277,12 @@ func TestCLIVersionFlag(t *testing.T) {
 		t.Fatalf("version outputs differ: command=%q --version=%q -version=%q", command.stdout, long.stdout, single.stdout)
 	}
 
-	// -v is verbose on list, not a version alias. At the root it stays an unknown flag.
+	// -v is verbose, not a version alias. Root -v with no subcommand still prints help.
 	dashV := runCLI(t, bin, home, "-v")
-	assertUsageError(t, dashV, "unknown flag")
-	if strings.Contains(dashV.stdout, want) || strings.Contains(dashV.stdout, "(Go:") {
+	if dashV.code != 0 {
+		t.Fatalf("root -v code=%d stdout=%q stderr=%q", dashV.code, dashV.stdout, dashV.stderr)
+	}
+	if dashV.stdout == want || !strings.Contains(dashV.stdout, "COMMANDS") {
 		t.Fatalf("root -v printed the version: stdout=%q stderr=%q", dashV.stdout, dashV.stderr)
 	}
 

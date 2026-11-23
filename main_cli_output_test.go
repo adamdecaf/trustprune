@@ -134,11 +134,8 @@ func TestCLIAllowlistDryRunDefaultAndVerbose(t *testing.T) {
 		t.Fatalf("help code=%d stdout=%s stderr=%s", help.code, help.stdout, help.stderr)
 	}
 	helpBody := help.stdout + help.stderr
-	if !strings.Contains(helpBody, "show per-certificate remove/keep details in --dry-run output") {
-		t.Fatalf("allowlist help missing -v usage:\n%s", helpBody)
-	}
-	if strings.Contains(helpBody, "show full fingerprints, serials, and paths in table output") {
-		t.Fatalf("allowlist -v reused list verbose usage:\n%s", helpBody)
+	if !strings.Contains(helpBody, "--verbose") || !strings.Contains(helpBody, "per-certificate remove and keep details") {
+		t.Fatalf("allowlist help missing -v/--verbose dry-run usage:\n%s", helpBody)
 	}
 
 	bundle := filepath.Join(t.TempDir(), "cacert.pem")
