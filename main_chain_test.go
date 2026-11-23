@@ -44,6 +44,12 @@ func TestChainCLI(t *testing.T) {
 		}
 		for _, needle := range []string{
 			"trustprune chain --file leaf.pem",
+			"(--file <path> | <path> | --url <url> | <url>)",
+			"one positional argument",
+			"existing regular file",
+			"treated as https",
+			"trustprune chain leaf.pem --app openssl --bundle",
+			"trustprune chain example.com --remote",
 			"--untrusted",
 			"--expired",
 			"--revoked",
@@ -61,6 +67,8 @@ func TestChainCLI(t *testing.T) {
 			"default: text",
 			"options: json, text",
 			"--format text|json",
+			"instead of a positional path",
+			"instead of a positional URL",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("chain help missing %q:\n%s", needle, res.stdout)
@@ -241,6 +249,79 @@ func TestChainCLI(t *testing.T) {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 	})
+
+	t.Run("positional file matches --file", func(t *testing.T) {
+		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", bundle)
+		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, bundle)
+		if pos.code != 0 || flagged.code != 0 {
+			t.Fatalf("positional code=%d stdout=%s stderr=%s\nflag code=%d stdout=%s stderr=%s", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
+		}
+		if pos.stdout != flagged.stdout {
+			t.Fatalf("positional file output differs\npositional:\n%s\n--file:\n%s", pos.stdout, flagged.stdout)
+		}
+	})
+
+	t.Run("positional host matches --url without remote", func(t *testing.T) {
+		host := "chain-no-local.invalid"
+		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", host)
+		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, host)
+		if pos.code != flagged.code || pos.stdout != flagged.stdout {
+			t.Fatalf("positional host\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
+		}
+		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
+		}
+	})
+
+	t.Run("missing path matches --url", func(t *testing.T) {
+		missing := filepath.Join(t.TempDir(), "missing.pem")
+		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", missing)
+		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, missing)
+		if pos.code != flagged.code || pos.stdout != flagged.stdout {
+			t.Fatalf("missing path\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
+		}
+		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
+		}
+	})
+
+	t.Run("positional directory matches --url", func(t *testing.T) {
+		dir := t.TempDir()
+		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", dir)
+		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, dir)
+		if pos.code != flagged.code || pos.stdout != flagged.stdout {
+			t.Fatalf("directory\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
+		}
+		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
+		}
+		if strings.Contains(pos.stdout+pos.stderr, "directory") {
+			t.Fatalf("directory opened as --file:\nstdout=%s\nstderr=%s", pos.stdout, pos.stderr)
+		}
+	})
+
+	t.Run("positional file with remote", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", bundle, "--remote")
+		assertUsageError(t, res, "--remote requires a URL")
+	})
+
+	t.Run("positional and url", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", "--url", "example.com", bundle)
+		assertUsageError(t, res, "not both")
+	})
+
+	t.Run("positional and file", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", "--file", bundle, "example.com")
+		assertUsageError(t, res, "not both")
+	})
+
+	t.Run("two positionals", func(t *testing.T) {
+		res := runCLI(t, bin, home, "chain", bundle, "example.com")
+		assertUsageError(t, res, "unexpected argument")
+		if !strings.Contains(res.stderr, bundle) || !strings.Contains(res.stderr, "example.com") {
+			t.Fatalf("stderr=%q", res.stderr)
+		}
+	})
 }
 
 func TestChainCLIRemote(t *testing.T) {
@@ -259,6 +340,10 @@ func TestChainCLIRemote(t *testing.T) {
 	if strings.Contains(quiet.stdout, "INDEX") {
 		t.Fatalf("wrote a table without --remote:\n%s", quiet.stdout)
 	}
+	quietPos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, srv.URL)
+	if quietPos.code != quiet.code || quietPos.stdout != quiet.stdout {
+		t.Fatalf("positional without --remote\ncode=%d stdout=%s stderr=%s\n--url stdout=%s", quietPos.code, quietPos.stdout, quietPos.stderr, quiet.stdout)
+	}
 
 	res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, "--url", srv.URL, "--remote")
 	if res.code != 0 {
@@ -269,6 +354,10 @@ func TestChainCLIRemote(t *testing.T) {
 	}
 	if strings.Contains(res.stdout, "incomplete:") {
 		t.Fatalf("self-signed httptest leaf marked incomplete:\n%s", res.stdout)
+	}
+	pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, srv.URL, "--remote")
+	if pos.code != res.code || pos.stdout != res.stdout {
+		t.Fatalf("positional --remote\ncode=%d stdout=%s stderr=%s\n--url stdout=%s", pos.code, pos.stdout, pos.stderr, res.stdout)
 	}
 }
 

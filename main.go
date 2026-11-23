@@ -344,6 +344,13 @@ func connectArgValidator(_ context.Context, c *cli.Command) error {
 	return nil
 }
 
+func chainArgValidator(_ context.Context, c *cli.Command) error {
+	if _, err := parseChainTarget(flagString(c, "file"), flagString(c, "url"), c.Args().Slice()); err != nil {
+		return usageExit(c, err.Error())
+	}
+	return nil
+}
+
 // normalizeCLIArgs lowercases the first non-flag argument so LIST matches list.
 func normalizeCLIArgs(args []string) []string {
 	out := append([]string(nil), args...)
@@ -455,6 +462,53 @@ func getVersion() string {
 
 func printVersion(w io.Writer) {
 	fmt.Fprintf(w, "%s\n", getVersion())
+}
+
+// chainTarget is the certificate file and raw URL for chain.
+// A positional argument fills exactly one of them.
+type chainTarget struct {
+	file string
+	url  string
+}
+
+// parseChainTarget resolves --file, --url, and at most one positional
+// argument. A positional path that names an existing regular file is the
+// file. Any other positional value is the URL, normalized later the same
+// way connect normalizes a bare host. Combining a positional argument with
+// --file or --url is a usage error. More than one positional is a usage error.
+func parseChainTarget(fileFlag, urlFlag string, positional []string) (chainTarget, error) {
+	fileFlag = strings.TrimSpace(fileFlag)
+	urlFlag = strings.TrimSpace(urlFlag)
+
+	var pos string
+	switch len(positional) {
+	case 0:
+	case 1:
+		pos = strings.TrimSpace(positional[0])
+	default:
+		return chainTarget{}, errUsage(fmt.Sprintf("unexpected argument(s): %s", strings.Join(positional, " ")))
+	}
+	if pos != "" && (fileFlag != "" || urlFlag != "") {
+		return chainTarget{}, errUsage("provide either --file, --url, or one positional argument, not both")
+	}
+	if pos == "" {
+		return chainTarget{file: fileFlag, url: urlFlag}, nil
+	}
+	if chainPositionalFile(pos) {
+		return chainTarget{file: pos}, nil
+	}
+	return chainTarget{url: pos}, nil
+}
+
+// chainPositionalFile reports whether path is an existing regular file.
+// A directory, a device, or a missing path is not, so that positional
+// argument is taken as a URL. Stat follows symlinks.
+func chainPositionalFile(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }
 
 func parseConnectURL(flagURL string, positional []string) (*url.URL, error) {
