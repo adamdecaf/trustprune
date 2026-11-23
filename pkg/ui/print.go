@@ -367,7 +367,9 @@ func (p longPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 		if err := writef("  Issuer: %s\n", certutil.StringifyPKIXName(certs[i].Issuer)); err != nil {
 			return err
 		}
-		if err := writef("  NotBefore: %s | NotAfter: %s\n", certs[i].NotBefore, certs[i].NotAfter); err != nil {
+		notBefore := certs[i].NotBefore.UTC().Format(time.RFC3339)
+		notAfter := certs[i].NotAfter.UTC().Format(time.RFC3339)
+		if err := writef("  NotBefore: %s | NotAfter: %s\n", notBefore, notAfter); err != nil {
 			return err
 		}
 		if err := writef("  KEY: %s\n", certutil.FormatKeyLabel(certs[i])); err != nil {
@@ -383,56 +385,56 @@ func (p longPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 			}
 		}
 
-		if len(certs[i].DNSNames) > 0 {
+		if names := certs[i].DNSNames; len(names) > 0 {
 			if err := writef("  DNSNames:\n"); err != nil {
 				return err
 			}
-			for j := range certs[i].DNSNames {
-				if err := writef("    %s\n", certs[i].DNSNames[j]); err != nil {
+			for _, name := range names {
+				if err := writef("    %s\n", name); err != nil {
 					return err
 				}
 			}
 		}
 
-		if len(certs[i].EmailAddresses) > 0 {
+		if emails := certs[i].EmailAddresses; len(emails) > 0 {
 			if err := writef("  EmailAddresses:\n"); err != nil {
 				return err
 			}
-			for j := range certs[i].EmailAddresses {
-				if err := writef("    %s\n", certs[i].EmailAddresses[j]); err != nil {
+			for _, email := range emails {
+				if err := writef("    %s\n", email); err != nil {
 					return err
 				}
 			}
 		}
 
-		if len(certs[i].IPAddresses) > 0 {
+		if ips := certs[i].IPAddresses; len(ips) > 0 {
 			if err := writef("  IPAddresses:\n"); err != nil {
 				return err
 			}
-			for j := range certs[i].IPAddresses {
-				if err := writef("    %s\n", certs[i].IPAddresses[j]); err != nil {
+			for _, ip := range ips {
+				if err := writef("    %s\n", ip); err != nil {
 					return err
 				}
 			}
 		}
 
-		if len(certs[i].PermittedDNSDomains) > 0 {
+		if domains := certs[i].PermittedDNSDomains; len(domains) > 0 {
 			if err := writef("  PermittedDNSDomains:\n"); err != nil {
 				return err
 			}
-			for j := range certs[i].PermittedDNSDomains {
-				if err := writef("    %s\n", certs[i].PermittedDNSDomains[j]); err != nil {
+			for _, domain := range domains {
+				if err := writef("    %s\n", domain); err != nil {
 					return err
 				}
 			}
 		}
 
-		if len(certs[i].CRLDistributionPoints) > 0 {
+		if points := certs[i].CRLDistributionPoints; len(points) > 0 {
 			if err := writef("  CRLDistributionPoints:\n"); err != nil {
 				return err
 			}
-			for j := range certs[i].CRLDistributionPoints {
-				if err := writef("    %s\n", certs[i].CRLDistributionPoints[j]); err != nil {
+			for _, point := range points {
+				if err := writef("    %s\n", point); err != nil {
 					return err
 				}
 			}

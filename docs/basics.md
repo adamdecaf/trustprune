@@ -171,7 +171,7 @@ Certificate
   SerialNumber: 946069240
   Subject: Entrust.net Certification Authority (2048)
   Issuer: Entrust.net Certification Authority (2048)
-  NotBefore: 1999-12-24 17:50:51 +0000 UTC | NotAfter: 2029-07-24 14:15:12 +0000 UTC
+  NotBefore: 1999-12-24T17:50:51Z | NotAfter: 2029-07-24T14:15:12Z
   KEY: RSA-2048
   DAYS: 1300
   IsCA: true
@@ -254,7 +254,7 @@ Certificate
   SerialNumber: 4835703278459707669005204
   Subject: GlobalSign Root CA
   Issuer: GlobalSign Root CA
-  NotBefore: 1998-09-01 12:00:00 +0000 UTC | NotAfter: 2028-01-28 12:00:00 +0000 UTC
+  NotBefore: 1998-09-01T12:00:00Z | NotAfter: 2028-01-28T12:00:00Z
   IsCA: true
 ...
 ```
