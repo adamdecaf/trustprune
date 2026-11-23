@@ -579,19 +579,27 @@ JSON is one object. differences lists only fields that differ.
 Single-certificate JSON has no mode field.
 An unknown format is a usage error and names json and text.
 
-Bundle text names left and right, then lists removed and added
-certificates (subject and SHA-256). An empty section is omitted.
-Unchanged is the count in both files. Identical bundles print that
-the bundles hold the same certificates.
+Bundle text prints one line per changed certificate. A certificate
+only in the left file starts with "-". A certificate only in the
+right file starts with "+". Each line is the SHA-256 fingerprint,
+then the subject. Removed lines come first, then added lines. Each
+group is sorted by subject, then fingerprint. A summary line follows.
+Identical bundles print "identical".
 
   trustprune diff backup.pem live.pem
+  - <64 hex> Old CA
+  + <64 hex> New CA
+  removed 1 added 1 unchanged 2
+
+-v or --verbose prints left: and right: paths before the bundle text.
+It has no effect on JSON. Single-certificate text does not print paths.
+
+  trustprune diff -v backup.pem live.pem
   left: backup.pem
   right: live.pem
-  Removed (1):
-  Old CA <64 hex>
-  Added (1):
-  New CA <64 hex>
-  Unchanged: 2
+  - <64 hex> Old CA
+  + <64 hex> New CA
+  removed 1 added 1 unchanged 2
 
 Bundle JSON sets mode to "bundle". removed and added are arrays of
 subject and sha256. They are empty arrays when nothing changed.
@@ -617,7 +625,10 @@ func diffAction(_ context.Context, c *cli.Command) error {
 	if len(args) != 2 {
 		return usageExit(c, "expected two certificate files")
 	}
-	err := cmd.DiffCertificates(args[0], args[1], cmd.DiffOptions{Format: c.String("format")})
+	err := cmd.DiffCertificates(args[0], args[1], cmd.DiffOptions{
+		Format:  c.String("format"),
+		Verbose: isVerbose(c),
+	})
 	if errors.Is(err, cmd.ErrCertificatesDiffer) {
 		return differExit{}
 	}

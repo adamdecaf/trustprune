@@ -637,23 +637,26 @@ JSON for one certificate is one object. `differences` lists only fields that dif
 | `sha256` | Hex SHA-256 fingerprint of the certificate |
 | `signature_algorithm` | Signature algorithm name, such as `SHA256-RSA` |
 
-Bundle text names the two files, then lists removed and added certificates. Each certificate is one line: the subject, then the full SHA-256 fingerprint. Lines are sorted by subject, then fingerprint. An empty Removed or Added section is omitted. `Unchanged` is how many certificates are in both files. When nothing was added or removed, the report says the bundles hold the same certificates.
+Bundle text prints one line per changed certificate, then a summary. A certificate only in the left file starts with `-`. A certificate only in the right file starts with `+`. Each line is the full SHA-256 fingerprint, then the subject. Removed lines come first, then added lines. Each group is sorted by subject, then fingerprint. A group with no certificates is left out of the change lines. The summary is `removed N added N unchanged N` and still names all three counts. Identical bundles print `identical`, the same word one certificate uses.
 
 ```text
-left: backup.pem
-right: live.pem
-Removed (1):
-Old CA <64 hex>
-Added (1):
-New CA <64 hex>
-Unchanged: 2
+- <64 hex> Old CA
++ <64 hex> New CA
+removed 1 added 1 unchanged 2
 ```
 
 ```text
+identical
+```
+
+`-v` or `--verbose` prints the two paths before that bundle text. It does not change JSON. Single-certificate text does not print paths.
+
+```text
 left: backup.pem
 right: live.pem
-Unchanged: 2
-the bundles hold the same certificates
+- <64 hex> Old CA
++ <64 hex> New CA
+removed 1 added 1 unchanged 2
 ```
 
 Bundle JSON sets `mode` to `bundle`. `removed` and `added` are arrays of `subject` and `sha256`, and they are empty arrays when nothing changed.
@@ -677,7 +680,7 @@ Bundle JSON sets `mode` to `bundle`. `removed` and `added` are arrays of `subjec
 | Flag | Meaning |
 |------|---------|
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
-| `-v`, `--verbose` | Accepted; no extra output |
+| `-v`, `--verbose` | Print `left:` and `right:` paths before bundle text. Ignored with `--format json`. Single-certificate text does not print paths |
 
 ## version
 

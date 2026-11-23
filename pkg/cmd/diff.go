@@ -45,6 +45,9 @@ type DiffOptions struct {
 	// Format is "text" (the default) or "json".
 	// Empty means text. Matching is case-insensitive.
 	Format string
+	// Verbose prints left: and right: path lines in bundle text.
+	// JSON ignores Verbose. Single-certificate text does not print paths.
+	Verbose bool
 }
 
 // ErrCertificatesDiffer is returned after the diff report is written when
@@ -69,10 +72,6 @@ func NormalizeDiffFormat(format string) (string, error) {
 	}
 }
 
-// bundleSameCertificates is the bundle-mode text line used when the two
-// files contain the same certificates.
-const bundleSameCertificates = "the bundles hold the same certificates"
-
 // DiffCertificates reads two certificate files and writes how they differ.
 // Each file is PEM or DER. PEM may include comments and non-certificate
 // blocks. DER is one certificate. Zero certificates is an error. The first
@@ -80,7 +79,9 @@ const bundleSameCertificates = "the bundles hold the same certificates"
 //
 // When both files contain one certificate, the report is a field diff.
 // When either file contains more than one, certificates are matched by
-// SHA-256 fingerprint. A nil error means the certificates match.
+// SHA-256 fingerprint. Bundle text lists each removed or added certificate
+// and a summary. Identical bundles print "identical". Verbose prints the
+// file paths in that bundle text. A nil error means the certificates match.
 // ErrCertificatesDiffer means the report was written and they do not.
 func DiffCertificates(leftPath, rightPath string, opts DiffOptions) error {
 	return diffCertificates(os.Stdout, leftPath, rightPath, opts)
@@ -100,7 +101,7 @@ func diffCertificates(w io.Writer, leftPath, rightPath string, opts DiffOptions)
 		return err
 	}
 	if len(left) > 1 || len(right) > 1 {
-		return diffBundles(w, leftPath, rightPath, format, left, right)
+		return diffBundles(w, leftPath, rightPath, format, opts.Verbose, left, right)
 	}
 	changes := compareCerts(left[0], right[0])
 	out, err := formatDiff(leftPath, rightPath, format, changes)
@@ -281,9 +282,9 @@ type bundleDiffJSON struct {
 	Unchanged int          `json:"unchanged"`
 }
 
-func diffBundles(w io.Writer, leftPath, rightPath, format string, left, right []*x509.Certificate) error {
+func diffBundles(w io.Writer, leftPath, rightPath, format string, verbose bool, left, right []*x509.Certificate) error {
 	removed, added, unchanged := compareBundles(left, right)
-	out, err := formatBundleDiff(leftPath, rightPath, format, removed, added, unchanged)
+	out, err := formatBundleDiff(leftPath, rightPath, format, verbose, removed, added, unchanged)
 	if err != nil {
 		return err
 	}
@@ -356,53 +357,58 @@ func bundleSubject(c *x509.Certificate) string {
 	return chainDisplayName(c)
 }
 
-func formatBundleDiff(leftPath, rightPath, format string, removed, added []bundleCert, unchanged int) (string, error) {
+func formatBundleDiff(leftPath, rightPath, format string, verbose bool, removed, added []bundleCert, unchanged int) (string, error) {
 	switch format {
 	case diffFormatJSON:
 		return formatBundleJSON(leftPath, rightPath, removed, added, unchanged)
 	case diffFormatText:
-		return formatBundleText(leftPath, rightPath, removed, added, unchanged), nil
+		return formatBundleText(leftPath, rightPath, removed, added, unchanged, verbose), nil
 	default:
 		return "", fmt.Errorf("unknown format %q (formats: %s)", format, DiffFormats)
 	}
 }
 
-// formatBundleText names the two files, then lists removed and added
-// certificates. An empty section is omitted. Unchanged is the count in both.
-// When nothing was added or removed, the report says the bundles hold the
-// same certificates.
-func formatBundleText(leftPath, rightPath string, removed, added []bundleCert, unchanged int) string {
+// formatBundleText prints one line per changed certificate, then a summary.
+// A certificate only in the left file is removed and starts with "-".
+// A certificate only in the right file is added and starts with "+".
+// Each line is the SHA-256 fingerprint, then the subject. Removed lines
+// come first. Each group keeps compareBundles order (subject, then
+// fingerprint). The summary is "removed N added N unchanged N".
+// Identical bundles print "identical".
+// When verbose is set, left: and right: path lines come first.
+func formatBundleText(leftPath, rightPath string, removed, added []bundleCert, unchanged int, verbose bool) string {
 	var b strings.Builder
-	b.WriteString("left: ")
-	b.WriteString(leftPath)
-	b.WriteByte('\n')
-	b.WriteString("right: ")
-	b.WriteString(rightPath)
-	b.WriteByte('\n')
-	writeBundleSection(&b, "Removed", removed)
-	writeBundleSection(&b, "Added", added)
-	b.WriteString("Unchanged: ")
-	b.WriteString(strconv.Itoa(unchanged))
-	b.WriteByte('\n')
-	if len(removed) == 0 && len(added) == 0 {
-		b.WriteString(bundleSameCertificates)
+	if verbose {
+		b.WriteString("left: ")
+		b.WriteString(leftPath)
+		b.WriteByte('\n')
+		b.WriteString("right: ")
+		b.WriteString(rightPath)
 		b.WriteByte('\n')
 	}
+	if len(removed) == 0 && len(added) == 0 {
+		b.WriteString("identical\n")
+		return b.String()
+	}
+	writeBundleChanges(&b, "-", removed)
+	writeBundleChanges(&b, "+", added)
+	b.WriteString("removed ")
+	b.WriteString(strconv.Itoa(len(removed)))
+	b.WriteString(" added ")
+	b.WriteString(strconv.Itoa(len(added)))
+	b.WriteString(" unchanged ")
+	b.WriteString(strconv.Itoa(unchanged))
+	b.WriteByte('\n')
 	return b.String()
 }
 
-func writeBundleSection(b *strings.Builder, title string, entries []bundleCert) {
-	if len(entries) == 0 {
-		return
-	}
-	b.WriteString(title)
-	b.WriteString(" (")
-	b.WriteString(strconv.Itoa(len(entries)))
-	b.WriteString("):\n")
+func writeBundleChanges(b *strings.Builder, mark string, entries []bundleCert) {
 	for _, e := range entries {
-		b.WriteString(e.Subject)
+		b.WriteString(mark)
 		b.WriteByte(' ')
 		b.WriteString(e.SHA256)
+		b.WriteByte(' ')
+		b.WriteString(e.Subject)
 		b.WriteByte('\n')
 	}
 }
