@@ -80,6 +80,30 @@ func TestShowCertsOnCliUnknownFormat(t *testing.T) {
 	}
 }
 
+func TestLongPrinterTimestampsRFC3339UTC(t *testing.T) {
+	east := time.FixedZone("EAST", 9*60*60)
+	// 18:37:37 in EAST (+09:00) is 09:37:37 UTC.
+	notBefore := time.Date(2011, 5, 5, 18, 37, 37, 0, east)
+	notAfter := time.Date(2030, 12, 31, 18, 37, 37, 0, east)
+	cert := mustTestCertWithExpiry(t, "Example", time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
+	cert.NotBefore = notBefore
+	cert.NotAfter = notAfter
+
+	var buf bytes.Buffer
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := (longPrinter{now: now}).write(&buf, []*x509.Certificate{cert}); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	const want = "  NotBefore: 2011-05-05T09:37:37Z | NotAfter: 2030-12-31T09:37:37Z\n"
+	if !strings.Contains(out, want) {
+		t.Fatalf("long timestamps:\n%s\nwant line %s", out, want)
+	}
+	if strings.Contains(out, "+0000") || strings.Contains(out, " UTC") || strings.Contains(out, "EAST") {
+		t.Fatalf("default time.Time string still present:\n%s", out)
+	}
+}
+
 func TestLongPrinterIsMultilineDump(t *testing.T) {
 	certs := testListCerts(t)
 	var buf bytes.Buffer
@@ -327,6 +351,17 @@ func TestLongPrinterGolden(t *testing.T) {
 	}
 	if !strings.Contains(out, "  SHA256 Fingerprint: ") || !strings.Contains(out, "  Subject: ") {
 		t.Fatalf("missing fingerprint or subject lines:\n%s", out)
+	}
+	if strings.Contains(out, "+0000 UTC") {
+		t.Fatalf("long format still uses time.Time.String():\n%s", out)
+	}
+	for _, cert := range certs {
+		line := fmt.Sprintf("  NotBefore: %s | NotAfter: %s\n",
+			cert.NotBefore.UTC().Format(time.RFC3339),
+			cert.NotAfter.UTC().Format(time.RFC3339))
+		if !strings.Contains(out, line) {
+			t.Errorf("missing RFC3339 UTC validity line %q\n%s", strings.TrimRight(line, "\n"), out)
+		}
 	}
 	withEmail, withIP, withPerm, withDNS, withCRL := 0, 0, 0, 0, 0
 	for _, cert := range certs {
