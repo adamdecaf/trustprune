@@ -1,6 +1,6 @@
 module github.com/adamdecaf/trustprune
 
-go 1.27.0
+go 1.27.4
 
 require (
 	github.com/go-sqlite/sqlite3 v0.0.0-20180313105335-53dd8e640ee7
