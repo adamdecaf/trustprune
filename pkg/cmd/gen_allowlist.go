@@ -143,12 +143,14 @@ func GenerateAllowlist(opts GenerateAllowlistOptions) error {
 	return al.ToFile(output)
 }
 
-// writeAllowlistSummary prints the CA summary table. verbose shows each full
-// fingerprint; otherwise fingerprints are truncated to allowlistFingerprintPreview
-// characters. A fingerprint shorter than that width is printed whole.
+// writeAllowlistSummary prints the CA summary table. Columns are separated
+// by at least two spaces, so a CA name that contains spaces stays in its
+// column. verbose shows each full fingerprint; otherwise fingerprints are
+// truncated to allowlistFingerprintPreview characters. A fingerprint shorter
+// than that width is printed whole.
 func writeAllowlistSummary(w io.Writer, authorities []*gen.CA, verbose bool) error {
-	tw := tabwriter.NewWriter(w, 0, 0, 1, ' ', 0)
-	fmt.Fprintln(tw, "CA\tFINGERPRINT\tCOUNT\tEXAMPLE-DNS-NAMES")
+	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw, "CA\tSHA256-FINGERPRINT\tCOUNT\tEXAMPLE-DNS-NAMES")
 	for i := range authorities {
 		dnsNames := authorities[i].DNSNames
 		if len(dnsNames) > exampleDNSNamesLength {

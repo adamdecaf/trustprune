@@ -311,7 +311,7 @@ func TestWriteAllowlistSummaryGolden(t *testing.T) {
 	compareGolden(t, allowlistSummaryGoldenPath, out)
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "SHA256-FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
 		t.Fatalf("header=%q", lines[0])
 	}
 	if strings.Contains(out, "Fingerprint") || strings.Contains(out, "Example DNSNames") || strings.Contains(out, "Count") {
@@ -330,7 +330,7 @@ func TestWriteAllowlistSummaryGolden(t *testing.T) {
 	}
 	verbose := buf.String()
 	compareGolden(t, allowlistSummaryVerboseGoldenPath, verbose)
-	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "SHA256-FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
 		t.Fatalf("verbose header=%q", strings.Split(verbose, "\n")[0])
 	}
 	for _, ca := range cas {
@@ -376,7 +376,7 @@ func TestWriteAllowlistSummary(t *testing.T) {
 	if len(lines) != 5 {
 		t.Fatalf("lines=%d\n%s", len(lines), out)
 	}
-	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+	if got := strings.Fields(lines[0]); !reflect.DeepEqual(got, []string{"CA", "SHA256-FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
 		t.Fatalf("header=%q", lines[0])
 	}
 	if strings.Contains(out, "Fingerprint") || strings.Contains(out, "Example DNSNames") {
@@ -400,8 +400,77 @@ func TestWriteAllowlistSummary(t *testing.T) {
 	if !strings.Contains(verbose, full) {
 		t.Fatalf("verbose missing full fingerprint:\n%s", verbose)
 	}
-	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+	if got := strings.Fields(strings.Split(verbose, "\n")[0]); !reflect.DeepEqual(got, []string{"CA", "SHA256-FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
 		t.Fatalf("verbose header=%q", verbose)
+	}
+}
+
+func TestWriteAllowlistSummaryHeader(t *testing.T) {
+	t.Parallel()
+
+	cas := []*gen.CA{{
+		Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{"Example CA"}}},
+		Fingerprint: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		DNSNames:    []string{"a.example"},
+	}}
+	for _, verbose := range []bool{false, true} {
+		var buf bytes.Buffer
+		if err := writeAllowlistSummary(&buf, cas, verbose); err != nil {
+			t.Fatal(err)
+		}
+		header := strings.SplitN(buf.String(), "\n", 2)[0]
+		if got := strings.Fields(header); !reflect.DeepEqual(got, []string{"CA", "SHA256-FINGERPRINT", "COUNT", "EXAMPLE-DNS-NAMES"}) {
+			t.Fatalf("verbose=%v header=%q", verbose, header)
+		}
+		// SHA256-FINGERPRINT contains the old header as a substring.
+		if strings.Contains(strings.ReplaceAll(header, "SHA256-FINGERPRINT", ""), "FINGERPRINT") {
+			t.Fatalf("bare FINGERPRINT header still present: %q", header)
+		}
+	}
+}
+
+func TestWriteAllowlistSummarySpacedCAGaps(t *testing.T) {
+	t.Parallel()
+
+	const (
+		ca      = "DigiCert Inc, www.digicert.com"
+		fp      = "7431e5f4c3c1ce4690774f0b61e05440883ba9a01ed00ba6abd7806ed3b118cf"
+		preview = "7431e5f4c3c1ce46"
+		dns     = "yahoo.com"
+	)
+	cas := []*gen.CA{{
+		Certificate: &x509.Certificate{Issuer: pkix.Name{Organization: []string{ca}}},
+		Fingerprint: fp,
+		DNSNames:    []string{dns, "other.example"},
+	}}
+	var buf bytes.Buffer
+	if err := writeAllowlistSummary(&buf, cas, false); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("lines=%d\n%s", len(lines), buf.String())
+	}
+	row := lines[1]
+	rest := row
+	for _, pair := range [][2]string{{ca, preview}, {preview, "2"}, {"2", dns}} {
+		i := strings.Index(rest, pair[0])
+		if i < 0 {
+			t.Fatalf("missing %q in %q", pair[0], row)
+		}
+		rest = rest[i+len(pair[0]):]
+		j := strings.Index(rest, pair[1])
+		gap := ""
+		if j >= 0 {
+			gap = rest[:j]
+		}
+		if j < 2 || strings.Trim(gap, " ") != "" {
+			t.Fatalf("gap between %q and %q = %q in %q", pair[0], pair[1], gap, row)
+		}
+		rest = rest[j:]
+	}
+	if strings.Contains(row, fp) {
+		t.Fatalf("default row has the full fingerprint:\n%s", row)
 	}
 }
 
