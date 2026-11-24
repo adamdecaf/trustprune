@@ -43,7 +43,9 @@ import (
 //     eMudhra G3 intermediates use those same Chromium PEMs for the
 //     certificate hash. Their SPKI hashes match crypto/x509
 //     distrustedSPKIHashes in Go 1.27.3 (src/crypto/x509/verify.go) and
-//     Mozilla bug 2083449.
+//     Mozilla bug 2083449. DYMO Root CA (for localhost) comes from
+//     https://github.com/njh/dymo-root-ca-security-risk (dymo_root_ca.pem);
+//     hashes were recomputed from that PEM.
 //  2. Record the lowercase hex SHA-256 of the certificate DER and of
 //     cert.RawSubjectPublicKeyInfo. The certificate hash must match the
 //     source. Leave the entry out if you are not sure.
@@ -293,6 +295,17 @@ var deniedCerts = []deniedCert{
 		name:        "EM OV CS CA - G3B",
 		fingerprint: "9e39de2881273acc225a149c72ba3e0f51424963669ab633ee1dc7df5db067b4",
 		spki:        "ec4ffa1ad0ac88081314b7aaffef6a91f97cd57291bb5ba686c5415f5eb4f6b6",
+	},
+
+	// DYMO Root CA (for localhost). Vendor-installed root shipped to all
+	// DYMO Label / DYMO Connect customers; the private key is distributed
+	// with the software. Source:
+	// https://github.com/njh/dymo-root-ca-security-risk (dymo_root_ca.pem).
+	// Hashes recomputed from that PEM.
+	{
+		name:        "DYMO Root CA (for localhost)",
+		fingerprint: "b6281afb8dbfc71515f9573e26d92b47c70f8b6d821c2065cd358f8658b75389",
+		spki:        "481c702ef267378036c7d5cc157d7e8b3a8eb65946dfc1c5402770439a508e09",
 	},
 }
 

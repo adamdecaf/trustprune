@@ -312,6 +312,36 @@ func TestDenied_eMudhraG3SPKIRejectsNewCert(t *testing.T) {
 	}
 }
 
+func TestDenied_DYMORootCA(t *testing.T) {
+	const (
+		wantFP   = "b6281afb8dbfc71515f9573e26d92b47c70f8b6d821c2065cd358f8658b75389"
+		wantSPKI = "481c702ef267378036c7d5cc157d7e8b3a8eb65946dfc1c5402770439a508e09"
+		wantName = "DYMO Root CA (for localhost)"
+	)
+	// #nosec G304 -- testdata fixture, not user input
+	raw, err := os.ReadFile(filepath.Join("testdata", "dymo-root-ca.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatal("testdata PEM has no CERTIFICATE block")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := certutil.GetHexSHA256Fingerprint(*cert); got != wantFP {
+		t.Fatalf("fixture fingerprint %s, want %s", got, wantFP)
+	}
+	if got := spkiSHA256(cert); got != wantSPKI {
+		t.Fatalf("fixture SPKI %s, want %s", got, wantSPKI)
+	}
+	if denied, name := Denied(cert); !denied || name != wantName {
+		t.Fatalf("Denied(fixture)=%v %q", denied, name)
+	}
+}
+
 func TestDenied_nil(t *testing.T) {
 	if denied, name := Denied(nil); denied || name != "" {
 		t.Fatalf("Denied(nil)=%v %q", denied, name)

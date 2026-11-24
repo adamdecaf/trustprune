@@ -1,1 +1,2 @@
 em-dv-tls-ca-g3c.pem is EM DV TLS CA - G3C (eMudhra Inc, US), certificate SHA-256 0164d7ceae5bb909c272af151ff44b1177ae9b47d9424b94f1d9558c30934d19, from Chromium's net/data/ssl/blocklist (the archive blocklist_gen.go downloads).
+dymo-root-ca.pem is DYMO Root CA (for localhost), certificate SHA-256 b6281afb8dbfc71515f9573e26d92b47c70f8b6d821c2065cd358f8658b75389, from https://github.com/njh/dymo-root-ca-security-risk (dymo_root_ca.pem).
