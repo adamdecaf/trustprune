@@ -50,8 +50,10 @@ func ListCertsFromFile(where string, cfg *ui.Config) error {
 	return ui.ListCertificatesWithMeta(ui.Meta{Name: "file"}, certs, cfg)
 }
 
-// ListCertsFromURL downloads a url and shows the certificates
-// according to the ui/format options.
+// ListCertsFromURL downloads a PEM or DER certificate bundle and lists the
+// certificates. Mozilla certdata.txt is also accepted. This does not dial
+// the host for a TLS handshake. A response that parses to zero certificates
+// is an error, including when --count is set.
 func ListCertsFromURL(where string, cfg *ui.Config) (err error) {
 	req, err := http.NewRequest("GET", where, nil)
 	if err != nil {
@@ -81,6 +83,9 @@ func ListCertsFromURL(where string, cfg *ui.Config) (err error) {
 	certs, err := certutil.Decode(bs)
 	if err != nil {
 		return err
+	}
+	if len(certs) == 0 {
+		return fmt.Errorf("%s did not return a PEM or DER certificate bundle; to see a site's certificate chain run: trustprune chain <host> --remote", where)
 	}
 	return ui.ListCertificates(certs, cfg)
 }

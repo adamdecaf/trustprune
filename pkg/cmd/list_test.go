@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,12 +67,97 @@ func TestCmdList__url(t *testing.T) {
 	defer ts.Close()
 
 	// Read certs from url
+	out := filepath.Join(t.TempDir(), "count.txt")
 	cfg := ui.Config{
-		Count: true,
+		Count:   true,
+		Outfile: out,
 	}
 	err := ListCertsFromURL(fmt.Sprintf("http://%s", ts.Listener.Addr().String()), &cfg)
 	if err != nil {
 		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(got)))
+	if err != nil || n < 1 {
+		t.Fatalf("count = %q", got)
+	}
+}
+
+func TestListCertsFromURLPEM(t *testing.T) {
+	t.Parallel()
+
+	pem, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(pem); err != nil {
+			t.Errorf("write pem: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	out := filepath.Join(t.TempDir(), "count.txt")
+	err = ListCertsFromURL(ts.URL, &ui.Config{Count: true, Outfile: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1\n" {
+		t.Fatalf("count = %q", got)
+	}
+}
+
+func TestListCertsFromURLNotBundle(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		body string
+	}{
+		{name: "html", body: "<!DOCTYPE html><html><body>not a certificate</body></html>"},
+		{name: "text", body: "not a certificate bundle"},
+		{name: "empty", body: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			body := tc.body
+			ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if _, err := io.WriteString(w, body); err != nil {
+					t.Errorf("write body: %v", err)
+				}
+			}))
+			defer ts.Close()
+
+			for _, count := range []bool{false, true} {
+				out := filepath.Join(t.TempDir(), "out.txt")
+				err := ListCertsFromURL(ts.URL, &ui.Config{Count: count, Outfile: out})
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				msg := err.Error()
+				if !strings.Contains(msg, "did not return a PEM or DER certificate bundle") {
+					t.Fatalf("error = %q", msg)
+				}
+				if !strings.Contains(msg, "trustprune chain <host> --remote") {
+					t.Fatalf("error = %q", msg)
+				}
+				if strings.Contains(msg, "no certificates to display") {
+					t.Fatalf("fell through to empty list: %q", msg)
+				}
+				if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+					t.Fatalf("list wrote output for a non-bundle (count=%v): %v", count, statErr)
+				}
+			}
+		})
 	}
 }
 
@@ -80,6 +166,9 @@ func TestListCertsFromURLReturnsError(t *testing.T) {
 	err := ListCertsFromURL("http://127.0.0.1:1/", &ui.Config{Count: true})
 	if err == nil {
 		t.Fatal("expected dial error, got nil")
+	}
+	if strings.Contains(err.Error(), "did not return a PEM or DER certificate bundle") {
+		t.Fatalf("dial failure reported as an empty bundle: %v", err)
 	}
 }
 

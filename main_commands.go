@@ -772,7 +772,8 @@ func listCommand(st *runState) *cli.Command {
   List certificates in an explicit OpenSSL PEM CA bundle
     trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 
-  List certificates from a URL
+  Download a PEM or DER certificate bundle from a URL and list it (not a TLS site lookup).
+  Mozilla certdata.txt is also accepted.
     trustprune list --url <endpoint>
 
 FORMATTING
@@ -814,7 +815,7 @@ APPS
 			flagStore(),
 			flagFile("PEM (or similar) file to list (without --app)", false),
 			flagBundle(),
-			flagURL("download and list certificates from a remote URL"),
+			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),
 			flagListFormat(),
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
