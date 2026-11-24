@@ -176,7 +176,7 @@ There is currently no way to disable this behavior.
 
 ### Denylisted certificates
 
-A smaller denylist is always applied as well, including when an allowlist names the certificate by fingerprint or by country. It covers roots and intermediates that were publicly distrusted: DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots (GeoTrust, thawte, and VeriSign roots removed from Mozilla NSS), the compromised eMudhra G3 intermediates, and DYMO Root CA (for localhost). The entries are committed in `pkg/allowlist/denylist.go`.
+A smaller denylist is always applied as well, including when an allowlist names the certificate by fingerprint or by country. It covers roots and intermediates that were publicly distrusted: DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots (GeoTrust, thawte, and VeriSign roots removed from Mozilla NSS), the compromised eMudhra G3 intermediates, DYMO Root CA (for localhost), and the Sennheiser HeadSetup roots. The entries are committed in `pkg/allowlist/denylist.go`.
 
 Each entry has two SHA-256 values: the certificate itself, and the certificate's SubjectPublicKeyInfo. A later certificate that reuses a denylisted key is rejected even though its own fingerprint is new. `gen-allowlist` skips these CAs and prints a `NOTE:` line. They are not written to the allowlist file. There is no flag to turn this off.
 

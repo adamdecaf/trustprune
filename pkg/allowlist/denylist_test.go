@@ -342,6 +342,100 @@ func TestDenied_DYMORootCA(t *testing.T) {
 	}
 }
 
+func TestDenied_SennheiserHeadSetupRoots(t *testing.T) {
+	cases := []struct {
+		file     string
+		wantFP   string
+		wantSPKI string
+		wantName string
+	}{
+		{
+			file:     "senncomcccert.pem",
+			wantFP:   "ddd8ab9178c99cbd9685ea4ae66dc28bfdc9a5a8a166f7f69ad0b5042ad6eb28",
+			wantSPKI: "8f591f7aa4dc3efe9490c38a4692c9011ed128f1de595569406d77b6fa1f6b4c",
+			wantName: "SennComCCCert",
+		},
+		{
+			file:     "senncomrootca.pem",
+			wantFP:   "91e5cc32910686c5cac25c18cc805696c7b33868c280caf0c72844a2a8eb91e2",
+			wantSPKI: "0c43ea8bcde9fc3bca165664ac8215567e3489d5393a0c81e1a79141992e1953",
+			wantName: "SenncomRootCA",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantName, func(t *testing.T) {
+			// #nosec G304 -- testdata fixture, not user input
+			raw, err := os.ReadFile(filepath.Join("testdata", tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			block, _ := pem.Decode(raw)
+			if block == nil || block.Type != "CERTIFICATE" {
+				t.Fatal("testdata PEM has no CERTIFICATE block")
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := certutil.GetHexSHA256Fingerprint(*cert); got != tc.wantFP {
+				t.Fatalf("fixture fingerprint %s, want %s", got, tc.wantFP)
+			}
+			if got := spkiSHA256(cert); got != tc.wantSPKI {
+				t.Fatalf("fixture SPKI %s, want %s", got, tc.wantSPKI)
+			}
+			if denied, name := Denied(cert); !denied || name != tc.wantName {
+				t.Fatalf("Denied(fixture)=%v %q", denied, name)
+			}
+
+			parentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := &x509.Certificate{
+				SerialNumber: big.NewInt(1),
+				Subject: pkix.Name{
+					CommonName: "Test Parent",
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+			}
+			tmpl := &x509.Certificate{
+				SerialNumber: big.NewInt(2),
+				Subject: pkix.Name{
+					CommonName: "Reissued " + tc.wantName,
+					Country:    []string{"DK"},
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+				PublicKey:             cert.PublicKey,
+			}
+			der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, tmpl.PublicKey, parentKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reissued, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if certutil.GetHexSHA256Fingerprint(*reissued) == tc.wantFP {
+				t.Fatal("reissued certificate must not keep the denylisted certificate fingerprint")
+			}
+			if spkiSHA256(reissued) != tc.wantSPKI {
+				t.Fatalf("reissued SPKI %s, want %s", spkiSHA256(reissued), tc.wantSPKI)
+			}
+			if denied, name := Denied(reissued); !denied || name != tc.wantName {
+				t.Fatalf("Denied(reissued)=%v %q", denied, name)
+			}
+		})
+	}
+}
+
 func TestDenied_nil(t *testing.T) {
 	if denied, name := Denied(nil); denied || name != "" {
 		t.Fatalf("Denied(nil)=%v %q", denied, name)
