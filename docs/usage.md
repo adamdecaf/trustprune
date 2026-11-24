@@ -14,7 +14,7 @@ nav_order: 4
 {:toc}
 </details>
 
-Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
+Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -22,7 +22,7 @@ Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `j
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
-Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix. `diff` also exits 1 when the certificates differ; that report is the command output and has no `ERROR:` prefix.
+Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). An unknown flag is echoed as typed: `-foo` is reported as `unknown flag -foo` and `--foo` as `unknown flag --foo`. Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix. `diff` also exits 1 when the certificates differ; that report is the command output and has no `ERROR:` prefix.
 
 ```text
 ERROR: unknown flag --foo
@@ -691,9 +691,10 @@ Bundle JSON sets `mode` to `bundle`. `removed` and `added` are arrays of `subjec
 ```bash
 trustprune version
 trustprune --version
+trustprune -V
 ```
 
-Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` works the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag). `-v` is not a version alias; `-v`/`--verbose` is verbose on every command and before the subcommand (`trustprune -v list …`).
+Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` and `-V` work the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag, and `trustprune list -V` reports `unknown flag -V`). `-v` is not a version alias; `-v`/`--verbose` is verbose on every command and before the subcommand (`trustprune -v list …`).
 
 ## Debugging
 

@@ -14,7 +14,7 @@ import (
 func TestCertManage_help(t *testing.T) {
 	t.Parallel()
 
-	usage := "Usage of trustprune version"
+	usage := "Usage: trustprune <command> [flags]"
 	subCmdUsage := func(name string) string {
 		return fmt.Sprintf("trustprune %s ", name)
 	}
@@ -32,6 +32,9 @@ func TestCertManage_help(t *testing.T) {
 	}
 	if !strings.Contains(out, usage) {
 		t.Error("expected Usage() text")
+	}
+	if strings.Contains(out, "Usage of trustprune version") {
+		t.Error("root help should not open with the version string")
 	}
 	if !strings.Contains(out, "  allowlist") {
 		t.Error("expected allowlist in top-level SUB-COMMANDS")
@@ -89,6 +92,20 @@ func TestCertManage_help(t *testing.T) {
 		if !strings.Contains(out, usage) {
 			t.Errorf("choice %q, expected Usage()", helpChoices[i])
 		}
+		if strings.Contains(out, "Usage of trustprune version") {
+			t.Errorf("choice %q still uses the version string as usage", helpChoices[i])
+		}
+	}
+
+	out, err = run(t, "version", "--help")
+	if err != nil {
+		t.Errorf("version --help err=%v output=%q", err, out)
+	}
+	if !strings.Contains(out, "USAGE:") || !strings.Contains(out, "trustprune version") {
+		t.Errorf("version --help should show trustprune version as usage, got %q", out)
+	}
+	if strings.Contains(out, "(Go:") {
+		t.Errorf("version --help used the version string as usage, got %q", out)
 	}
 
 	// sub-command, but no args. Missing required --file is a usage error (exit 2).

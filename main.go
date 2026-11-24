@@ -128,9 +128,11 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	}()
 
 	app := newApp(st)
-	applyOnUsageError(app)
+	// Same slice app.Run sees, so unknown-flag text can keep the typed dashes.
+	cliArgs := normalizeCLIArgs(args)
+	applyOnUsageError(app, cliArgs)
 	applyCommandNotFound(st, app)
-	err := app.Run(context.Background(), normalizeCLIArgs(args))
+	err := app.Run(context.Background(), cliArgs)
 
 	if st.traceErr != nil {
 		fmt.Fprintf(stdout, "ERROR: %v\n", st.traceErr)
@@ -194,14 +196,13 @@ func newApp(st *runState) *cli.Command {
 		Name:  "trustprune",
 		Usage: "list, backup, allowlist, restore, and create PEM bundles from CA trust stores",
 		// HideVersion skips urfave's VersionFlag, which aliases -v.
-		// -v/--verbose is flagVerbose. Root --version is flagVersion.
+		// -v/--verbose is flagVerbose. Root --version/-V is flagVersion.
 		HideVersion:                   true,
 		Writer:                        st.stdout,
 		ErrWriter:                     st.stderr,
 		ExitErrHandler:                func(context.Context, *cli.Command, error) {},
 		EnableShellCompletion:         false,
 		CustomRootCommandHelpTemplate: rootHelpTemplate(),
-		OnUsageError:                  onUsageError,
 		ArgValidator:                  rejectUnknownCommand,
 		Action:                        withTrace(st, rootHelpAction),
 		Flags:                         []cli.Flag{flagVersion(), flagVerbose()},
@@ -240,12 +241,17 @@ func withTrace(st *runState, fn cli.ActionFunc) cli.ActionFunc {
 	}
 }
 
-func applyOnUsageError(c *cli.Command) {
+// applyOnUsageError installs the usage-error handler on c and its
+// subcommands. args is the slice passed to app.Run so an unknown flag
+// can be echoed with the dash style the user typed.
+func applyOnUsageError(c *cli.Command, args []string) {
 	if c.OnUsageError == nil {
-		c.OnUsageError = onUsageError
+		c.OnUsageError = func(ctx context.Context, cmd *cli.Command, err error, isSubcommand bool) error {
+			return onUsageError(ctx, cmd, err, isSubcommand, args)
+		}
 	}
 	for _, sub := range c.Commands {
-		applyOnUsageError(sub)
+		applyOnUsageError(sub, args)
 	}
 }
 
@@ -265,15 +271,24 @@ func applyCommandNotFound(st *runState, c *cli.Command) {
 	}
 }
 
-func onUsageError(_ context.Context, c *cli.Command, err error, _ bool) error {
-	return usageExit(c, rewriteUsageError(err))
+func onUsageError(_ context.Context, c *cli.Command, err error, _ bool, args []string) error {
+	return usageExit(c, rewriteUsageError(err, args))
 }
 
-func rewriteUsageError(err error) string {
+// rewriteUsageError turns urfave usage errors into trustprune's wording.
+// urfave always reports "flag provided but not defined: -name" with one
+// leading dash. The typed form is taken from args: the first flag token
+// whose name matches (leading dashes stripped, stopping at '='). A bare
+// "--" ends that search. If no token matches, the message stays
+// "unknown flag --name".
+func rewriteUsageError(err error, args []string) string {
 	msg := err.Error()
 	const unknownPrefix = "flag provided but not defined: "
 	if strings.HasPrefix(msg, unknownPrefix) {
 		name := strings.TrimLeft(strings.TrimSpace(strings.TrimPrefix(msg, unknownPrefix)), "-")
+		if typed := typedFlagToken(args, name); typed != "" {
+			return "unknown flag " + typed
+		}
 		return "unknown flag --" + name
 	}
 	const reqOne = `Required flag "`
@@ -285,6 +300,32 @@ func rewriteUsageError(err error) string {
 		}
 	}
 	return msg
+}
+
+// typedFlagToken returns the first flag token in args whose name equals
+// name, without a "=value" suffix, keeping that token's dash prefix.
+// A bare "--" ends the search. An empty result means no match.
+func typedFlagToken(args []string, name string) string {
+	if name == "" {
+		return ""
+	}
+	for _, arg := range args {
+		if arg == "--" {
+			return ""
+		}
+		if len(arg) < 2 || arg[0] != '-' {
+			continue
+		}
+		token := arg
+		if i := strings.IndexByte(token, '='); i >= 0 {
+			token = token[:i]
+		}
+		if strings.TrimLeft(token, "-") != name {
+			continue
+		}
+		return token
+	}
+	return ""
 }
 
 func usageExit(c *cli.Command, msg string) error {
@@ -369,7 +410,7 @@ func normalizeCLIArgs(args []string) []string {
 }
 
 func rootHelpTemplate() string {
-	return fmt.Sprintf(`Usage of trustprune version %s
+	return fmt.Sprintf(`Usage: trustprune <command> [flags]
 COMMANDS:{{template "visibleCommandCategoryTemplate" .}}
 
 APPS
@@ -385,7 +426,6 @@ DEBUGGING
 {{if .VisibleFlags}}
 OPTIONS:{{template "visibleFlagTemplate" .}}{{end}}
 `,
-		getVersion(),
 		store.FormatAppsHelpLine(),
 	)
 }
