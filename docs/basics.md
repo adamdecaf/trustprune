@@ -77,7 +77,7 @@ A handshake failure is one short line, and the exit status stays 1:
 ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 ```
 
-`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The hint line names `trustprune allowlist --file` and the full SHA-256 to put under `fingerprints` in that file. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON.
+`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The add/allowlist hint is printed only when verification fails with an unknown authority. It names `trustprune add --file` and, after the CA is in the store, the full SHA-256 to put under `fingerprints` in an allowlist file. An expired site certificate gets a short note that adding a root won't help. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON, and JSON does not include the text hint.
 
 An unknown `--format` is a usage error (exit 2) and names the valid formats (`json`, `text`).
 

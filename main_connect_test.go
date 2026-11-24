@@ -123,7 +123,9 @@ func TestConnectFormatUsage(t *testing.T) {
 			"default: text",
 			"options: json, text",
 			"no effect with --format json",
+			"printed only when verification fails with an unknown authority",
 			"to add a missing CA, run: trustprune add --file <cert>",
+			"An expired site certificate gets a short note that adding a root won't help.",
 		} {
 			if !strings.Contains(res.stdout, needle) {
 				t.Fatalf("connect help missing %q:\n%s", needle, res.stdout)
