@@ -446,11 +446,11 @@ Show the certificate chain for a local file or a URL. The selected store is only
 
 `--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. One positional argument replaces `--file` or `--url`. If it names an existing regular file, it is read like `--file`. Otherwise it is a host or URL, like `--url`. Combining that argument with `--file` or `--url` is a usage error (exit 2). More than one positional argument is a usage error. The leaf for a URL is the first certificate in the file or store that matches that host. `--remote` dials that host only when no local leaf is found. A positional URL dials on the same rule. The dial uses a 30 second timeout and does not treat the server as trusted.
 
-The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. Other certificates outside the store, expired or not-yet-valid certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `(untrusted)`, `(expired)`, `(not yet valid)`, and/or `(blocklisted)`. `--expired` includes a certificate whose `NotAfter` is in the past and a certificate whose `NotBefore` is in the future. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
+The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is the 16-character prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. SUBJECT is the display name only. LABELS is `-` when none apply. Several labels are joined with a comma and no spaces (`untrusted,expired`). The leaf is shown even when it is not in the store. Other certificates outside the store, expired or not-yet-valid certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `untrusted`, `expired`, `not yet valid`, and/or `blocklisted`. `--expired` includes a certificate whose `NotAfter` is in the past and a certificate whose `NotBefore` is in the future. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
 
 An incomplete chain prints a note and names the flags that would include a skipped issuer.
 
-`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (without the label suffix), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. `complete` is always present: `true` when the chain reaches a self-signed certificate, `false` when it does not. An incomplete chain adds `incomplete` with the same note the text table prints. When the walk stopped because no issuer was found, `missing_issuer` is the display name of that certificate. Cycle and too-long chains omit `missing_issuer`.
+`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (the display name), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. `complete` is always present: `true` when the chain reaches a self-signed certificate, `false` when it does not. An incomplete chain adds `incomplete` with the same note the text table prints. When the walk stopped because no issuer was found, `missing_issuer` is the display name of that certificate. Cycle and too-long chains omit `missing_issuer`.
 
 ```bash
 trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
@@ -469,9 +469,9 @@ trustprune chain --app java --store /path/to/cacerts leaf.pem
 ```
 
 ```text
-INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
-0      leaf.example ca.example  2027-06-01  <16 hex>
-1      ca.example   ca.example  2027-06-01  <16 hex>
+INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
+0      leaf.example  ca.example  2027-06-01  <16 hex>  -
+1      ca.example    ca.example  2027-06-01  <16 hex>  -
 ```
 
 ```json
@@ -542,7 +542,7 @@ Text output (the default) is one line:
 ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 ```
 
-`sha256` is the first 16 hex characters of the root. `leaf-expires` is the leaf certificate's `NotAfter` in UTC (`YYYY-MM-DD`). `-v` prints the verified chain after that line (INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256). `--format json` prints one object and ignores `-v`:
+`sha256` is the first 16 hex characters of the root. `leaf-expires` is the leaf certificate's `NotAfter` in UTC (`YYYY-MM-DD`). `-v` prints the verified chain after that line (INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS). LABELS is `-` on every row of a verified chain. `--format json` prints one object and ignores `-v`:
 
 ```json
 {
@@ -561,13 +561,13 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
 
-The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
+The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SUBJECT is the display name only. A certificate whose SHA-256 is not in the selected store has `not in store` in LABELS. LABELS is `-` when the certificate is in the store. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
 
 ```text
 presented chain:
-INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256
-0      leaf.example (not in store)  ca.example  2030-01-01  <16 hex>
-1      ca.example (not in store)    ca.example  2031-03-04  <16 hex>
+INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
+0      leaf.example  ca.example  2030-01-01  <16 hex>  not in store
+1      ca.example    ca.example  2031-03-04  <16 hex>  not in store
 to add a missing CA, run: trustprune add --file <cert>
 after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
 ERROR: https://untrusted.example: unknown authority

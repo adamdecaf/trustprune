@@ -455,13 +455,13 @@ func TestFormatConnectChainTable(t *testing.T) {
 	}
 
 	longWant := "" +
-		"INDEX  SUBJECT       ISSUER         NOT-AFTER   SHA256\n" +
-		"0      leaf.example  Mid            2027-03-03  " + sha256Prefix(leafRaw) + "\n" +
-		"1      Mid           O=Example Org  2030-01-02  " + sha256Prefix(midRaw) + "\n" +
-		"2      Root CA       Root CA        2035-12-31  " + sha256Prefix(rootRaw) + "\n"
+		"INDEX  SUBJECT       ISSUER         NOT-AFTER   SHA256            LABELS\n" +
+		"0      leaf.example  Mid            2027-03-03  " + sha256Prefix(leafRaw) + "  -\n" +
+		"1      Mid           O=Example Org  2030-01-02  " + sha256Prefix(midRaw) + "  -\n" +
+		"2      Root CA       Root CA        2035-12-31  " + sha256Prefix(rootRaw) + "  -\n"
 	shortWant := "" +
-		"INDEX  SUBJECT  ISSUER  NOT-AFTER   SHA256\n" +
-		"0      A        B       2027-03-03  " + sha256Prefix(leafRaw) + "\n"
+		"INDEX  SUBJECT  ISSUER  NOT-AFTER   SHA256            LABELS\n" +
+		"0      A        B       2027-03-03  " + sha256Prefix(leafRaw) + "  -\n"
 
 	cases := []struct {
 		name    string
@@ -787,6 +787,28 @@ func TestFormatConnectJSON(t *testing.T) {
 	})
 }
 
+func TestFormatLabelsCell(t *testing.T) {
+	t.Parallel()
+	if got := formatLabelsCell(nil); got != "-" {
+		t.Fatalf("nil = %q", got)
+	}
+	if got := formatLabelsCell([]string{}); got != "-" {
+		t.Fatalf("empty = %q", got)
+	}
+	if got := formatLabelsCell([]string{"untrusted"}); got != "untrusted" {
+		t.Fatalf("one = %q", got)
+	}
+	if got := formatLabelsCell([]string{"not yet valid"}); got != "not yet valid" {
+		t.Fatalf("spaced = %q", got)
+	}
+	if got := formatLabelsCell([]string{"not in store"}); got != "not in store" {
+		t.Fatalf("store = %q", got)
+	}
+	if got := formatLabelsCell([]string{"untrusted", "expired", "blocklisted"}); got != "untrusted,expired,blocklisted" {
+		t.Fatalf("many = %q", got)
+	}
+}
+
 func TestFormatConnectPresented(t *testing.T) {
 	t.Parallel()
 
@@ -817,9 +839,9 @@ func TestFormatConnectPresented(t *testing.T) {
 		}
 		want := "" +
 			"presented chain:\n" +
-			"INDEX  SUBJECT                      ISSUER      NOT-AFTER   SHA256\n" +
-			"0      leaf.example (not in store)  ca.example  2030-01-01  " + leafFP[:16] + "\n" +
-			"1      ca.example (not in store)    ca.example  2031-03-04  " + caFP[:16] + "\n" +
+			"INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256            LABELS\n" +
+			"0      leaf.example  ca.example  2030-01-01  " + leafFP[:16] + "  not in store\n" +
+			"1      ca.example    ca.example  2031-03-04  " + caFP[:16] + "  not in store\n" +
 			connectTrustHint(caFP, "", "") + "\n"
 		if got != want {
 			t.Fatalf("text =\n%s\nwant\n%s", got, want)
@@ -838,12 +860,8 @@ func TestFormatConnectPresented(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(got, "0      leaf.example ") || strings.Contains(got, "leaf.example (not in store)") {
-			t.Fatalf("leaf should be unmarked:\n%s", got)
-		}
-		if !strings.Contains(got, "ca.example (not in store)") {
-			t.Fatalf("CA should be marked:\n%s", got)
-		}
+		assertSubjectLabel(t, got, "leaf.example", "-")
+		assertSubjectLabel(t, got, "ca.example", connectNotInStoreMark)
 		if !strings.HasSuffix(got, connectTrustHint(caFP, "", "")+"\n") {
 			t.Fatalf("hint = %q", got[strings.LastIndex(got, "to add"):])
 		}
@@ -886,10 +904,12 @@ func TestFormatConnectPresented(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		assertSubjectLabel(t, got, "leaf.example", "-")
+		assertSubjectLabel(t, got, "ca.example", "-")
 		if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to add a missing CA") {
 			t.Fatalf("store certs were marked:\n%s", got)
 		}
-		if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") {
+		if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") || !strings.Contains(got, "LABELS") {
 			t.Fatalf("missing columns:\n%s", got)
 		}
 	})

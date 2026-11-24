@@ -261,13 +261,15 @@ positional argument with --file or --url. A URL dials only when --remote is set.
 
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
-INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. SHA256 is a 16-character prefix.
--v, --verbose prints the full 64-character SHA-256 in that table. JSON always
-uses the full fingerprint. The leaf is shown even when it is not in the store.
-Other certificates outside the store, expired or not-yet-valid certificates,
-and blocklisted certificates are omitted unless the matching flag is set.
-Included certificates are labeled (untrusted), (expired), (not yet valid),
-and/or (blocklisted). --expired covers a past NotAfter and a future NotBefore.
+INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is a 16-character prefix.
+-v, --verbose prints the full 64-character SHA-256 in that table.
+JSON always uses the full fingerprint. SUBJECT is the display name only.
+LABELS is "-" when none apply. Several labels are comma-separated with no
+spaces. The leaf is shown even when it is not in the store. Other
+certificates outside the store, expired or not-yet-valid certificates, and
+blocklisted certificates are omitted unless the matching flag is set.
+Included certificates are labeled untrusted, expired, not yet valid, and/or
+blocklisted. --expired covers a past NotAfter and a future NotBefore.
 --revoked does not use OCSP or CRLs.
 
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
@@ -384,7 +386,7 @@ Explicit http:// is rejected. If --app is provided then the certificates for tha
 application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts), --app certifi (cacert.pem), and --app poppler (NSS db).
-  -v, --verbose prints the verified chain after the one-line summary. When verification fails it prints the chain the server presented. It has no effect with --format json.
+  -v, --verbose prints the verified chain after the one-line summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. LABELS is "-" on a verified chain. When verification fails it prints the chain the server presented. It has no effect with --format json.
   --format text (default) or json. An unknown format is a usage error.
 
   Bare host, one-line success:
@@ -401,7 +403,7 @@ application are loaded and used for the connection.
     ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
   -v after a verification failure prints the chain from that failed handshake (same columns).
-  A subject ending in " (not in store)" is missing from the selected store.
+  LABELS is "not in store" when that certificate is missing from the selected store, and "-" when it is in the store.
   allowlist only keeps or removes certificates already in the store; it does not add a missing CA.
   Add a missing CA with add --file. After it is in the store, include its sha256 under fingerprints in an allowlist file so a later allowlist run keeps it.
     to add a missing CA, run: trustprune add --file <cert>

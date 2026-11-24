@@ -123,7 +123,6 @@ type chainInput struct {
 }
 
 type chainRow struct {
-	subject  string
 	issuer   string
 	notAfter string
 	sha      string
@@ -425,7 +424,6 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct
 	name := chainDisplayName(cert)
 	labels := chainLabels(isLeaf, inStore, validity, isBlocked)
 	return chainRow{
-		subject:  chainSubjectFrom(name, labels),
 		issuer:   connectName(cert.Issuer),
 		notAfter: cert.NotAfter.UTC().Format(connectDateLayout),
 		sha:      sum[:16],
@@ -451,13 +449,6 @@ func chainLabels(isLeaf, inStore bool, validity string, blocked bool) []string {
 	return tags
 }
 
-func chainSubjectFrom(name string, labels []string) string {
-	if len(labels) == 0 {
-		return name
-	}
-	return name + " (" + strings.Join(labels, ", ") + ")"
-}
-
 func chainDisplayName(cert *x509.Certificate) string {
 	if cert == nil {
 		return "certificate"
@@ -479,14 +470,14 @@ func incompleteNote(current *x509.Certificate, skip skipReason) chainNote {
 }
 
 func formatChain(rows []chainRow, note string, verbose bool) string {
-	headers := []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256"}
+	headers := statusTableHeaders()
 	body := make([][]string, len(rows))
 	for i, row := range rows {
 		sha := row.sha
 		if verbose {
 			sha = row.sha256
 		}
-		body[i] = []string{strconv.Itoa(i), row.subject, row.issuer, row.notAfter, sha}
+		body[i] = []string{strconv.Itoa(i), row.name, row.issuer, row.notAfter, sha, formatLabelsCell(row.labels)}
 	}
 	out := alignTable(headers, body)
 	if note != "" {
@@ -504,8 +495,8 @@ type chainJSON struct {
 }
 
 // chainJSONCert is one certificate in the chain, leaf first.
-// subject is the display name without the label suffix. sha256 is the
-// full hex fingerprint. labels is never null.
+// subject is the display name. sha256 is the full hex fingerprint.
+// labels is never null.
 type chainJSONCert struct {
 	Index    int      `json:"index"`
 	Subject  string   `json:"subject"`

@@ -85,9 +85,8 @@ func TestConnectPresentedChain(t *testing.T) {
 		if !strings.Contains(out, "0") || !strings.Contains(out, leaf.Subject.CommonName) {
 			t.Fatal("missing leaf")
 		}
-		if !strings.Contains(out, ca.Subject.CommonName+connectNotInStoreMark) {
-			t.Fatalf("CA not marked:\n%s", out)
-		}
+		assertSubjectLabel(t, out, ca.Subject.CommonName, connectNotInStoreMark)
+		assertSubjectLabel(t, out, leaf.Subject.CommonName, connectNotInStoreMark)
 		leafLine, caLine := presentedLines(t, out)
 		if !strings.HasPrefix(leafLine, "0 ") || !strings.Contains(leafLine, leafFP[:16]) {
 			t.Fatalf("leaf line = %q", leafLine)
@@ -163,7 +162,8 @@ func TestConnectPresentedChain(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 		fp := certutil.GetHexSHA256Fingerprint(*cert.cert)
-		if !strings.Contains(out, "self.example"+connectNotInStoreMark) || !strings.Contains(out, "2032-05-06") || !strings.Contains(out, fp[:16]) {
+		assertSubjectLabel(t, out, "self.example", connectNotInStoreMark)
+		if !strings.Contains(out, "2032-05-06") || !strings.Contains(out, fp[:16]) {
 			t.Fatalf("stdout =\n%s", out)
 		}
 		if !strings.Contains(out, connectTrustHint(fp, "", "")) {

@@ -44,7 +44,7 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 $ ./trustprune connect -v google.com
 ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
-INDEX  SUBJECT  ISSUER  NOT-AFTER   SHA256
+INDEX  SUBJECT  ISSUER  NOT-AFTER   SHA256  LABELS
 ...
 
 $ ./trustprune connect --format json google.com
@@ -69,7 +69,7 @@ $ ./trustprune connect --url https://google.com
 ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 ```
 
-`-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is the same UTC `YYYY-MM-DD` date as the text line.
+`-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, the 16-character SHA-256 prefix, and LABELS. LABELS is `-` on a verified chain. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is the same UTC `YYYY-MM-DD` date as the text line.
 
 A handshake failure is one short line, and the exit status stays 1:
 
@@ -77,7 +77,7 @@ A handshake failure is one short line, and the exit status stays 1:
 ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 ```
 
-`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The hint line names `trustprune allowlist --file` and the full SHA-256 to put under `fingerprints` in that file. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON.
+`-v` also prints the chain the server presented when verification fails. LABELS is `not in store` when that certificate is missing from the selected store, and `-` when it is in the store. The hint line names `trustprune allowlist --file` and the full SHA-256 to put under `fingerprints` in that file. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON.
 
 An unknown `--format` is a usage error (exit 2) and names the valid formats (`json`, `text`).
 
@@ -98,9 +98,9 @@ Pass the target as `--file`, `--url`, or one positional argument. An existing re
 ```
 $ trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
 $ trustprune chain leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
-INDEX  SUBJECT      ISSUER      NOT-AFTER   SHA256
-0      leaf.example ca.example  2027-06-01  <16 hex>
-1      ca.example   ca.example  2027-06-01  <16 hex>
+INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
+0      leaf.example  ca.example  2027-06-01  <16 hex>  -
+1      ca.example    ca.example  2027-06-01  <16 hex>  -
 
 $ trustprune chain --file leaf.pem --untrusted
 $ trustprune chain --file leaf.pem --all
@@ -108,7 +108,7 @@ $ trustprune chain --url example.com --remote
 $ trustprune chain example.com --remote
 ```
 
-The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and label them. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
+The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, the 16-character SHA-256 prefix, and LABELS. LABELS is `-` when none apply. Several labels are comma-separated with no spaces. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and put `untrusted`, `expired`, `not yet valid`, or `blocklisted` in LABELS. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
 
 ## Diff
 
