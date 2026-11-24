@@ -18,7 +18,7 @@ Flags are per-command except `-v`/`--verbose`, which is accepted on every comman
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
-Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name shown by `apps` (`linux`, `darwin`, or `windows`) is also accepted as `--app` and selects the platform store; it is left off the apps list on purpose. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
+Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `java`, `okular`, `openssl`, `poppler`, `ssl` (Darwin `/etc/ssl/cert.pem`). `acrobat` copies `addressbook.acrodata` on backup and restore. `list` prints a read-only AATL, EUTL, and Windows store trust report, or `acrobat: not installed` (exit 0). `add`, `allowlist`, and `connect` print a pruning guide: see [Acrobat](#acrobat) below and [Platforms](platforms.md#acrobat). `foxit` is guide only: see [Foxit](#foxit) below and [Platforms](platforms.md#foxit). `okular` uses NSS when that is the effective signature backend and reports GPG without changes: see [Okular](#okular---app-okular). The OS name (`linux`, `darwin`, or `windows`) is accepted as `--app` and selects the platform store; `apps` lists application stores and does not show that name. `--store` with that name is rejected. An unknown `--app` value fails with exit 1 and an `ERROR:` that lists the valid apps, e.g. `ERROR: unknown app nope (apps: acrobat, certifi, chrome, firefox, foxit, java, okular, openssl, poppler, ssl)`.
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
@@ -34,7 +34,7 @@ Unexpected positional arguments are rejected with exit status 2 before any write
 
 ## apps
 
-List every supported application store plus the system store. The system store is named for the OS (`linux`, `darwin`, or `windows`), matching backup paths under `~/.trustprune/<os>/` (or `~/Library/trustprune/<os>/` on Darwin). For each store, show whether it was found on this machine and the store path. Detection is read-only. Running `apps` also refreshes a 24-hour cache under the user cache directory so `--help` can list which apps were found without probing again.
+List every supported application store. For each store, show whether it was found on this machine and the store path. Detection is read-only. Running `apps` also refreshes a 24-hour cache under the user cache directory so `--help` can list which apps were found without probing again.
 
 ```bash
 trustprune apps
@@ -43,7 +43,7 @@ trustprune apps --format json
 
 | Flag | Meaning |
 |------|---------|
-| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). An installed guide-only app adds `guideOnly: true` (Foxit). JSON `name` for the system store is the OS name (`linux` / `darwin` / `windows`), not `platform`. |
+| `--format json` | Emit a JSON array of `{name, found, path}` objects (default is a header row then one aligned line per store). An installed guide-only app adds `guideOnly: true` (Foxit). |
 
 Default terse output looks like:
 
@@ -56,7 +56,6 @@ java      not-found  -
 certifi   found      /path/to/site-packages/certifi/cacert.pem
 openssl   found      /etc/ssl/certs/ca-certificates.crt
 ssl       not-found  -
-linux     found      /etc/ssl/certs/ca-certificates.crt
 ```
 
 STATUS is `found`, `not-found`, or `guide only`. `guide only` means the app is installed and trustprune will not read or write its trust data. For Foxit, PATH is the install (the `.exe` or the `.app` bundle), not a certificate file. For Acrobat, PATH is `addressbook.acrodata` when that file is found. Acrobat backup and restore copy the file. `list` prints a read-only trust settings report. `add`, `allowlist`, and `connect` print a pruning guide.

@@ -163,9 +163,7 @@ func appsCommand(st *runState) *cli.Command {
 		Usage: "List supported apps and whether each store was found",
 		UsageText: `trustprune apps [--format json]
 
-  List every supported application store plus the system store (named for the
-  OS: linux, darwin, or windows — matching backup paths under ~/.trustprune/<os>/,
-  or ~/Library/trustprune/<os>/ on Darwin), and show whether each was found on
+  List every supported application store and show whether each was found on
   this machine along with its store path.
 
   Detection is read-only and never modifies certificate stores.
@@ -174,9 +172,8 @@ func appsCommand(st *runState) *cli.Command {
     APP       STATUS     PATH
     chrome    found      /home/you/.pki/nssdb
     firefox   not-found  -
-    linux     found      /etc/ssl/certs/ca-certificates.crt
 
-  JSON output (same fields; the system store name is the OS name, not "platform"):
+  JSON output (same fields):
     trustprune apps --format json
 `,
 		Flags: []cli.Flag{

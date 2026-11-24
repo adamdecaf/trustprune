@@ -24,8 +24,8 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-// ListApps prints every supported app store plus the system/OS store, and
-// whether each was found on this machine. Detection is read-only.
+// ListApps prints every supported application store and whether each was
+// found on this machine. Detection is read-only. The platform OS is not a row.
 //
 // format is "json" for a JSON array, or empty/"short" for terse lines.
 func ListApps(format string) error {
