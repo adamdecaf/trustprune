@@ -122,7 +122,7 @@ trustprune list --ui web --allowlist allowlist.json
 
 The header counts kept and dropped certificates. Search matches subject, issuer, or SHA256. Filters cover kept, dropped, expired, expiring within 90 days, and self-signed rows. Sort is by subject, NotAfter, or issuer. Select all and Select none change the keep switch for rows that are currently shown. Validity badges (Valid, Expiring soon, Expired, Not yet valid) are decided when the page is rendered.
 
-In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate.
+In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate. Every `list` format (table, long, json, and the others) uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
 
 ## backup
 

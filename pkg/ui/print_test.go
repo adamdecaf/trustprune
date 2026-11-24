@@ -649,8 +649,15 @@ func TestVerboseTablePathColumn(t *testing.T) {
 }
 
 func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, paths []string) [][]string {
-	rows := make([][]string, len(certs))
-	for i, cert := range certs {
+	ordered := append([]*x509.Certificate(nil), certs...)
+	var orderedPaths []string
+	if paths != nil {
+		orderedPaths = append([]string(nil), paths...)
+	}
+	orderCertsAndPaths(ordered, orderedPaths)
+
+	rows := make([][]string, len(ordered))
+	for i, cert := range ordered {
 		fp := certutil.GetHexSHA256Fingerprint(*cert)
 		subject := truncateColumn(certutil.StringifyPKIXName(cert.Subject), tableColumnWidth)
 		issuer := "="
@@ -668,8 +675,8 @@ func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, p
 		rows[i] = []string{subject, issuer, key, days, preview}
 		if verbose {
 			path := "-"
-			if i < len(paths) && paths[i] != "" {
-				path = paths[i]
+			if i < len(orderedPaths) && orderedPaths[i] != "" {
+				path = orderedPaths[i]
 			}
 			rows[i] = append(rows[i],
 				cert.SerialNumber.String(),
@@ -679,9 +686,6 @@ func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, p
 			)
 		}
 	}
-	sort.Slice(rows, func(i, j int) bool {
-		return strings.ToLower(strings.Join(rows[i], "\t")) < strings.ToLower(strings.Join(rows[j], "\t"))
-	})
 	return rows
 }
 
@@ -790,4 +794,251 @@ func TestJSONCertDaysAndExpired(t *testing.T) {
 	if far.Days != 120 || far.Expired {
 		t.Fatalf("far row: days=%d expired=%v", far.Days, far.Expired)
 	}
+}
+
+type listedCert struct {
+	subject string
+	fp      string
+}
+
+// TestListFormatsShareSubjectFingerprintOrder checks that table, json, and
+// long print the same order: case-insensitive subject, then SHA-256 fingerprint.
+// The shared-subject pair is chosen so DAYS order disagrees with the fingerprint,
+// which is the order the old joined-cell table sort would have used.
+func TestListFormatsShareSubjectFingerprintOrder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	alpha := mustTestCertWithExpiry(t, "alpha", now.Add(300*24*time.Hour))
+	beta := mustTestCertWithExpiry(t, "Beta", now.Add(300*24*time.Hour))
+	zeta := mustTestCertWithExpiry(t, "zeta", now.Add(300*24*time.Hour))
+
+	var sooner, later *x509.Certificate
+	for attempt := 0; attempt < 30; attempt++ {
+		a := mustTestCertWithExpiry(t, "Shared", now.Add(10*24*time.Hour))
+		b := mustTestCertWithExpiry(t, "Shared", now.Add(200*24*time.Hour))
+		fa := certutil.GetHexSHA256Fingerprint(*a)
+		fb := certutil.GetHexSHA256Fingerprint(*b)
+		// "10!" sorts before "200" in the old joined-cell comparison.
+		// Keep the pair where the later certificate has the smaller fingerprint.
+		if fb < fa {
+			sooner, later = a, b
+			break
+		}
+	}
+	if sooner == nil || later == nil {
+		t.Fatal("could not build a fingerprint tie that disagrees with DAYS order")
+	}
+
+	// Reverse of case-insensitive subject order. A byte-wise comparison
+	// would place "Beta" before "alpha".
+	certs := []*x509.Certificate{zeta, beta, later, alpha, sooner}
+	want := []listedCert{
+		{subject: "alpha", fp: certutil.GetHexSHA256Fingerprint(*alpha)},
+		{subject: "Beta", fp: certutil.GetHexSHA256Fingerprint(*beta)},
+		{subject: "Shared", fp: certutil.GetHexSHA256Fingerprint(*later)},
+		{subject: "Shared", fp: certutil.GetHexSHA256Fingerprint(*sooner)},
+		{subject: "zeta", fp: certutil.GetHexSHA256Fingerprint(*zeta)},
+	}
+	for i := 1; i < len(want); i++ {
+		prev, cur := strings.ToLower(want[i-1].subject), strings.ToLower(want[i].subject)
+		if prev > cur || (prev == cur && want[i-1].fp > want[i].fp) {
+			t.Fatalf("fixture order: %+v", want)
+		}
+	}
+	if want[2].fp[:fingerprintPreviewLength] == want[3].fp[:fingerprintPreviewLength] {
+		t.Fatal("shared fingerprint previews collide")
+	}
+
+	for _, format := range []string{"table", "json", "long"} {
+		t.Run(format, func(t *testing.T) {
+			got := listFormatIDs(t, certs, format)
+			if len(got) != len(want) {
+				t.Fatalf("got %d certificates, want %d: %+v", len(got), len(want), got)
+			}
+			for i := range want {
+				if got[i].subject != want[i].subject {
+					t.Errorf("idx %d subject=%q want %q", i, got[i].subject, want[i].subject)
+				}
+				if format == "table" {
+					if len(got[i].fp) != fingerprintPreviewLength || !strings.HasPrefix(want[i].fp, got[i].fp) {
+						t.Errorf("idx %d fingerprint=%q want prefix of %s", i, got[i].fp, want[i].fp)
+					}
+					continue
+				}
+				if got[i].fp != want[i].fp {
+					t.Errorf("idx %d fingerprint=%q want %s", i, got[i].fp, want[i].fp)
+				}
+			}
+		})
+	}
+}
+
+func TestTablePrinterSortKeepsPathsAligned(t *testing.T) {
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	t.Run("case", func(t *testing.T) {
+		zulu := mustTestCertWithExpiry(t, "Zulu", now.Add(100*24*time.Hour))
+		alpha := mustTestCertWithExpiry(t, "alpha", now.Add(120*24*time.Hour))
+		certs := []*x509.Certificate{zulu, alpha}
+		paths := []string{"z.pem", "a.pem"}
+		out := verboseTable(t, certs, paths, now)
+		if strings.Index(out, "alpha") > strings.Index(out, "Zulu") {
+			t.Fatalf("case-insensitive order:\n%s", out)
+		}
+		assertLineHas(t, out, "alpha", "a.pem")
+		assertLineHas(t, out, "Zulu", "z.pem")
+		if paths[0] != "a.pem" || paths[1] != "z.pem" {
+			t.Fatalf("paths=%v", paths)
+		}
+	})
+
+	t.Run("fingerprint", func(t *testing.T) {
+		a := mustTestCertWithExpiry(t, "Shared", now.Add(100*24*time.Hour))
+		b := mustTestCertWithExpiry(t, "Shared", now.Add(140*24*time.Hour))
+		fa := certutil.GetHexSHA256Fingerprint(*a)
+		fb := certutil.GetHexSHA256Fingerprint(*b)
+		low, high := a, b
+		lowPath, highPath := "low.pem", "high.pem"
+		lowFP, highFP := fa, fb
+		if fb < fa {
+			low, high = b, a
+			lowFP, highFP = fb, fa
+		}
+		certs := []*x509.Certificate{high, low}
+		paths := []string{highPath, lowPath}
+		out := verboseTable(t, certs, paths, now)
+		if strings.Index(out, lowFP) > strings.Index(out, highFP) {
+			t.Fatalf("fingerprint order:\n%s", out)
+		}
+		assertLineHas(t, out, lowFP, lowPath)
+		assertLineHas(t, out, highFP, highPath)
+		if paths[0] != lowPath || paths[1] != highPath {
+			t.Fatalf("paths=%v", paths)
+		}
+	})
+}
+
+func TestListCountDoesNotReorder(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	zeta := mustTestCertWithExpiry(t, "zeta", now.Add(10*24*time.Hour))
+	alpha := mustTestCertWithExpiry(t, "alpha", now.Add(10*24*time.Hour))
+	certs := []*x509.Certificate{zeta, alpha}
+	out, err := captureStdout(t, func() error {
+		return ListCertificatesWithMeta(Meta{}, certs, &Config{Count: true, Format: "table", UI: DefaultUI()})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out != "2\n" {
+		t.Fatalf("count=%q", out)
+	}
+	if certs[0] != zeta || certs[1] != alpha {
+		t.Fatal("count reordered certificates")
+	}
+}
+
+func listFormatIDs(t *testing.T, certs []*x509.Certificate, format string) []listedCert {
+	t.Helper()
+	cp := append([]*x509.Certificate(nil), certs...)
+	out, err := captureStdout(t, func() error {
+		return ListCertificatesWithMeta(Meta{Name: "file"}, cp, &Config{
+			Format:     format,
+			UI:         DefaultUI(),
+			SourcePath: "mem",
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch format {
+	case "table":
+		return tableIDs(t, out)
+	case "json":
+		return jsonIDs(t, out)
+	case "long":
+		return longIDs(t, out)
+	default:
+		t.Fatalf("unknown format %s", format)
+		return nil
+	}
+}
+
+func tableIDs(t *testing.T, out string) []listedCert {
+	t.Helper()
+	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+	if len(lines) < 2 || !strings.Contains(lines[0], "SUBJECT") {
+		t.Fatalf("table:\n%s", out)
+	}
+	got := make([]listedCert, 0, len(lines)-1)
+	for _, line := range lines[1:] {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			t.Fatalf("short row %q", line)
+		}
+		got = append(got, listedCert{subject: fields[0], fp: fields[len(fields)-1]})
+	}
+	return got
+}
+
+func jsonIDs(t *testing.T, out string) []listedCert {
+	t.Helper()
+	var rows []jsonCert
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, out)
+	}
+	got := make([]listedCert, len(rows))
+	for i, row := range rows {
+		got[i] = listedCert{subject: row.Subject, fp: row.SHA256}
+	}
+	return got
+}
+
+func longIDs(t *testing.T, out string) []listedCert {
+	t.Helper()
+	blocks := strings.Split(out, "Certificate\n")
+	got := make([]listedCert, 0, len(blocks))
+	for _, block := range blocks {
+		if strings.TrimSpace(block) == "" {
+			continue
+		}
+		var id listedCert
+		for _, line := range strings.Split(block, "\n") {
+			if rest, ok := strings.CutPrefix(line, "  SHA256 Fingerprint: "); ok {
+				id.fp = rest
+			}
+			if rest, ok := strings.CutPrefix(line, "  Subject: "); ok {
+				id.subject = rest
+			}
+		}
+		if id.subject == "" || id.fp == "" {
+			t.Fatalf("long block:\n%s", block)
+		}
+		got = append(got, id)
+	}
+	return got
+}
+
+func verboseTable(t *testing.T, certs []*x509.Certificate, paths []string, now time.Time) string {
+	t.Helper()
+	var buf bytes.Buffer
+	p := tablePrinter{verbose: true, paths: paths, now: now}
+	if err := p.write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String()
+}
+
+func assertLineHas(t *testing.T, out, marker, path string) {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, marker) {
+			if !strings.Contains(line, path) {
+				t.Fatalf("line with %s missing %s:\n%s", marker, path, line)
+			}
+			return
+		}
+	}
+	t.Fatalf("missing %s:\n%s", marker, out)
 }
