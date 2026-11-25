@@ -63,8 +63,9 @@ func TestChainCLI(t *testing.T) {
 			"16-character prefix",
 			"full 64-character SHA-256",
 			"--app openssl --bundle",
-			"trustprune chain --url example.com --remote",
-			"trustprune chain --url example.com --remote --format json",
+			"trustprune chain --url example.com",
+			"trustprune chain --url example.com --format json",
+			"--url implies --remote",
 			"An incomplete chain exits 1",
 			"missing_issuer",
 			"stopped_at",
@@ -280,16 +281,6 @@ func TestChainCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("local url does not dial", func(t *testing.T) {
-		res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", "https://chain-no-local.invalid")
-		if res.code != 1 {
-			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
-		}
-		if !strings.Contains(res.stdout, "pass --remote") {
-			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
-		}
-	})
-
 	t.Run("positional file matches --file", func(t *testing.T) {
 		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", bundle)
 		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, bundle)
@@ -301,35 +292,22 @@ func TestChainCLI(t *testing.T) {
 		}
 	})
 
-	t.Run("positional host matches --url without remote", func(t *testing.T) {
-		host := "chain-no-local.invalid"
-		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", host)
-		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, host)
-		if pos.code != flagged.code || pos.stdout != flagged.stdout {
-			t.Fatalf("positional host\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
-		}
+	t.Run("positional host without remote does not dial", func(t *testing.T) {
+		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "chain-no-local.invalid")
 		if pos.code != 1 || !strings.Contains(pos.stdout, "pass --remote") {
 			t.Fatalf("code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr)
 		}
 	})
 
-	t.Run("missing path matches --url", func(t *testing.T) {
+	t.Run("missing path positional does not dial", func(t *testing.T) {
 		missing := filepath.Join(t.TempDir(), "missing.pem")
-		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", missing)
 		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, missing)
-		if pos.code != flagged.code || pos.stdout != flagged.stdout {
-			t.Fatalf("missing path\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
-		}
 		assertChainURLNotDialed(t, pos)
 	})
 
-	t.Run("positional directory matches --url", func(t *testing.T) {
+	t.Run("positional directory does not dial", func(t *testing.T) {
 		dir := t.TempDir()
-		flagged := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--url", dir)
 		pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, dir)
-		if pos.code != flagged.code || pos.stdout != flagged.stdout {
-			t.Fatalf("directory\ncode=%d stdout=%q stderr=%q\n--url code=%d stdout=%q stderr=%q", pos.code, pos.stdout, pos.stderr, flagged.code, flagged.stdout, flagged.stderr)
-		}
 		assertChainURLNotDialed(t, pos)
 		// Match only file-read errors. The temp path can itself contain
 		// "directory" because it includes the subtest name.
@@ -372,28 +350,32 @@ func TestChainCLIRemote(t *testing.T) {
 	home := t.TempDir()
 	lots := filepath.Join("testdata", "lots.crt")
 
-	quiet := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, "--url", srv.URL)
-	if quiet.code != 1 || !strings.Contains(quiet.stdout, "pass --remote") {
-		t.Fatalf("code=%d stdout=%s stderr=%s", quiet.code, quiet.stdout, quiet.stderr)
+	// --url implies --remote: a TLS lookup runs without passing --remote.
+	implied := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, "--url", srv.URL)
+	if implied.code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", implied.code, implied.stdout, implied.stderr)
 	}
-	if strings.Contains(quiet.stdout, "INDEX") {
-		t.Fatalf("wrote a table without --remote:\n%s", quiet.stdout)
+	if !strings.Contains(implied.stdout, "INDEX") || !strings.Contains(implied.stdout, "SHA256") {
+		t.Fatalf("remote chain:\n%s", implied.stdout)
 	}
-	quietPos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, srv.URL)
-	if quietPos.code != quiet.code || quietPos.stdout != quiet.stdout {
-		t.Fatalf("positional without --remote\ncode=%d stdout=%s stderr=%s\n--url stdout=%s", quietPos.code, quietPos.stdout, quietPos.stderr, quiet.stdout)
+	if strings.Contains(implied.stdout, "incomplete:") {
+		t.Fatalf("self-signed httptest leaf marked incomplete:\n%s", implied.stdout)
 	}
 
 	res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, "--url", srv.URL, "--remote")
-	if res.code != 0 {
-		t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	if res.code != implied.code || res.stdout != implied.stdout {
+		t.Fatalf("--remote with --url\ncode=%d stdout=%s stderr=%s\nimplied stdout=%s", res.code, res.stdout, res.stderr, implied.stdout)
 	}
-	if !strings.Contains(res.stdout, "INDEX") || !strings.Contains(res.stdout, "SHA256") {
-		t.Fatalf("remote chain:\n%s", res.stdout)
+
+	// A positional URL still needs --remote to dial.
+	quietPos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, srv.URL)
+	if quietPos.code != 1 || !strings.Contains(quietPos.stdout, "pass --remote") {
+		t.Fatalf("positional without --remote code=%d stdout=%s stderr=%s", quietPos.code, quietPos.stdout, quietPos.stderr)
 	}
-	if strings.Contains(res.stdout, "incomplete:") {
-		t.Fatalf("self-signed httptest leaf marked incomplete:\n%s", res.stdout)
+	if strings.Contains(quietPos.stdout, "INDEX") {
+		t.Fatalf("positional wrote a table without --remote:\n%s", quietPos.stdout)
 	}
+
 	pos := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", lots, srv.URL, "--remote")
 	if pos.code != res.code || pos.stdout != res.stdout {
 		t.Fatalf("positional --remote\ncode=%d stdout=%s stderr=%s\n--url stdout=%s", pos.code, pos.stdout, pos.stderr, res.stdout)
