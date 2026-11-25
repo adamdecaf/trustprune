@@ -349,10 +349,11 @@ func typedFlagToken(args []string, name string, c *cli.Command) string {
 }
 
 // argsAfterCommand returns the arguments after the failing subcommand's
-// name, or an alias. A root command, a missing name, or a bare "--"
-// before the command leaves args unchanged.
+// name, or an alias. The root command, a missing name, or a bare "--"
+// before the command leaves args unchanged, so a trailing operand that
+// equals the program name cannot hide a rejected root flag.
 func argsAfterCommand(args []string, c *cli.Command) []string {
-	if c == nil {
+	if c == nil || c.Root() == c {
 		return args
 	}
 	names := make(map[string]struct{})

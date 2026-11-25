@@ -16,7 +16,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -63,6 +65,14 @@ func TestCLIExitCodes(t *testing.T) {
 		assertUsageError(t, res, "unknown flag -bogus")
 		if strings.Contains(res.stderr, "unknown flag --bogus") {
 			t.Fatalf("added a dash: stderr=%q", res.stderr)
+		}
+	})
+
+	t.Run("unknown flag is not lost to a trailing program name", func(t *testing.T) {
+		res := runCLI(t, bin, home, "-bogus", "trustprune")
+		assertUsageError(t, res, "unknown flag -bogus")
+		if strings.Contains(res.stderr, "unknown flag --bogus") {
+			t.Fatalf("reported the trailing operand instead of the flag: stderr=%q", res.stderr)
 		}
 	})
 
@@ -409,10 +419,7 @@ func usageBlock(out string) string {
 }
 
 func TestRewriteUsageErrorDashStyle(t *testing.T) {
-	fileCmd := &cli.Command{
-		Name:  "list",
-		Flags: []cli.Flag{&cli.StringFlag{Name: "file"}},
-	}
+	rootCmd, fileCmd := setupRootAndList(t)
 	cases := []struct {
 		name string
 		msg  string
@@ -476,6 +483,20 @@ func TestRewriteUsageErrorDashStyle(t *testing.T) {
 			args: []string{"trustprune", "--V", "list", "-V"},
 			cmd:  fileCmd,
 			want: "unknown flag -V",
+		},
+		{
+			name: "trailing program name is not the command",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "-bogus", "trustprune"},
+			cmd:  rootCmd,
+			want: "unknown flag -bogus",
+		},
+		{
+			name: "path invocation with trailing program name",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"./trustprune", "-bogus", "trustprune"},
+			cmd:  rootCmd,
+			want: "unknown flag -bogus",
 		},
 		{
 			name: "required flag unchanged",
@@ -585,4 +606,35 @@ func TestFinishRunUsagePaths(t *testing.T) {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
 	})
+}
+
+// setupRootAndList builds a tiny command tree and runs it once so urfave
+// attaches list to the root. Subcommand cases need that parent link so
+// argsAfterCommand slices after the command name.
+func setupRootAndList(t *testing.T) (root, list *cli.Command) {
+	t.Helper()
+	list = &cli.Command{
+		Name:  "list",
+		Flags: []cli.Flag{&cli.StringFlag{Name: "file"}},
+		Action: func(context.Context, *cli.Command) error {
+			return nil
+		},
+	}
+	root = &cli.Command{
+		Name:     "trustprune",
+		Commands: []*cli.Command{list},
+		Action: func(context.Context, *cli.Command) error {
+			return nil
+		},
+		Writer:         io.Discard,
+		ErrWriter:      io.Discard,
+		ExitErrHandler: func(context.Context, *cli.Command, error) {},
+	}
+	if err := root.Run(context.Background(), []string{"trustprune"}); err != nil {
+		t.Fatal(err)
+	}
+	if list.Root() != root {
+		t.Fatal("list should be attached to the root")
+	}
+	return root, list
 }
