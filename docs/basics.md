@@ -143,7 +143,7 @@ Compared fields for a single certificate are subject, issuer, serial, validity, 
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `--app` flag. `--out <path>` writes that formatted output to a file for every format and for `--count`. Stdout stays empty.
 
-Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise.
+Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Every list format, including this table, uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
 
 ```
 $ trustprune list

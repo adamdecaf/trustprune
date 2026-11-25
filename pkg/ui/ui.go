@@ -21,6 +21,8 @@ import (
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 type uiface func(certs []*x509.Certificate, cfg *Config) error
@@ -91,6 +93,11 @@ type Meta struct {
 	Path    string
 }
 
+// ListCertificatesWithMeta prints certs using cfg.
+// Except for count output, it reorders certs in place before writing:
+// case-insensitive subject, then SHA-256 fingerprint. Every format that
+// writes certificates (table, long, json, openssl, observatory, and web)
+// sees that order.
 func ListCertificatesWithMeta(meta Meta, certs []*x509.Certificate, cfg *Config) error {
 	if cfg != nil && cfg.SourcePath == "" && meta.Path != "" {
 		c := *cfg
@@ -116,6 +123,9 @@ func ListCertificatesWithMeta(meta Meta, certs []*x509.Certificate, cfg *Config)
 	if len(certs) == 0 {
 		return errors.New("no certificates to display")
 	}
+
+	// One order for every format that writes certificates. Count returned above.
+	certutil.Sort(certs)
 
 	if isObservatory(cfg.Format) {
 		return writeObservatoryReport(meta, certs, cfg)
