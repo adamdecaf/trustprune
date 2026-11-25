@@ -620,11 +620,11 @@ func TestFormatConnectJSON(t *testing.T) {
 				TLSVersion: "tls1.3",
 				Verified:   true,
 				Root:       connectJSONRoot{Subject: "Root CA", SHA256: rootSHA},
-				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: jsonTimeUTC(leafExpires)},
 				Chain: []connectJSONChain{
-					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
-					{Subject: "Mid", Issuer: "O=Example Org", NotAfter: "2030-01-02", SHA256: midSHA},
-					{Subject: "Root CA", Issuer: "Root CA", NotAfter: "2035-12-31", SHA256: rootSHA},
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: jsonTimeUTC(leafExpires), SHA256: leafSHA},
+					{Subject: "Mid", Issuer: "O=Example Org", NotAfter: jsonTimeUTC(midExpires), SHA256: midSHA},
+					{Subject: "Root CA", Issuer: "Root CA", NotAfter: jsonTimeUTC(rootExpires), SHA256: rootSHA},
 				},
 			},
 		},
@@ -640,10 +640,10 @@ func TestFormatConnectJSON(t *testing.T) {
 				TLSVersion: "tls1.2",
 				Verified:   true,
 				Root:       connectJSONRoot{Subject: "O=Example Org", SHA256: rootSHA},
-				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: jsonTimeUTC(leafExpires)},
 				Chain: []connectJSONChain{
-					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
-					{Subject: "O=Example Org", Issuer: "Root CA", NotAfter: "2035-12-31", SHA256: rootSHA},
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: jsonTimeUTC(leafExpires), SHA256: leafSHA},
+					{Subject: "O=Example Org", Issuer: "Root CA", NotAfter: jsonTimeUTC(rootExpires), SHA256: rootSHA},
 				},
 			},
 		},
@@ -659,9 +659,9 @@ func TestFormatConnectJSON(t *testing.T) {
 				TLSVersion: "tls1.3",
 				Verified:   true,
 				Root:       connectJSONRoot{Subject: "leaf.example", SHA256: leafSHA},
-				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: "2027-03-03"},
+				Leaf:       connectJSONLeaf{Subject: "leaf.example", NotAfter: jsonTimeUTC(leafExpires)},
 				Chain: []connectJSONChain{
-					{Subject: "leaf.example", Issuer: "Mid", NotAfter: "2027-03-03", SHA256: leafSHA},
+					{Subject: "leaf.example", Issuer: "Mid", NotAfter: jsonTimeUTC(leafExpires), SHA256: leafSHA},
 				},
 			},
 		},
@@ -1082,7 +1082,7 @@ func TestFormatConnectPresented(t *testing.T) {
 			t.Fatalf("chain = %+v", doc.PresentedChain)
 		}
 		if doc.PresentedChain[0] != (connectPresentedCert{
-			Subject: "leaf.example", Issuer: "ca.example", NotAfter: "2030-01-01", SHA256: leafFP, InStore: false,
+			Subject: "leaf.example", Issuer: "ca.example", NotAfter: jsonTimeUTC(leafExpires), SHA256: leafFP, InStore: false,
 		}) {
 			t.Fatalf("leaf = %+v", doc.PresentedChain[0])
 		}

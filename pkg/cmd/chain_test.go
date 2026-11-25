@@ -463,8 +463,8 @@ func TestBuildChainJSON(t *testing.T) {
 		if len(doc.Chain) != 2 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
-		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "ca.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), nil)
-		assertChainJSONCert(t, doc.Chain[1], 1, "ca.example", "ca.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), nil)
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "ca.example", jsonTimeUTC(leaf.NotAfter), certutil.GetHexSHA256Fingerprint(*leaf), nil)
+		assertChainJSONCert(t, doc.Chain[1], 1, "ca.example", "ca.example", jsonTimeUTC(ca.NotAfter), certutil.GetHexSHA256Fingerprint(*ca), nil)
 		if !strings.Contains(out, `"labels": []`) {
 			t.Fatalf("empty labels not encoded as []:\n%s", out)
 		}
@@ -498,8 +498,8 @@ func TestBuildChainJSON(t *testing.T) {
 		if strings.Contains(doc.Chain[0].Subject, "(") || strings.Contains(doc.Chain[1].Subject, "(") {
 			t.Fatalf("subject includes label suffix:\n%s", out)
 		}
-		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
-		assertChainJSONCert(t, doc.Chain[1], 1, "priv.example", "priv.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), []string{"untrusted", "expired", "blocklisted"})
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", jsonTimeUTC(leaf.NotAfter), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
+		assertChainJSONCert(t, doc.Chain[1], 1, "priv.example", "priv.example", jsonTimeUTC(ca.NotAfter), certutil.GetHexSHA256Fingerprint(*ca), []string{"untrusted", "expired", "blocklisted"})
 		assertChainJSONIndent(t, out, doc)
 	})
 
@@ -522,7 +522,7 @@ func TestBuildChainJSON(t *testing.T) {
 		if len(doc.Chain) != 2 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
-		assertChainJSONCert(t, doc.Chain[1], 1, "future.example", "future.example", ca.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*ca), []string{"not yet valid"})
+		assertChainJSONCert(t, doc.Chain[1], 1, "future.example", "future.example", jsonTimeUTC(ca.NotAfter), certutil.GetHexSHA256Fingerprint(*ca), []string{"not yet valid"})
 	})
 
 	t.Run("incomplete", func(t *testing.T) {
@@ -545,7 +545,7 @@ func TestBuildChainJSON(t *testing.T) {
 		if len(doc.Chain) != 1 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), out)
 		}
-		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", leaf.NotAfter.UTC().Format(connectDateLayout), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
+		assertChainJSONCert(t, doc.Chain[0], 0, "leaf.example", "priv.example", jsonTimeUTC(leaf.NotAfter), certutil.GetHexSHA256Fingerprint(*leaf), []string{})
 		if !strings.Contains(out, `"labels": []`) {
 			t.Fatalf("empty labels not encoded as []:\n%s", out)
 		}

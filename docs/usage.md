@@ -452,7 +452,7 @@ The default table uses trusted, in-date certificates that are not on the offline
 
 An incomplete chain prints a note and names the flags that would include a skipped issuer. That note is text only.
 
-`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (the display name), `issuer`, `not_after` (UTC `YYYY-MM-DD`), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. `complete` is always present: `true` when the chain reaches a self-signed certificate, `false` when it does not. When the walk stopped because no issuer was found, `missing_issuer` is the issuer name of the last certificate included (the same string as that certificate's `issuer`). Cycle and too-long chains omit `missing_issuer`. `stopped_at` is the display name of the last certificate found. It is set whenever `complete` is false and omitted when `complete` is true. JSON has no `incomplete` field.
+`--format json` prints one object. `chain` is leaf-first. Each certificate has `index`, `subject` (the display name), `issuer`, `not_after` (UTC RFC 3339), the full `sha256` fingerprint, and `labels` (`untrusted`, `expired`, `not yet valid`, `blocklisted`). `labels` is an empty array when none apply. `complete` is always present: `true` when the chain reaches a self-signed certificate, `false` when it does not. When the walk stopped because no issuer was found, `missing_issuer` is the issuer name of the last certificate included (the same string as that certificate's `issuer`). Cycle and too-long chains omit `missing_issuer`. `stopped_at` is the display name of the last certificate found. It is set whenever `complete` is false and omitted when `complete` is true. JSON has no `incomplete` field.
 
 Exit status is 0 when the chain is complete and 1 when `complete` is false. The report goes to stdout and is not an `ERROR:` line. A file that cannot be read, a bad URL, and other failures exit 1 with `ERROR:` on stdout.
 
@@ -481,8 +481,8 @@ INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
 ```json
 {
   "chain": [
-    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []},
-    {"index": 1, "subject": "ca.example", "issuer": "ca.example", "not_after": "2027-06-01", "sha256": "<64 hex>", "labels": []}
+    {"index": 0, "subject": "leaf.example", "issuer": "ca.example", "not_after": "2027-06-01T00:00:00Z", "sha256": "<64 hex>", "labels": []},
+    {"index": 1, "subject": "ca.example", "issuer": "ca.example", "not_after": "2027-06-01T00:00:00Z", "sha256": "<64 hex>", "labels": []}
   ],
   "complete": true
 }
@@ -554,14 +554,14 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
   "tls_version": "tls1.3",
   "verified": true,
   "root": {"subject": "<name>", "sha256": "<64 hex>"},
-  "leaf": {"subject": "<leaf>", "not_after": "YYYY-MM-DD"},
+  "leaf": {"subject": "<leaf>", "not_after": "<RFC 3339 UTC>"},
   "chain": [
-    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "YYYY-MM-DD", "sha256": "<64 hex>"}
+    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "<RFC 3339 UTC>", "sha256": "<64 hex>"}
   ]
 }
 ```
 
-`chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` uses the same UTC date as the text line.
+`chain` is leaf-first and includes the trust anchor. JSON `sha256` values are the full fingerprint. `verified` is true after a successful handshake. `not_after` is UTC RFC 3339. Text `leaf-expires` and the table `NOT-AFTER` column stay `YYYY-MM-DD`.
 
 A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
 
@@ -585,7 +585,7 @@ ERROR: https://untrusted.example: unknown authority
   "tls_version": "tls1.3",
   "verified": false,
   "presented_chain": [
-    {"subject": "leaf.example", "issuer": "ca.example", "not_after": "2030-01-01", "sha256": "<64 hex>", "in_store": false}
+    {"subject": "leaf.example", "issuer": "ca.example", "not_after": "2030-01-01T00:00:00Z", "sha256": "<64 hex>", "in_store": false}
   ]
 }
 ```
