@@ -430,3 +430,82 @@ func TestAllowlist_ToFileFormat(t *testing.T) {
 		t.Fatalf("yaml round-trip: %+v", al2)
 	}
 }
+
+func TestAllowlist_JSONFingerprintsKey(t *testing.T) {
+	al := Allowlist{Fingerprints: []string{"abc"}, Countries: []string{"US"}}
+	raw, err := json.Marshal(al)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"fingerprints"`)) || bytes.Contains(raw, []byte(`"Fingerprints"`)) {
+		t.Fatalf("marshal = %s", raw)
+	}
+	if !bytes.Contains(raw, []byte(`"Countries"`)) {
+		t.Fatalf("Countries key changed: %s", raw)
+	}
+
+	path := filepath.Join(t.TempDir(), "out.json")
+	if err := al.ToFile(path); err != nil {
+		t.Fatal(err)
+	}
+	fileRaw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(fileRaw, []byte(`"fingerprints"`)) || bytes.Contains(fileRaw, []byte(`"Fingerprints"`)) {
+		t.Fatalf("ToFile = %s", fileRaw)
+	}
+	if !bytes.Contains(fileRaw, []byte(`"Countries"`)) {
+		t.Fatalf("Countries key changed: %s", fileRaw)
+	}
+}
+
+func TestAllowlist_LegacyFingerprintsKey(t *testing.T) {
+	const old = `{"Fingerprints":["abc"],"Countries":["US"]}`
+	var decoded Allowlist
+	if err := json.Unmarshal([]byte(old), &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(decoded.Fingerprints, []string{"abc"}) {
+		t.Fatalf("unmarshal = %+v", decoded)
+	}
+	if !reflect.DeepEqual(decoded.Countries, []string{"US"}) {
+		t.Fatalf("countries = %q", decoded.Countries)
+	}
+
+	path := filepath.Join(t.TempDir(), "old.json")
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fromFile, err := FromFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fromFile, decoded) {
+		t.Fatalf("FromFile = %+v", fromFile)
+	}
+
+	var both Allowlist
+	if err := json.Unmarshal([]byte(`{"fingerprints":[],"Fingerprints":["abc"]}`), &both); err != nil {
+		t.Fatal(err)
+	}
+	if both.Fingerprints == nil || len(both.Fingerprints) != 0 {
+		t.Fatalf("empty fingerprints should win, got %#v", both.Fingerprints)
+	}
+
+	var nullKey Allowlist
+	if err := json.Unmarshal([]byte(`{"fingerprints":null,"Fingerprints":["abc"]}`), &nullKey); err != nil {
+		t.Fatal(err)
+	}
+	if nullKey.Fingerprints != nil {
+		t.Fatalf("null fingerprints should win, got %#v", nullKey.Fingerprints)
+	}
+
+	var onlyNew Allowlist
+	if err := json.Unmarshal([]byte(`{"fingerprints":["def"]}`), &onlyNew); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(onlyNew.Fingerprints, []string{"def"}) {
+		t.Fatalf("got %#v", onlyNew.Fingerprints)
+	}
+}

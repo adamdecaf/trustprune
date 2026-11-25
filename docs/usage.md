@@ -14,7 +14,7 @@ nav_order: 4
 {:toc}
 </details>
 
-Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
+Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -22,7 +22,7 @@ Supported `--app` values: `acrobat`, `certifi`, `chrome`, `firefox`, `foxit`, `j
 
 Running `trustprune` with no subcommand prints the usage text and exits with status 0. `-h`, `--help`, `trustprune help`, and `trustprune <command> -h` also exit 0.
 
-Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix. `diff` also exits 1 when the certificates differ; that report is the command output and has no `ERROR:` prefix.
+Usage errors (unknown flag, unknown command, stray positional args, missing required flag) exit 2. The message goes to stderr, starts with `ERROR:`, and the next line is a hint to run `--help` (that hint is not an `ERROR:` line). An unknown flag is echoed as typed: `-foo` is reported as `unknown flag -foo` and `--foo` as `unknown flag --foo`. Runtime errors stay on stdout, exit 1, and keep the `ERROR:` prefix. `diff` also exits 1 when the certificates differ; that report is the command output and has no `ERROR:` prefix.
 
 ```text
 ERROR: unknown flag --foo
@@ -86,7 +86,7 @@ The on-disk Trusted Certificates list is **unverified**. Paths, the admin policy
 
 ## list
 
-Show trusted certificates from the platform store, an app store, a local file, or a remote URL.
+Show trusted certificates from the platform store, an app store, a local file, or a PEM or DER certificate bundle downloaded from a URL. `--url` downloads that bundle. It does not look up a live site.
 
 ```bash
 trustprune list
@@ -99,6 +99,7 @@ trustprune list --app poppler --store /path/to/nssdb
 trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
+# Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 trustprune list --ui web --allowlist allowlist.json
 ```
@@ -109,7 +110,7 @@ trustprune list --ui web --allowlist allowlist.json
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory instead of discovery. `list` output shows the chosen path |
 | `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar). Cannot be combined with `--app`; use `--store` to override a java, certifi, or poppler path |
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
-| `--url <endpoint>` | Download and list (PEM or Mozilla `certdata.txt`) |
+| `--url <endpoint>` | Download a PEM or DER certificate bundle and list it (not a TLS site lookup). Mozilla `certdata.txt` is also accepted. To see a site's certificate chain, run `trustprune chain <host> --remote` |
 | `--count` | Print only the number of certificates |
 | `--format <fmt>` | Output format: `table` (default), `long`, `json`, `openssl`, `observatory`. `long` is the multi-line dump. An unknown name is a usage error (exit 2) whose message lists the valid formats |
 | `--out <path>` | Write the formatted output to `<path>` instead of stdout for every `--format` and for `--count`. Stdout stays empty |
@@ -121,7 +122,7 @@ trustprune list --ui web --allowlist allowlist.json
 
 The header counts kept and dropped certificates. Search matches subject, issuer, or SHA256. Filters cover kept, dropped, expired, expiring within 90 days, and self-signed rows. Sort is by subject, NotAfter, or issuer. Select all and Select none change the keep switch for rows that are currently shown. Validity badges (Valid, Expiring soon, Expired, Not yet valid) are decided when the page is rendered.
 
-In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate.
+In non-verbose table output, the DAYS cell shows `expired` when `NotAfter` is before now, `N!` when 0 ≤ days left < 90, and the plain day count otherwise. `-v` keeps numeric days on that same table. `--format json` keeps numeric `days` and adds boolean `expired`. `--format long` prints one multi-line block per certificate. Every `list` format (table, long, json, and the others) uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
 
 ## backup
 
@@ -382,6 +383,8 @@ countries:
 
 Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). To write a PEM bundle or Java truststore from a store and leave that store unchanged, use [`trustprune create`](#create). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
 
+The summary table uses headers `CA`, `SHA256-FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`, with two-space column gaps, so a CA name that contains spaces stays in the CA column. The fingerprint column shows the first 16 characters; `-v` prints the full fingerprint. JSON allowlists use a lowercase `fingerprints` key. Files with the older `"Fingerprints"` key are still read. YAML uses `fingerprints` as well.
+
 ```bash
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com --presets linux
@@ -560,7 +563,7 @@ ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-D
 
 A failure is still one short `ERROR:` line, and the exit status stays 1. `-v` also prints the chain the server presented when verification fails (unknown authority, an expired certificate, a hostname mismatch, and other certificate verification errors). The chain is taken from that failed handshake. If the error has no certificates, a second handshake may be tried; if that is also refused, `-v` prints only the `ERROR:` line. A refused connection or other dial error stays the short line only.
 
-The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. When any presented certificate is missing, a hint names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it.
+The presented chain is leaf first, taken from the server's TLS certificates. Columns match the success table: INDEX, SUBJECT, ISSUER, NOT-AFTER, and the 16-character SHA-256 prefix. A certificate whose SHA-256 is not in the selected store has ` (not in store)` appended to its subject. The add hint is printed only when verification fails with an unknown authority. It names `trustprune add --file` and the full SHA-256 of the last missing certificate (closest to the root). If connect was run with `--app` or `--store`, the hint includes those flags so the CA is added to the same store. `allowlist` only keeps or removes certificates already in the store; it does not add a missing CA. After the CA is in the store, include that SHA-256 under `fingerprints` in an allowlist file so a later allowlist run keeps it. An expired site certificate gets a short note that adding a root won't help. A certificate that is not yet valid gets a separate note and is not called expired. Other verification errors, such as a hostname mismatch, print the chain with no add hint and no expiry note.
 
 ```text
 presented chain:
@@ -690,9 +693,10 @@ Bundle JSON sets `mode` to `bundle`. `removed` and `added` are arrays of `subjec
 ```bash
 trustprune version
 trustprune --version
+trustprune -V
 ```
 
-Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` works the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag). `-v` is not a version alias; `-v`/`--verbose` is verbose on every command and before the subcommand (`trustprune -v list …`).
+Prints the tool version and Go runtime version. `trustprune --version` is an alias of `trustprune version` and prints the same output. It is a root flag (`-version` and `-V` work the same way). Subcommands do not accept it (`trustprune list --version` is an unknown flag, and `trustprune list -V` reports `unknown flag -V`). `-v` is not a version alias; `-v`/`--verbose` is verbose on every command and before the subcommand (`trustprune -v list …`).
 
 ## Debugging
 

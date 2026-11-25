@@ -399,10 +399,12 @@ application are loaded and used for the connection.
 
   -v after a verification failure prints the chain from that failed handshake (same columns).
   A subject ending in " (not in store)" is missing from the selected store.
+  The add/allowlist hint is printed only when verification fails with an unknown authority.
   allowlist only keeps or removes certificates already in the store; it does not add a missing CA.
   Add a missing CA with add --file. After it is in the store, include its sha256 under fingerprints in an allowlist file so a later allowlist run keeps it.
     to add a missing CA, run: trustprune add --file <cert>
     after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
+  An expired site certificate gets a short note that adding a root won't help.
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
@@ -769,7 +771,8 @@ func listCommand(st *runState) *cli.Command {
   List certificates in an explicit OpenSSL PEM CA bundle
     trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 
-  List certificates from a URL
+  Download a PEM or DER certificate bundle from a URL and list it (not a TLS site lookup).
+  Mozilla certdata.txt is also accepted.
     trustprune list --url <endpoint>
 
 FORMATTING
@@ -811,7 +814,7 @@ APPS
 			flagStore(),
 			flagFile("PEM (or similar) file to list (without --app)", false),
 			flagBundle(),
-			flagURL("download and list certificates from a remote URL"),
+			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),
 			flagListFormat(),
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
@@ -959,7 +962,7 @@ func versionCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:         "version",
 		Usage:        "Show the version of trustprune",
-		UsageText:    getVersion(),
+		UsageText:    "trustprune version",
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
 			printVersion(c.Root().Writer)

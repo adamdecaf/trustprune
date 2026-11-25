@@ -20,22 +20,37 @@ import (
 	"strings"
 )
 
-// sortableCerts is a wrapper around an array of x509 Certificates
-// which implements sorting based on our StringifyPKIXName
-type sortableCerts []*x509.Certificate
-
-func (c sortableCerts) Len() int {
-	return len(c)
-}
-
-func (c sortableCerts) Less(i, j int) bool {
-	return strings.ToLower(StringifyPKIXName(c[i].Subject)) < strings.ToLower(StringifyPKIXName(c[j].Subject))
-}
-
-func (c sortableCerts) Swap(i, j int) {
-	c[i], c[j] = c[j], c[i]
-}
-
+// Sort reorders certs in place. The order is case-insensitive subject
+// (StringifyPKIXName), then the full SHA-256 hex fingerprint
+// (GetHexSHA256Fingerprint). Nil certificates sort first. Certificates
+// that compare equal keep their relative order.
 func Sort(certs []*x509.Certificate) {
-	sort.Sort(sortableCerts(certs))
+	sort.SliceStable(certs, func(i, j int) bool {
+		return Less(certs[i], certs[j])
+	})
+}
+
+// Less reports whether a sorts before b.
+// A nil certificate sorts before a non-nil certificate. Otherwise the
+// order is case-insensitive subject (StringifyPKIXName), then the full
+// SHA-256 hex fingerprint (GetHexSHA256Fingerprint).
+func Less(a, b *x509.Certificate) bool {
+	if a == nil || b == nil {
+		return a == nil && b != nil
+	}
+	as := strings.ToLower(StringifyPKIXName(a.Subject))
+	bs := strings.ToLower(StringifyPKIXName(b.Subject))
+	if as != bs {
+		return as < bs
+	}
+	return fingerprintHex(a) < fingerprintHex(b)
+}
+
+// fingerprintHex is the SHA-256 tiebreaker. A certificate with no raw
+// encoding sorts before one that has a fingerprint.
+func fingerprintHex(c *x509.Certificate) string {
+	if c == nil || len(c.Raw) == 0 {
+		return ""
+	}
+	return GetHexSHA256Fingerprint(*c)
 }

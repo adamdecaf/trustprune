@@ -77,7 +77,7 @@ A handshake failure is one short line, and the exit status stays 1:
 ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 ```
 
-`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The hint line names `trustprune allowlist --file` and the full SHA-256 to put under `fingerprints` in that file. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON.
+`-v` also prints the chain the server presented when verification fails. A subject ending in ` (not in store)` is missing from the selected store. The add/allowlist hint is printed only when verification fails with an unknown authority. It names `trustprune add --file` and, after the CA is in the store, the full SHA-256 to put under `fingerprints` in an allowlist file. An expired site certificate gets a short note that adding a root won't help. `--format json` on that failure adds `presented_chain` (`subject`, `issuer`, `not_after`, `sha256`, `in_store`) and sets `verified` to false. `-v` does not change JSON, and JSON does not include the text hint.
 
 An unknown `--format` is a usage error (exit 2) and names the valid formats (`json`, `text`).
 
@@ -143,7 +143,7 @@ Compared fields for a single certificate are subject, issuer, serial, validity, 
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `--app` flag. `--out <path>` writes that formatted output to a file for every format and for `--count`. Stdout stays empty.
 
-Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise.
+Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Every list format, including this table, uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
 
 ```
 $ trustprune list
@@ -247,7 +247,7 @@ Certificate:
 
 ### URL
 
-`trustprune` can list certificates from a given URL. Supported formats are PEM and [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates). Output uses the same formats as any other list (table by default).
+`trustprune list --url` downloads a PEM or DER certificate bundle from the URL and lists those certificates. It does not look up a live site. Mozilla [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates) is also accepted. Output uses the same formats as any other list (table by default). To see a site's certificate chain, run `trustprune chain <host> --remote`.
 
 ```
 $ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt --format long

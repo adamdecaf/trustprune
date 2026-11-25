@@ -17,6 +17,9 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -256,9 +259,86 @@ func TestOutHelpText(t *testing.T) {
 	if !strings.Contains(list.stdout, "--format long") {
 		t.Fatalf("list help should mention --format long:\n%s", list.stdout)
 	}
+	if !strings.Contains(list.stdout, "PEM or DER certificate bundle") {
+		t.Fatalf("list help should say --url downloads a PEM or DER certificate bundle:\n%s", list.stdout)
+	}
+	if !strings.Contains(list.stdout, "not a TLS site lookup") {
+		t.Fatalf("list help should say --url is not a TLS site lookup:\n%s", list.stdout)
+	}
 	if !strings.Contains(list.stdout, "--allowlist") || !strings.Contains(list.stdout, "--ui web --allowlist") {
 		t.Fatalf("list help missing web allowlist checklist:\n%s", list.stdout)
 	}
+}
+
+func TestListURLBundleCLI(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	t.Run("html", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if _, err := io.WriteString(w, "<!DOCTYPE html><html><body>not certificates</body></html>"); err != nil {
+				t.Errorf("write: %v", err)
+			}
+		}))
+		defer ts.Close()
+
+		res := runCLI(t, bin, home, "list", "--url", ts.URL)
+		if res.code != 1 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if res.stderr != "" {
+			t.Fatalf("stderr=%q", res.stderr)
+		}
+		if !strings.HasPrefix(res.stdout, "ERROR: ") {
+			t.Fatalf("stdout=%q", res.stdout)
+		}
+		if !strings.Contains(res.stdout, ts.URL+" did not return a PEM or DER certificate bundle") {
+			t.Fatalf("stdout=%q", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "trustprune chain <host> --remote") {
+			t.Fatalf("stdout=%q", res.stdout)
+		}
+		if strings.Contains(res.stdout, "no certificates to display") {
+			t.Fatalf("stdout=%q", res.stdout)
+		}
+
+		count := runCLI(t, bin, home, "list", "--url", ts.URL, "--count")
+		if count.code != 1 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", count.code, count.stdout, count.stderr)
+		}
+		if count.stderr != "" {
+			t.Fatalf("stderr=%q", count.stderr)
+		}
+		if strings.TrimSpace(count.stdout) == "0" || strings.Contains(count.stdout, "no certificates to display") {
+			t.Fatalf("stdout=%q", count.stdout)
+		}
+		if !strings.Contains(count.stdout, "did not return a PEM or DER certificate bundle") {
+			t.Fatalf("stdout=%q", count.stdout)
+		}
+	})
+
+	t.Run("pem", func(t *testing.T) {
+		// #nosec G304 -- testdata fixture
+		pem, err := os.ReadFile(filepath.Join("testdata", "example.crt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			if _, err := w.Write(pem); err != nil {
+				t.Errorf("write: %v", err)
+			}
+		}))
+		defer ts.Close()
+
+		res := runCLI(t, bin, home, "list", "--url", ts.URL, "--count")
+		if res.code != 0 {
+			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+		}
+		if strings.TrimSpace(res.stdout) != "1" {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+	})
 }
 
 func TestListAllowlistRequiresWeb(t *testing.T) {
