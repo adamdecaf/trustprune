@@ -161,7 +161,7 @@ trustprune list --app poppler
 trustprune list --app poppler --store /path/to/nssdb   # pdfsig -nssdir; list shows this path
 trustprune list --app okular                           # shows the NSS DB path, or that the backend is GPG
 
-# From a file or Mozilla certdata URL
+# From a file, or a downloaded PEM or DER bundle (Mozilla certdata.txt also works; not a TLS site lookup)
 trustprune list --file example.crt
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 

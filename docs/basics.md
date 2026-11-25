@@ -247,7 +247,7 @@ Certificate:
 
 ### URL
 
-`trustprune` can list certificates from a given URL. Supported formats are PEM and [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates). Output uses the same formats as any other list (table by default).
+`trustprune list --url` downloads a PEM or DER certificate bundle from the URL and lists those certificates. It does not look up a live site. Mozilla [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates) is also accepted. Output uses the same formats as any other list (table by default). To see a site's certificate chain, run `trustprune chain <host> --remote`.
 
 ```
 $ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt --format long

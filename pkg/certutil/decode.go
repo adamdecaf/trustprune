@@ -25,6 +25,7 @@ var (
 	decoders = []decoder{
 		ParsePEM,
 		readNSSCerts,
+		parseDER,
 	}
 )
 
@@ -50,4 +51,12 @@ func readNSSCerts(bs []byte) ([]*x509.Certificate, error) {
 		out = append(out, entry.cert)
 	}
 	return out, nil
+}
+
+func parseDER(bs []byte) ([]*x509.Certificate, error) {
+	cert, err := ParseCertificate(bs)
+	if err != nil {
+		return nil, err
+	}
+	return []*x509.Certificate{cert}, nil
 }
