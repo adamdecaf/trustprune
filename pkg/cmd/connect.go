@@ -45,6 +45,12 @@ const (
 	connectDateLayout = "2006-01-02"
 )
 
+// jsonTimeUTC formats t as UTC RFC 3339 for JSON output.
+// Text tables and error lines keep connectDateLayout (YYYY-MM-DD).
+func jsonTimeUTC(t time.Time) string {
+	return t.UTC().Format(time.RFC3339)
+}
+
 // ConnectOptions controls output from connect.
 // The zero value prints only the one-line summary on success, and only the
 // short error on failure.
@@ -445,7 +451,7 @@ func formatConnectPresentedJSON(rawURL string, chain []*x509.Certificate, versio
 		entries[i] = connectPresentedCert{
 			Subject:  connectName(cert.Subject),
 			Issuer:   connectName(cert.Issuer),
-			NotAfter: cert.NotAfter.UTC().Format(connectDateLayout),
+			NotAfter: jsonTimeUTC(cert.NotAfter),
 			SHA256:   sum,
 			InStore:  ok,
 		}
@@ -539,8 +545,8 @@ type connectJSONChain struct {
 
 // formatConnectJSON formats a successful connect as one JSON object.
 // Verified is always true: a missing chain is an error, not verified:false.
-// sha256 is the full hex SHA-256. not_after is the UTC date (YYYY-MM-DD),
-// the same day the text summary prints. chain is leaf-first and includes
+// sha256 is the full hex SHA-256. not_after is UTC RFC 3339.
+// Text summaries still use YYYY-MM-DD. chain is leaf-first and includes
 // the trust anchor. The result ends with a newline.
 // Verbose is not an input; JSON does not change when -v is set.
 func formatConnectJSON(rawURL string, state *tls.ConnectionState) (string, error) {
@@ -564,7 +570,7 @@ func formatConnectJSON(rawURL string, state *tls.ConnectionState) (string, error
 		entries[i] = connectJSONChain{
 			Subject:  connectName(cert.Subject),
 			Issuer:   connectName(cert.Issuer),
-			NotAfter: cert.NotAfter.UTC().Format(connectDateLayout),
+			NotAfter: jsonTimeUTC(cert.NotAfter),
 			SHA256:   sum,
 		}
 	}

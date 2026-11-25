@@ -53,9 +53,9 @@ $ ./trustprune connect --format json google.com
   "tls_version": "tls1.3",
   "verified": true,
   "root": {"subject": "<name>", "sha256": "<64 hex>"},
-  "leaf": {"subject": "<leaf>", "not_after": "YYYY-MM-DD"},
+  "leaf": {"subject": "<leaf>", "not_after": "<RFC 3339 UTC>"},
   "chain": [
-    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "YYYY-MM-DD", "sha256": "<64 hex>"}
+    {"subject": "<leaf>", "issuer": "<issuer>", "not_after": "<RFC 3339 UTC>", "sha256": "<64 hex>"}
   ]
 }
 
@@ -69,7 +69,7 @@ $ ./trustprune connect --url https://google.com
 ok https://google.com tls1.3 root=<name> sha256=<16 hex> leaf-expires=<YYYY-MM-DD>
 ```
 
-`-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, the 16-character SHA-256 prefix, and LABELS. LABELS is `-` on a verified chain. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is the same UTC `YYYY-MM-DD` date as the text line.
+`-v` prints the verified chain (leaf first) after the summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, the 16-character SHA-256 prefix, and LABELS. LABELS is `-` on a verified chain. `--format json` prints one object and ignores `-v`. SHA-256 values in JSON are the full hex fingerprint. `verified` is true. `chain` is the verified chain, leaf first, through the trust anchor. `not_after` is UTC RFC 3339. Text `leaf-expires` and the table `NOT-AFTER` column stay `YYYY-MM-DD`.
 
 A handshake failure is one short line, and the exit status stays 1:
 
