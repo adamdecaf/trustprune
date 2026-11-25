@@ -272,21 +272,21 @@ func applyCommandNotFound(st *runState, c *cli.Command) {
 }
 
 func onUsageError(_ context.Context, c *cli.Command, err error, _ bool, args []string) error {
-	return usageExit(c, rewriteUsageError(err, args))
+	return usageExit(c, rewriteUsageError(err, args, c))
 }
 
 // rewriteUsageError turns urfave usage errors into trustprune's wording.
 // urfave always reports "flag provided but not defined: -name" with one
 // leading dash. The typed form is taken from args: the first flag token
-// whose name matches (leading dashes stripped, stopping at '='). A bare
-// "--" ends that search. If no token matches, the message stays
-// "unknown flag --name".
-func rewriteUsageError(err error, args []string) string {
+// whose name matches (leading dashes stripped, stopping at '='), skipping
+// values consumed by earlier flags that take a value. A bare "--" ends
+// that search. If no token matches, the message stays "unknown flag --name".
+func rewriteUsageError(err error, args []string, c *cli.Command) string {
 	msg := err.Error()
 	const unknownPrefix = "flag provided but not defined: "
 	if strings.HasPrefix(msg, unknownPrefix) {
 		name := strings.TrimLeft(strings.TrimSpace(strings.TrimPrefix(msg, unknownPrefix)), "-")
-		if typed := typedFlagToken(args, name); typed != "" {
+		if typed := typedFlagToken(args, name, c); typed != "" {
 			return "unknown flag " + typed
 		}
 		return "unknown flag --" + name
@@ -304,12 +304,21 @@ func rewriteUsageError(err error, args []string) string {
 
 // typedFlagToken returns the first flag token in args whose name equals
 // name, without a "=value" suffix, keeping that token's dash prefix.
-// A bare "--" ends the search. An empty result means no match.
-func typedFlagToken(args []string, name string) string {
+// Tokens consumed as values of earlier flags that take a value are
+// skipped, including when that value looks like a flag. --flag=value
+// does not consume the next token. A bare "--" ends the search. An
+// empty result means no match.
+func typedFlagToken(args []string, name string, c *cli.Command) string {
 	if name == "" {
 		return ""
 	}
+	takesValue := flagsTakingValue(c)
+	skipValue := false
 	for _, arg := range args {
+		if skipValue {
+			skipValue = false
+			continue
+		}
 		if arg == "--" {
 			return ""
 		}
@@ -317,15 +326,60 @@ func typedFlagToken(args []string, name string) string {
 			continue
 		}
 		token := arg
+		hasEqual := false
 		if i := strings.IndexByte(token, '='); i >= 0 {
 			token = token[:i]
+			hasEqual = true
 		}
-		if strings.TrimLeft(token, "-") != name {
+		flagName := strings.TrimLeft(token, "-")
+		if takes, ok := takesValue[flagName]; ok {
+			if takes && !hasEqual {
+				skipValue = true
+			}
+			continue
+		}
+		if flagName != name {
 			continue
 		}
 		return token
 	}
 	return ""
+}
+
+// flagsTakingValue maps flag names (no leading dashes) to whether that
+// flag consumes the next argument. The map includes c's flags and
+// persistent flags from its ancestors. Local flags on a parent are omitted.
+func flagsTakingValue(c *cli.Command) map[string]bool {
+	takes := make(map[string]bool)
+	if c == nil {
+		return takes
+	}
+	for i, cmd := range c.Lineage() {
+		addFlagsTakingValue(takes, cmd.Flags, i > 0)
+		for _, grp := range cmd.MutuallyExclusiveFlags {
+			for _, fs := range grp.Flags {
+				addFlagsTakingValue(takes, fs, i > 0)
+			}
+		}
+	}
+	return takes
+}
+
+func addFlagsTakingValue(takes map[string]bool, flags []cli.Flag, skipLocal bool) {
+	for _, f := range flags {
+		if skipLocal {
+			if lf, ok := f.(cli.LocalFlag); ok && lf.IsLocal() {
+				continue
+			}
+		}
+		tv := false
+		if df, ok := f.(cli.DocGenerationFlag); ok {
+			tv = df.TakesValue()
+		}
+		for _, name := range f.Names() {
+			takes[name] = tv
+		}
+	}
 }
 
 func usageExit(c *cli.Command, msg string) error {

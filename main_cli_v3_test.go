@@ -66,6 +66,14 @@ func TestCLIExitCodes(t *testing.T) {
 		}
 	})
 
+	t.Run("unknown flag after value is the rejected token", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", "-bogus", "--bogus")
+		assertUsageError(t, res, "unknown flag --bogus")
+		if strings.Contains(res.stderr, "unknown flag -bogus") {
+			t.Fatalf("reported the --file value: stderr=%q", res.stderr)
+		}
+	})
+
 	t.Run("whitelist is unknown command", func(t *testing.T) {
 		res := runCLI(t, bin, home, "whitelist")
 		assertUsageError(t, res, `unknown command "whitelist"`)
@@ -392,10 +400,15 @@ func usageBlock(out string) string {
 }
 
 func TestRewriteUsageErrorDashStyle(t *testing.T) {
+	fileCmd := &cli.Command{
+		Name:  "list",
+		Flags: []cli.Flag{&cli.StringFlag{Name: "file"}},
+	}
 	cases := []struct {
 		name string
 		msg  string
 		args []string
+		cmd  *cli.Command
 		want string
 	}{
 		{
@@ -435,6 +448,20 @@ func TestRewriteUsageErrorDashStyle(t *testing.T) {
 			want: "unknown flag -bogus",
 		},
 		{
+			name: "value of a flag is not the rejected token",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--file", "-bogus", "--bogus"},
+			cmd:  fileCmd,
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "equals form does not consume the next token",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--file=-bogus", "--bogus"},
+			cmd:  fileCmd,
+			want: "unknown flag --bogus",
+		},
+		{
 			name: "required flag unchanged",
 			msg:  `Required flag "file" not set`,
 			args: nil,
@@ -443,7 +470,7 @@ func TestRewriteUsageErrorDashStyle(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := rewriteUsageError(errors.New(tc.msg), tc.args)
+			got := rewriteUsageError(errors.New(tc.msg), tc.args, tc.cmd)
 			if got != tc.want {
 				t.Fatalf("got %q want %q", got, tc.want)
 			}
