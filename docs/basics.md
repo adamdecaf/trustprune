@@ -164,7 +164,7 @@ EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908
 ...
 ```
 
-`--format long` prints each certificate as a multi-line dump. Empty optional fields stay hidden.
+`--format long` prints each certificate as a multi-line dump. Empty optional fields stay hidden. `NotBefore` and `NotAfter` are UTC RFC3339, each on its own line.
 
 ```
 $ trustprune list --format long
@@ -173,7 +173,8 @@ Certificate
   SerialNumber: 946069240
   Subject: Entrust.net Certification Authority (2048)
   Issuer: Entrust.net Certification Authority (2048)
-  NotBefore: 1999-12-24T17:50:51Z | NotAfter: 2029-07-24T14:15:12Z
+  NotBefore: 1999-12-24T17:50:51Z
+  NotAfter: 2029-07-24T14:15:12Z
   KEY: RSA-2048
   DAYS: 1300
   IsCA: true
@@ -256,7 +257,8 @@ Certificate
   SerialNumber: 4835703278459707669005204
   Subject: GlobalSign Root CA
   Issuer: GlobalSign Root CA
-  NotBefore: 1998-09-01T12:00:00Z | NotAfter: 2028-01-28T12:00:00Z
+  NotBefore: 1998-09-01T12:00:00Z
+  NotAfter: 2028-01-28T12:00:00Z
   IsCA: true
 ...
 ```
