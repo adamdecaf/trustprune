@@ -75,7 +75,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if strings.Contains(out, "\nok ") || strings.HasPrefix(out, "ok ") {
 			t.Fatalf("failure reported success:\n%s", out)
 		}
-		table, ferr := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, "", "")
+		table, ferr := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, x509.UnknownAuthorityError{}, "", "")
 		if ferr != nil {
 			t.Fatal(ferr)
 		}
@@ -233,7 +233,7 @@ func TestConnectPresentedChain(t *testing.T) {
 		if err == nil || err.Error() != expURL.String()+": certificate expired 2015-04-12" {
 			t.Fatalf("err = %v", err)
 		}
-		if strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to add a missing CA") || !strings.Contains(out, "old.example") {
+		if strings.Contains(out, connectNotInStoreMark) || strings.Contains(out, "to add a missing CA") || !strings.Contains(out, "old.example") || !strings.Contains(out, connectExpiredHint) {
 			t.Fatalf("stdout =\n%s", out)
 		}
 
@@ -246,8 +246,66 @@ func TestConnectPresentedChain(t *testing.T) {
 		if herr == nil || herr.Error() != hostURL.String()+": hostname mismatch" {
 			t.Fatalf("err = %v", herr)
 		}
-		if strings.Contains(hout, connectNotInStoreMark) || !strings.Contains(hout, "wrong.example") {
+		if strings.Contains(hout, connectNotInStoreMark) || strings.Contains(hout, connectExpiredHint) || strings.Contains(hout, "to add a missing CA") || !strings.Contains(hout, "wrong.example") {
 			t.Fatalf("stdout =\n%s", hout)
+		}
+	})
+
+	t.Run("expired leaf not in the store hints expiry not add", func(t *testing.T) {
+		_, ca, server := newSignedChain(t, "old.example", time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2015, 4, 12, 0, 0, 0, 0, time.UTC), true)
+		srv := newChainServer(t, server)
+		u := mustConnectURL(t, srv.URL)
+		out, err := captureConnectOut(t, func() error {
+			return connect(u, []*x509.Certificate{ca}, ConnectOptions{Verbose: true}, "", "")
+		})
+		if err == nil || err.Error() != u.String()+": certificate expired 2015-04-12" {
+			t.Fatalf("err = %v", err)
+		}
+		if !strings.Contains(out, "presented chain:") || !strings.Contains(out, connectExpiredHint) {
+			t.Fatalf("stdout =\n%s", out)
+		}
+		assertSubjectLabel(t, out, "old.example", connectNotInStoreMark)
+		assertSubjectLabel(t, out, "ca.example", "-")
+		if strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") || strings.Contains(out, connectNotYetValidHint) {
+			t.Fatalf("add hint on expired leaf:\n%s", out)
+		}
+	})
+
+	t.Run("hostname mismatch not in the store has no hint", func(t *testing.T) {
+		host := newSelfSignedCert(t, "wrong.example", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2034, 1, 2, 0, 0, 0, 0, time.UTC), false)
+		hostSrv := newChainServer(t, host.tlsCert)
+		hostURL := mustConnectURL(t, hostSrv.URL)
+		out, err := captureConnectOut(t, func() error {
+			return connect(hostURL, nil, ConnectOptions{Verbose: true}, "", "")
+		})
+		if err == nil || err.Error() != hostURL.String()+": hostname mismatch" {
+			t.Fatalf("err = %v", err)
+		}
+		if !strings.Contains(out, "presented chain:") {
+			t.Fatalf("stdout =\n%s", out)
+		}
+		assertSubjectLabel(t, out, "wrong.example", connectNotInStoreMark)
+		if strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") || strings.Contains(out, connectExpiredHint) || strings.Contains(out, connectNotYetValidHint) {
+			t.Fatalf("unexpected hint:\n%s", out)
+		}
+	})
+
+	t.Run("not yet valid leaf is not called expired", func(t *testing.T) {
+		future := newSelfSignedCert(t, "future.example", time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC), time.Date(2100, 1, 2, 0, 0, 0, 0, time.UTC), true)
+		srv := newChainServer(t, future.tlsCert)
+		u := mustConnectURL(t, srv.URL)
+		out, err := captureConnectOut(t, func() error {
+			return connect(u, nil, ConnectOptions{Verbose: true}, "", "")
+		})
+		if err == nil || err.Error() != u.String()+": certificate not yet valid until 2099-01-02" {
+			t.Fatalf("err = %v", err)
+		}
+		if !strings.Contains(out, connectNotYetValidHint) {
+			t.Fatalf("stdout =\n%s", out)
+		}
+		assertSubjectLabel(t, out, "future.example", connectNotInStoreMark)
+		if strings.Contains(out, connectExpiredHint) || strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") {
+			t.Fatalf("wrong hint:\n%s", out)
 		}
 	})
 
@@ -309,11 +367,16 @@ func newSelfSignedCert(t *testing.T, cn string, notBefore, notAfter time.Time, i
 
 func newPresentedChain(t *testing.T) (leaf, ca *x509.Certificate, server tls.Certificate) {
 	t.Helper()
+	return newSignedChain(t, "leaf.example", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC), true)
+}
+
+func newSignedChain(t *testing.T, leafCN string, leafNotBefore, leafNotAfter time.Time, ipSAN bool) (leaf, ca *x509.Certificate, server tls.Certificate) {
+	t.Helper()
 	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	caTmpl := serverTemplate("ca.example", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2035, 1, 1, 0, 0, 0, 0, time.UTC), false)
+	caTmpl := serverTemplate("ca.example", time.Date(2009, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2035, 1, 1, 0, 0, 0, 0, time.UTC), false)
 	caTmpl.IsCA = true
 	caTmpl.KeyUsage = x509.KeyUsageCertSign
 	caTmpl.ExtKeyUsage = nil
@@ -329,7 +392,7 @@ func newPresentedChain(t *testing.T) (leaf, ca *x509.Certificate, server tls.Cer
 	if err != nil {
 		t.Fatal(err)
 	}
-	leafTmpl := serverTemplate("leaf.example", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2030, 6, 1, 0, 0, 0, 0, time.UTC), true)
+	leafTmpl := serverTemplate(leafCN, leafNotBefore, leafNotAfter, ipSAN)
 	leafDER, err := x509.CreateCertificate(rand.Reader, leafTmpl, ca, &leafKey.PublicKey, caKey)
 	if err != nil {
 		t.Fatal(err)

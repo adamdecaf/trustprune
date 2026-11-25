@@ -45,7 +45,10 @@ import (
 //     distrustedSPKIHashes in Go 1.27.3 (src/crypto/x509/verify.go) and
 //     Mozilla bug 2083449. DYMO Root CA (for localhost) comes from
 //     https://github.com/njh/dymo-root-ca-security-risk (dymo_root_ca.pem);
-//     hashes were recomputed from that PEM.
+//     hashes were recomputed from that PEM. Sennheiser HeadSetup roots
+//     (SennComCCCert and SenncomRootCA) come from Chromium's
+//     net/data/ssl/blocklist PEMs (CVE-2018-17612, Secorvo SSA-18-001,
+//     Microsoft ADV180029); hashes were recomputed from those PEMs.
 //  2. Record the lowercase hex SHA-256 of the certificate DER and of
 //     cert.RawSubjectPublicKeyInfo. The certificate hash must match the
 //     source. Leave the entry out if you are not sure.
@@ -306,6 +309,26 @@ var deniedCerts = []deniedCert{
 		name:        "DYMO Root CA (for localhost)",
 		fingerprint: "b6281afb8dbfc71515f9573e26d92b47c70f8b6d821c2065cd358f8658b75389",
 		spki:        "481c702ef267378036c7d5cc157d7e8b3a8eb65946dfc1c5402770439a508e09",
+	},
+
+	// Sennheiser HeadSetup shared roots (CVE-2018-17612). These are shared
+	// vendor-installed self-signed CAs: SennComCCCert on older HeadSetup and
+	// SenncomRootCA on later releases. The SennComCCCert private key shipped
+	// with the software and could be extracted. Chromium records disclosed
+	// private keys for both. Secorvo advisory SSA-18-001 and Microsoft
+	// advisory ADV180029. Source: Chromium net/data/ssl/blocklist PEMs (the
+	// archive blocklist_gen.go downloads). Hashes recomputed from those PEMs.
+	// Later HeadSetup versions generate a unique root per installed machine;
+	// those per-machine roots are not listed.
+	{
+		name:        "SennComCCCert",
+		fingerprint: "ddd8ab9178c99cbd9685ea4ae66dc28bfdc9a5a8a166f7f69ad0b5042ad6eb28",
+		spki:        "8f591f7aa4dc3efe9490c38a4692c9011ed128f1de595569406d77b6fa1f6b4c",
+	},
+	{
+		name:        "SenncomRootCA",
+		fingerprint: "91e5cc32910686c5cac25c18cc805696c7b33868c280caf0c72844a2a8eb91e2",
+		spki:        "0c43ea8bcde9fc3bca165664ac8215567e3489d5393a0c81e1a79141992e1953",
 	},
 }
 

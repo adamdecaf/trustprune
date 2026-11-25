@@ -229,7 +229,7 @@ func TestChecklistAllowlistJSONRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const wantOne = "{\n  \"Fingerprints\": [\n    \"abc\"\n  ]\n}\n"
+	const wantOne = "{\n  \"fingerprints\": [\n    \"abc\"\n  ]\n}\n"
 	if string(one) != wantOne {
 		t.Fatalf("one fingerprint =\n%s", one)
 	}
@@ -275,7 +275,7 @@ func TestChecklistScriptIsLocal(t *testing.T) {
 	}
 	for _, want := range []string{
 		"renderAllowlistJSON",
-		"Fingerprints",
+		"payload.fingerprints",
 		"checklist-fingerprints",
 		"checklist-allowlist",
 		"download-allowlist",
@@ -294,6 +294,9 @@ func TestChecklistScriptIsLocal(t *testing.T) {
 		if !strings.Contains(footer, want) {
 			t.Fatalf("footer script missing %q", want)
 		}
+	}
+	if strings.Contains(footer, "payload.Fingerprints") {
+		t.Fatal("footer still writes payload.Fingerprints")
 	}
 	if strings.Contains(head, "@import") || strings.Contains(head, "url(") || strings.Contains(head, "<link") || strings.Contains(head, "<script src=") {
 		t.Fatal("stylesheet or head references an external resource")

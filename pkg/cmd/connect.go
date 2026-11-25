@@ -62,6 +62,14 @@ type ConnectOptions struct {
 // SHA-256 is not in the store selected for the handshake.
 const connectNotInStoreMark = "not in store"
 
+// connectExpiredHint is the verbose line when the site certificate's NotAfter
+// is in the past. Adding a root does not fix that.
+const connectExpiredHint = "the site's certificate has expired; adding a root won't help"
+
+// connectNotYetValidHint is the verbose line when x509.Expired is reported
+// because NotBefore is still in the future.
+const connectNotYetValidHint = "the site's certificate is not yet valid; adding a root won't help"
+
 // errPresentedChainOnly is returned from the read-only handshake so that
 // dial never succeeds. Callers use it only to obtain PeerCertificates.
 var errPresentedChainOnly = errors.New("presented chain captured for display")
@@ -168,7 +176,8 @@ type presentedChain struct {
 // and ignores Verbose. A dial that is not a verification failure does not
 // call this. The chain is taken from handshakeErr when it carries
 // UnverifiedCertificates. A read-only probe is used only if that list is
-// empty. The probe never decides whether connect succeeded.
+// empty. The probe never decides whether connect succeeded. The text hint
+// is chosen from handshakeErr. JSON does not include that hint.
 func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOptions, format string, handshakeErr error, app, storePath string) error {
 	if format != connectFormatJSON && !opts.Verbose {
 		return nil
@@ -188,7 +197,7 @@ func connectPrintPresented(u *url.URL, roots []*x509.Certificate, opts ConnectOp
 	if len(presented.certs) == 0 {
 		return nil
 	}
-	out, err := formatConnectPresentedText(presented.certs, roots, app, storePath)
+	out, err := formatConnectPresentedText(presented.certs, roots, handshakeErr, app, storePath)
 	if err != nil {
 		return err
 	}
@@ -280,12 +289,15 @@ func presentedChainFromError(err error) presentedChain {
 
 // formatConnectPresentedText prints the presented chain, leaf first, with
 // the same columns as the verified chain. A certificate missing from roots
-// has connectNotInStoreMark in LABELS. When any certificate is missing,
-// a hint tells the user to add that CA with add --file. The hint fingerprint
-// is the last missing certificate (closest to the root). allowlist only
-// keeps or removes certificates already in the store; after the CA is
-// installed, its SHA-256 can go under fingerprints in an allowlist file.
-func formatConnectPresentedText(chain, roots []*x509.Certificate, app, storePath string) (string, error) {
+// has connectNotInStoreMark in LABELS. handshakeErr selects the trailing
+// hint. Unknown authority, when a certificate is missing, names trustprune
+// add and the last missing fingerprint (closest to the root). An expired
+// certificate says that adding a root will not help. A certificate that is
+// not yet valid gets a separate line and is not called expired. Other
+// verification errors have no hint. allowlist only keeps or removes
+// certificates already in the store; after a missing CA is installed, its
+// SHA-256 can go under fingerprints in an allowlist file.
+func formatConnectPresentedText(chain, roots []*x509.Certificate, handshakeErr error, app, storePath string) (string, error) {
 	if len(chain) == 0 {
 		return "", errors.New("no presented certificate chain")
 	}
@@ -318,11 +330,56 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate, app, storePath
 	var b strings.Builder
 	b.WriteString("presented chain:\n")
 	b.WriteString(alignTable(headers, rows))
-	if hintFP != "" {
-		b.WriteString(connectTrustHint(hintFP, app, storePath))
+	if hint := connectVerifyHint(handshakeErr, hintFP, app, storePath); hint != "" {
+		b.WriteString(hint)
 		b.WriteByte('\n')
 	}
 	return b.String(), nil
+}
+
+// connectVerifyHint returns the trailing presented-chain line for err.
+// *tls.CertificateVerificationError is unwrapped the same way as
+// shortConnectError before the error is classified. An empty string means
+// no hint. fp is the last missing fingerprint; the add hint is omitted when
+// it is empty.
+func connectVerifyHint(err error, fp, app, storePath string) string {
+	if err == nil {
+		return ""
+	}
+
+	var leaf *x509.Certificate
+	var ver *tls.CertificateVerificationError
+	if errors.As(err, &ver) {
+		if len(ver.UnverifiedCertificates) > 0 {
+			leaf = ver.UnverifiedCertificates[0]
+		}
+		if ver.Err != nil {
+			err = ver.Err
+		}
+	}
+
+	var invalid x509.CertificateInvalidError
+	if errors.As(err, &invalid) && invalid.Reason == x509.Expired {
+		when := invalid.Cert
+		if when == nil {
+			when = leaf
+		}
+		// Go uses Reason Expired for both expired and not-yet-valid
+		// certificates. NotBefore in the future is not an expiry.
+		if when != nil && time.Now().Before(when.NotBefore) {
+			return connectNotYetValidHint
+		}
+		if when == nil || time.Now().After(when.NotAfter) {
+			return connectExpiredHint
+		}
+		return ""
+	}
+
+	var unknown x509.UnknownAuthorityError
+	if errors.As(err, &unknown) && fp != "" {
+		return connectTrustHint(fp, app, storePath)
+	}
+	return ""
 }
 
 // connectTrustHint tells the user how to install a CA that was not in the
@@ -372,7 +429,7 @@ type connectPresentedCert struct {
 // false. presented_chain is leaf-first and may be empty when the server
 // certificates could not be read. sha256 is the full fingerprint. in_store
 // is false when the certificate is not in the selected store. The result
-// ends with a newline. Verbose is not an input.
+// ends with a newline. Verbose is not an input. Text hints are not included.
 func formatConnectPresentedJSON(rawURL string, chain []*x509.Certificate, version uint16, roots []*x509.Certificate) (string, error) {
 	inStore := connectStoreFingerprints(roots)
 	entries := make([]connectPresentedCert, len(chain))

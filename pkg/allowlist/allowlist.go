@@ -30,8 +30,8 @@ import (
 // Allowlist is the structure holding various `item` types that match against
 // x509 certificates
 type Allowlist struct {
-	// SHA256 fingerprints
-	Fingerprints []string `json:"Fingerprints,omitempty" yaml:"fingerprints,omitempty"`
+	// SHA256 fingerprints. YAML and JSON files use the key "fingerprints".
+	Fingerprints []string `json:"fingerprints,omitempty" yaml:"fingerprints,omitempty"`
 
 	// ISO 3166-1 two-letter country codes used to match
 	// RFC 2253 Distinguished Names in certificates
@@ -140,6 +140,36 @@ func isASCIICountryCode(s string) bool {
 		}
 	}
 	return true
+}
+
+// UnmarshalJSON accepts "fingerprints" and the older "Fingerprints" key.
+// "fingerprints" wins when both are present, including an empty array.
+// "Countries" is unchanged.
+func (a *Allowlist) UnmarshalJSON(data []byte) error {
+	type allowlistJSON Allowlist
+	var raw struct {
+		allowlistJSON
+		LegacyFingerprints []string `json:"Fingerprints"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	parsed := Allowlist(raw.allowlistJSON)
+
+	// The alias fills Fingerprints only from "fingerprints". A missing
+	// lowercase key leaves that field empty, so the older key is used
+	// only when "fingerprints" itself is absent.
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return err
+	}
+	if _, ok := keys["fingerprints"]; !ok {
+		if _, ok := keys["Fingerprints"]; ok {
+			parsed.Fingerprints = raw.LegacyFingerprints
+		}
+	}
+	*a = parsed
+	return nil
 }
 
 // FromFile reads an allowlist file and parses it into items

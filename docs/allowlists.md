@@ -12,7 +12,7 @@ nav_order: 5
 
 Allowlists represent an operation which disables certificate trust in a certificate store. The filters presented for an allowlist are:
 
-- `Fingerprints`: The SHA256 fingerprint of a certificate. This value will be unique across certificates given their contents are unique.
+- `fingerprints`: The SHA256 fingerprint of a certificate (YAML and JSON). This value will be unique across certificates given their contents are unique.
 - `Countries`: ISO 3166-1 two-letter country codes of certificates to keep. (e.g. `US` - United States and `JP` - Japan)
 
 Allowlists are stored in yaml or json files. There is a basic structure to them which allows for multiple methods of allowlisting. The structure looks like:
@@ -30,7 +30,7 @@ countries:
 
 ```json
 {
-  "Fingerprints": [
+  "fingerprints": [
     "050cf9fa95e40e9bddedaeda6961f6168c1279c4660172479cdd51ab03cea62c"
   ],
   "Countries": [
@@ -38,6 +38,8 @@ countries:
   ]
 }
 ```
+
+Files that use the older `"Fingerprints"` key are still accepted.
 
 To apply an allowlist against a platform:
 
@@ -71,7 +73,7 @@ $ trustprune create --file wh.json --app java --out java-cas.pem
 
 `--out` is required. Without it, `gen-allowlist` prints `ERROR: required flag --out not set` and exits with status 2. With `--out` but none of `--from`, `--file`, `--hosts`, or `--presets`, it prints usage and exits 0 (the same for `--out --no-presets`). The `--out` extension picks the format: `.json` writes JSON; `.yaml` or `.yml` writes YAML.
 
-While it writes the file, `gen-allowlist` prints a summary table with headers `CA`, `FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`. The fingerprint column shows the first 16 characters. `-v` / `--verbose` prints each full fingerprint. At most three example DNS names are shown; `COUNT` is the full number of names.
+While it writes the file, `gen-allowlist` prints a summary table with headers `CA`, `SHA256-FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`. Columns are separated by two spaces, so a CA name that contains spaces stays in the CA column. The fingerprint column shows the first 16 characters. `-v` / `--verbose` prints each full fingerprint. At most three example DNS names are shown; `COUNT` is the full number of names.
 
 CAs on the built-in denylist are left out of that table and out of the file. Each one prints `NOTE: skipping denylisted certificate ...` first. See [Denylisted certificates](#denylisted-certificates).
 
@@ -154,13 +156,13 @@ Either all browsers `--from browser` or specific browsers `--from chrome`.
 
 ```
 $ trustprune gen-allowlist --from browser --out wh.yaml
-CA            FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
-GeoTrust Inc. ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
+CA             SHA256-FINGERPRINT  COUNT  EXAMPLE-DNS-NAMES
+GeoTrust Inc.  ff856a2d251dcd88    13     plus.google.com, accounts.google.com, hangouts.google.com
 ...
 
 $ trustprune gen-allowlist --from chrome --out wh.yaml
-CA            FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
-GeoTrust Inc. ff856a2d251dcd88 13    plus.google.com, accounts.google.com, hangouts.google.com
+CA             SHA256-FINGERPRINT  COUNT  EXAMPLE-DNS-NAMES
+GeoTrust Inc.  ff856a2d251dcd88    13     plus.google.com, accounts.google.com, hangouts.google.com
 ...
 
 $ trustprune gen-allowlist --out allowlist.yaml --from firefox
@@ -176,7 +178,7 @@ There is currently no way to disable this behavior.
 
 ### Denylisted certificates
 
-A smaller denylist is always applied as well, including when an allowlist names the certificate by fingerprint or by country. It covers roots and intermediates that were publicly distrusted: DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots (GeoTrust, thawte, and VeriSign roots removed from Mozilla NSS), the compromised eMudhra G3 intermediates, and DYMO Root CA (for localhost). The entries are committed in `pkg/allowlist/denylist.go`.
+A smaller denylist is always applied as well, including when an allowlist names the certificate by fingerprint or by country. It covers roots and intermediates that were publicly distrusted: DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots (GeoTrust, thawte, and VeriSign roots removed from Mozilla NSS), the compromised eMudhra G3 intermediates, DYMO Root CA (for localhost), and the Sennheiser HeadSetup roots. The entries are committed in `pkg/allowlist/denylist.go`.
 
 Each entry has two SHA-256 values: the certificate itself, and the certificate's SubjectPublicKeyInfo. A later certificate that reuses a denylisted key is rejected even though its own fingerprint is new. `gen-allowlist` skips these CAs and prints a `NOTE:` line. They are not written to the allowlist file. There is no flag to turn this off.
 
@@ -195,10 +197,10 @@ https://yahoo.com
 https://bing.com
 
 $ trustprune gen-allowlist --out wh.yaml --file urls.txt
-CA                             FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
-DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
-Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
-GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
+CA                              SHA256-FINGERPRINT  COUNT  EXAMPLE-DNS-NAMES
+DigiCert Inc, www.digicert.com  7431e5f4c3c1ce46    1      yahoo.com
+Baltimore, CyberTrust           16af57a9f676b0ab    1      bing.com
+GeoTrust Inc.                   ff856a2d251dcd88    1      google.com
 
 $ cat wh.yaml
 fingerprints:
@@ -215,10 +217,10 @@ There are several services which offer "Top N Domains" lists, such as the [Tranc
 ```
 $ unzip -p tranco.zip | head -n 1000 > top-sites.csv
 $ trustprune gen-allowlist --out wh.yaml --file top-sites.csv
-CA                             FINGERPRINT      COUNT EXAMPLE-DNS-NAMES
-DigiCert Inc, www.digicert.com 7431e5f4c3c1ce46 1     yahoo.com
-Baltimore, CyberTrust          16af57a9f676b0ab 1     bing.com
-GeoTrust Inc.                  ff856a2d251dcd88 1     google.com
+CA                              SHA256-FINGERPRINT  COUNT  EXAMPLE-DNS-NAMES
+DigiCert Inc, www.digicert.com  7431e5f4c3c1ce46    1      yahoo.com
+Baltimore, CyberTrust           16af57a9f676b0ab    1      bing.com
+GeoTrust Inc.                   ff856a2d251dcd88    1      google.com
 ...
 ```
 

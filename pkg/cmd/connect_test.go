@@ -833,7 +833,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("marks missing certs and hints the root-most", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, "", "")
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, nil, x509.UnknownAuthorityError{}, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +856,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("leaf in store still marks the CA", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf}, "", "")
+		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf}, x509.UnknownAuthorityError{}, "", "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -900,17 +900,166 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("all in store has no hint", func(t *testing.T) {
 		t.Parallel()
-		got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf, ca}, "", "")
-		if err != nil {
-			t.Fatal(err)
+		for _, herr := range []error{nil, x509.UnknownAuthorityError{}} {
+			got, err := formatConnectPresentedText([]*x509.Certificate{leaf, ca}, []*x509.Certificate{leaf, ca}, herr, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertSubjectLabel(t, got, "leaf.example", "-")
+			assertSubjectLabel(t, got, "ca.example", "-")
+			if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to add a missing CA") || strings.Contains(got, connectExpiredHint) || strings.Contains(got, connectNotYetValidHint) {
+				t.Fatalf("store certs were marked:\n%s", got)
+			}
+			if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") || !strings.Contains(got, "LABELS") {
+				t.Fatalf("missing columns:\n%s", got)
+			}
 		}
-		assertSubjectLabel(t, got, "leaf.example", "-")
-		assertSubjectLabel(t, got, "ca.example", "-")
-		if strings.Contains(got, connectNotInStoreMark) || strings.Contains(got, "to add a missing CA") {
-			t.Fatalf("store certs were marked:\n%s", got)
+	})
+
+	t.Run("hint follows the verification error", func(t *testing.T) {
+		t.Parallel()
+		expiredCert := &x509.Certificate{
+			Raw:       bytes.Repeat([]byte{0x33}, 16),
+			Subject:   pkix.Name{CommonName: "old.example"},
+			Issuer:    pkix.Name{CommonName: "ca.example"},
+			NotBefore: time.Date(2010, 1, 1, 0, 0, 0, 0, time.UTC),
+			NotAfter:  time.Date(2015, 4, 12, 0, 0, 0, 0, time.UTC),
 		}
-		if !strings.Contains(got, "INDEX") || !strings.Contains(got, "SUBJECT") || !strings.Contains(got, "SHA256") || !strings.Contains(got, "LABELS") {
-			t.Fatalf("missing columns:\n%s", got)
+		futureCert := &x509.Certificate{
+			Raw:       bytes.Repeat([]byte{0x44}, 16),
+			Subject:   pkix.Name{CommonName: "future.example"},
+			Issuer:    pkix.Name{CommonName: "ca.example"},
+			NotBefore: time.Date(2099, 1, 2, 0, 0, 0, 0, time.UTC),
+			NotAfter:  time.Date(2100, 1, 2, 0, 0, 0, 0, time.UTC),
+		}
+		expired := x509.CertificateInvalidError{Cert: expiredCert, Reason: x509.Expired}
+		notYet := x509.CertificateInvalidError{Cert: futureCert, Reason: x509.Expired}
+		unknown := x509.UnknownAuthorityError{Cert: leaf}
+		cases := []struct {
+			name   string
+			chain  []*x509.Certificate
+			roots  []*x509.Certificate
+			err    error
+			want   string
+			reject []string
+		}{
+			{
+				name:   "expired",
+				chain:  []*x509.Certificate{expiredCert, ca},
+				err:    expired,
+				want:   connectExpiredHint,
+				reject: []string{"to add a missing CA", connectNotYetValidHint},
+			},
+			{
+				name:  "expired wrapped",
+				chain: []*x509.Certificate{expiredCert, ca},
+				err: &tls.CertificateVerificationError{
+					UnverifiedCertificates: []*x509.Certificate{expiredCert},
+					Err:                    fmt.Errorf("verify: %w", expired),
+				},
+				want:   connectExpiredHint,
+				reject: []string{"to add a missing CA", connectNotYetValidHint},
+			},
+			{
+				name:  "expired leaf from verification chain",
+				chain: []*x509.Certificate{expiredCert, ca},
+				err: &tls.CertificateVerificationError{
+					UnverifiedCertificates: []*x509.Certificate{expiredCert},
+					Err:                    x509.CertificateInvalidError{Reason: x509.Expired},
+				},
+				want:   connectExpiredHint,
+				reject: []string{"to add a missing CA", connectNotYetValidHint},
+			},
+			{
+				name:   "expired without cert",
+				chain:  []*x509.Certificate{leaf, ca},
+				err:    x509.CertificateInvalidError{Reason: x509.Expired},
+				want:   connectExpiredHint,
+				reject: []string{"to add a missing CA", connectNotYetValidHint},
+			},
+			{
+				name:   "expired in store still notes expiry",
+				chain:  []*x509.Certificate{expiredCert},
+				roots:  []*x509.Certificate{expiredCert},
+				err:    expired,
+				want:   connectExpiredHint,
+				reject: []string{"to add a missing CA", connectNotInStoreMark, connectNotYetValidHint},
+			},
+			{
+				name:   "not yet valid",
+				chain:  []*x509.Certificate{futureCert},
+				err:    notYet,
+				want:   connectNotYetValidHint,
+				reject: []string{connectExpiredHint, "to add a missing CA"},
+			},
+			{
+				name:  "not yet valid falls back to unverified leaf",
+				chain: []*x509.Certificate{futureCert},
+				err: &tls.CertificateVerificationError{
+					UnverifiedCertificates: []*x509.Certificate{futureCert},
+					Err:                    x509.CertificateInvalidError{Reason: x509.Expired},
+				},
+				want:   connectNotYetValidHint,
+				reject: []string{connectExpiredHint, "to add a missing CA"},
+			},
+			{
+				name:   "hostname mismatch",
+				chain:  []*x509.Certificate{leaf, ca},
+				err:    x509.HostnameError{Certificate: leaf, Host: "leaf.example"},
+				want:   connectNotInStoreMark,
+				reject: []string{"to add a missing CA", connectExpiredHint, connectNotYetValidHint, "allowlist"},
+			},
+			{
+				name:   "incompatible usage",
+				chain:  []*x509.Certificate{leaf, ca},
+				err:    x509.CertificateInvalidError{Cert: leaf, Reason: x509.IncompatibleUsage},
+				want:   "presented chain:",
+				reject: []string{"to add a missing CA", connectExpiredHint, connectNotYetValidHint, "allowlist"},
+			},
+			{
+				name:   "nil error",
+				chain:  []*x509.Certificate{leaf, ca},
+				want:   connectNotInStoreMark,
+				reject: []string{"to add a missing CA", connectExpiredHint, connectNotYetValidHint, "allowlist"},
+			},
+			{
+				name:   "expired reason on a still-valid cert",
+				chain:  []*x509.Certificate{leaf, ca},
+				err:    x509.CertificateInvalidError{Cert: leaf, Reason: x509.Expired},
+				want:   connectNotInStoreMark,
+				reject: []string{"to add a missing CA", connectExpiredHint, connectNotYetValidHint},
+			},
+			{
+				name:  "unknown authority wrapped",
+				chain: []*x509.Certificate{leaf, ca},
+				err: &url.Error{
+					Op:  "Head",
+					URL: "https://leaf.example",
+					Err: &tls.CertificateVerificationError{
+						UnverifiedCertificates: []*x509.Certificate{leaf, ca},
+						Err:                    fmt.Errorf("chain: %w", unknown),
+					},
+				},
+				want:   connectTrustHint(caFP, "", ""),
+				reject: []string{connectExpiredHint, connectNotYetValidHint},
+			},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+				got, err := formatConnectPresentedText(tc.chain, tc.roots, tc.err, "", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.want != "" && !strings.Contains(got, tc.want) {
+					t.Fatalf("missing %q:\n%s", tc.want, got)
+				}
+				for _, bad := range tc.reject {
+					if strings.Contains(got, bad) {
+						t.Fatalf("unexpected %q:\n%s", bad, got)
+					}
+				}
+			})
 		}
 	})
 
@@ -961,7 +1110,7 @@ func TestFormatConnectPresented(t *testing.T) {
 
 	t.Run("nil cert", func(t *testing.T) {
 		t.Parallel()
-		if _, err := formatConnectPresentedText([]*x509.Certificate{leaf, nil}, nil, "", ""); err == nil || !strings.Contains(err.Error(), "certificate 1 is nil") {
+		if _, err := formatConnectPresentedText([]*x509.Certificate{leaf, nil}, nil, nil, "", ""); err == nil || !strings.Contains(err.Error(), "certificate 1 is nil") {
 			t.Fatalf("text err = %v", err)
 		}
 		if _, err := formatConnectPresentedJSON("https://x", []*x509.Certificate{nil}, tls.VersionTLS12, nil); err == nil || !strings.Contains(err.Error(), "certificate 0 is nil") {
