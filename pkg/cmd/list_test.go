@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"compress/gzip"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -96,6 +97,38 @@ func TestListCertsFromURLPEM(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if _, err := w.Write(pem); err != nil {
 			t.Errorf("write pem: %v", err)
+		}
+	}))
+	defer ts.Close()
+
+	out := filepath.Join(t.TempDir(), "count.txt")
+	err = ListCertsFromURL(ts.URL, &ui.Config{Count: true, Outfile: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1\n" {
+		t.Fatalf("count = %q", got)
+	}
+}
+
+func TestListCertsFromURLDER(t *testing.T) {
+	t.Parallel()
+
+	pemBytes, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || len(block.Bytes) == 0 {
+		t.Fatal("no DER certificate in testdata/example.crt")
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(block.Bytes); err != nil {
+			t.Errorf("write der: %v", err)
 		}
 	}))
 	defer ts.Close()
