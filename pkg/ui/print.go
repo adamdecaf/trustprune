@@ -128,7 +128,8 @@ func truncateColumn(s string, n int) string {
 type tablePrinter struct {
 	verbose bool
 	path    string
-	// paths, when non-nil, is one source path per certificate in write order.
+	// paths, when non-nil, is one source path per certificate.
+	// write reorders it so each path stays with its certificate.
 	// Nil uses path for every row. An empty path is printed as "-".
 	paths []string
 	now   time.Time // zero means time.Now()
@@ -140,6 +141,7 @@ func (p tablePrinter) write(w io.Writer, certs []*x509.Certificate) error {
 	if now.IsZero() {
 		now = time.Now()
 	}
+	orderCertsAndPaths(certs, p.paths)
 
 	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT"}
 	if p.verbose {
@@ -158,12 +160,48 @@ func (p tablePrinter) write(w io.Writer, certs []*x509.Certificate) error {
 		headers, rows = dropColumn(headers, rows, "PATH")
 	}
 
-	sort.Slice(rows, func(i, j int) bool {
-		return strings.ToLower(strings.Join(rows[i], "\t")) < strings.ToLower(strings.Join(rows[j], "\t"))
-	})
-
 	_, err := io.WriteString(w, alignTable(headers, rows))
 	return err
+}
+
+// orderCertsAndPaths reorders certs in place by certutil.Less
+// (case-insensitive subject, then SHA-256 fingerprint).
+// When paths is non-nil, paths[i] stays with certs[i].
+func orderCertsAndPaths(certs []*x509.Certificate, paths []string) {
+	if len(certs) < 2 {
+		return
+	}
+	if paths == nil {
+		certutil.Sort(certs)
+		return
+	}
+	type item struct {
+		cert *x509.Certificate
+		path string
+		has  bool
+	}
+	items := make([]item, len(certs))
+	for i, cert := range certs {
+		it := item{cert: cert}
+		if i < len(paths) {
+			it.path = paths[i]
+			it.has = true
+		}
+		items[i] = it
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		return certutil.Less(items[i].cert, items[j].cert)
+	})
+	for i, it := range items {
+		certs[i] = it.cert
+		if i < len(paths) {
+			if it.has {
+				paths[i] = it.path
+			} else {
+				paths[i] = ""
+			}
+		}
+	}
 }
 
 func (p tablePrinter) tableCells(cert *x509.Certificate, now time.Time, i int) []string {
@@ -343,6 +381,7 @@ type longPrinter struct {
 
 func (longPrinter) close() {}
 func (p longPrinter) write(w io.Writer, certs []*x509.Certificate) error {
+	certutil.Sort(certs)
 	now := p.now
 	if now.IsZero() {
 		now = time.Now()
