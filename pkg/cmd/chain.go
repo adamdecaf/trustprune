@@ -164,13 +164,33 @@ func (s skipReason) skipped() bool {
 	return s.untrusted || s.expired || s.revoked
 }
 
-// chainNote is the walk result besides the rows. incomplete is the same
-// string the text table prints; it is empty when the chain is complete.
-// missingIssuer is the display name of the certificate whose issuer was
-// not found. Cycle and too-long walks leave it empty.
+// chainNote is the walk result besides the rows. incomplete is the note
+// the text table prints; it is empty when the chain is complete. JSON does
+// not include that string.
+// missingIssuer is the issuer display name of the last included certificate
+// when the walk stopped because no issuer was found. It matches that
+// certificate's issuer column (connectName of the Issuer). Cycle and
+// too-long walks leave it empty.
+// stoppedAt is the display name of the last included certificate when the
+// chain is incomplete. It is empty when the chain is complete.
 type chainNote struct {
 	incomplete    string
 	missingIssuer string
+	stoppedAt     string
+}
+
+// incompleteChain is the chain command's incomplete-walk status.
+// The report is already written. An empty message keeps finishRun from
+// adding an ERROR: line. Exit code 1 matches other failures; an incomplete
+// chain is told apart from a read error by the absence of ERROR:.
+type incompleteChain struct{}
+
+func (incompleteChain) Error() string { return "" }
+func (incompleteChain) ExitCode() int { return 1 }
+
+func isIncompleteChain(err error) bool {
+	var ic incompleteChain
+	return errors.As(err, &ic)
 }
 
 // ShowChain writes the certificate chain for opts to w.
@@ -182,6 +202,8 @@ type chainNote struct {
 // passes the validity and blocklist checks, even if it is not in the store.
 // With no labels, the table matches connect's verified chain table.
 // Format json prints one object; text (the default) is unchanged.
+// An incomplete chain is written first. ShowChain then returns
+// incompleteChain: exit code 1 and an empty error string.
 func ShowChain(w io.Writer, opts ChainOptions) error {
 	if w == nil {
 		w = os.Stdout
@@ -230,7 +252,7 @@ func ShowChain(w io.Writer, opts ChainOptions) error {
 	if err != nil {
 		return err
 	}
-	out, err := buildChain(chainInput{
+	out, note, err := renderChain(chainInput{
 		leaf:      leaf,
 		extras:    extras,
 		trusted:   trusted,
@@ -243,6 +265,9 @@ func ShowChain(w io.Writer, opts ChainOptions) error {
 	}
 	if _, err := io.WriteString(w, out); err != nil {
 		return fmt.Errorf("writing chain: %w", err)
+	}
+	if note.incomplete != "" {
+		return incompleteChain{}
 	}
 	return nil
 }
@@ -336,13 +361,18 @@ func applyChainIncludes(opts ChainOptions) ChainOptions {
 }
 
 func buildChain(in chainInput) (string, error) {
+	out, _, err := renderChain(in)
+	return out, err
+}
+
+func renderChain(in chainInput) (string, chainNote, error) {
 	format, err := NormalizeChainFormat(in.opts.Format)
 	if err != nil {
-		return "", err
+		return "", chainNote{}, err
 	}
 	in.opts = applyChainIncludes(in.opts)
 	if in.leaf == nil {
-		return "", errors.New("no certificate")
+		return "", chainNote{}, errors.New("no certificate")
 	}
 	now := in.opts.Now
 	if now.IsZero() {
@@ -353,18 +383,22 @@ func buildChain(in chainInput) (string, error) {
 		blocked = allowlist.Blocklisted
 	}
 	if err := rejectLeaf(in.leaf, in.opts, now, blocked); err != nil {
-		return "", err
+		return "", chainNote{}, err
 	}
 	trusted := chainTrustedSet(in.trusted)
 	pool := chainPool([]*x509.Certificate{in.leaf}, in.trusted, in.untrusted, in.extras)
 	rows, note, err := walkChain(in.leaf, pool, trusted, in.opts, now, blocked)
 	if err != nil {
-		return "", err
+		return "", chainNote{}, err
 	}
 	if format == chainFormatJSON {
-		return formatChainJSON(rows, note)
+		text, err := formatChainJSON(rows, note)
+		if err != nil {
+			return "", chainNote{}, err
+		}
+		return text, note, nil
 	}
-	return formatChain(rows, note.incomplete, in.opts.Verbose), nil
+	return formatChain(rows, note.incomplete, in.opts.Verbose), note, nil
 }
 
 func rejectLeaf(leaf *x509.Certificate, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) error {
@@ -391,10 +425,16 @@ func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[str
 	for {
 		fp := chainFP(current)
 		if _, ok := seen[fp]; ok {
-			return rows, chainNote{incomplete: "incomplete: cycle at " + chainDisplayName(current)}, nil
+			return rows, chainNote{
+				incomplete: "incomplete: cycle at " + chainDisplayName(current),
+				stoppedAt:  lastIncludedName(rows),
+			}, nil
 		}
 		if len(rows) >= chainMaxCerts {
-			return rows, chainNote{incomplete: fmt.Sprintf("incomplete: chain is longer than %d certificates", chainMaxCerts)}, nil
+			return rows, chainNote{
+				incomplete: fmt.Sprintf("incomplete: chain is longer than %d certificates", chainMaxCerts),
+				stoppedAt:  lastIncludedName(rows),
+			}, nil
 		}
 		seen[fp] = struct{}{}
 		row, err := makeChainRow(current, len(rows) == 0, trusted, now, blocked)
@@ -466,7 +506,18 @@ func incompleteNote(current *x509.Certificate, skip skipReason) chainNote {
 	if hint := skip.hint(); hint != "" {
 		note += "; " + hint
 	}
-	return chainNote{incomplete: note, missingIssuer: name}
+	issuer := ""
+	if current != nil {
+		issuer = connectName(current.Issuer)
+	}
+	return chainNote{incomplete: note, missingIssuer: issuer, stoppedAt: name}
+}
+
+func lastIncludedName(rows []chainRow) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	return rows[len(rows)-1].name
 }
 
 func formatChain(rows []chainRow, note string, verbose bool) string {
@@ -487,11 +538,13 @@ func formatChain(rows []chainRow, note string, verbose bool) string {
 }
 
 // chainJSON is the document written by chain --format json.
+// complete is always present. missing_issuer and stopped_at are omitted
+// when empty. The text note is not a field.
 type chainJSON struct {
 	Chain         []chainJSONCert `json:"chain"`
 	Complete      bool            `json:"complete"`
-	Incomplete    string          `json:"incomplete,omitempty"`
 	MissingIssuer string          `json:"missing_issuer,omitempty"`
+	StoppedAt     string          `json:"stopped_at,omitempty"`
 }
 
 // chainJSONCert is one certificate in the chain, leaf first.
@@ -508,8 +561,11 @@ type chainJSONCert struct {
 
 // formatChainJSON formats the chain as one JSON object.
 // chain is leaf-first. labels is an empty array when none apply.
-// complete is always present. incomplete is omitted when the chain is
-// complete. missing_issuer is set only when no issuer was found.
+// complete is always present. missing_issuer is the issuer name of the
+// last certificate when the walk stopped because no issuer was found.
+// Cycle and too-long walks omit it. stopped_at is the display name of
+// the last certificate included. It is set whenever complete is false
+// and omitted when the chain is complete. The human hint is not included.
 // sha256 is the full hex fingerprint. not_after is the UTC date
 // (YYYY-MM-DD). The result ends with a newline.
 func formatChainJSON(rows []chainRow, note chainNote) (string, error) {
@@ -531,8 +587,8 @@ func formatChainJSON(rows []chainRow, note chainNote) (string, error) {
 	doc := chainJSON{
 		Chain:         entries,
 		Complete:      note.incomplete == "",
-		Incomplete:    note.incomplete,
 		MissingIssuer: note.missingIssuer,
+		StoppedAt:     note.stoppedAt,
 	}
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

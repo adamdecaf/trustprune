@@ -110,6 +110,8 @@ $ trustprune chain example.com --remote
 
 The default table matches `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, the 16-character SHA-256 prefix, and LABELS. LABELS is `-` when none apply. Several labels are comma-separated with no spaces. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. The leaf is shown even when it is not in the store. `--untrusted`, `--expired`, and `--revoked` include those certificates and put `untrusted`, `expired`, `not yet valid`, or `blocklisted` in LABELS. `--expired` also includes a certificate that is not yet valid (`NotBefore` in the future) and labels it `not yet valid`. `--revoked` uses the offline Chromium and Mozilla blocklists (labeled `blocklisted`). `--all` is those three flags. `--remote` dials the URL only when no local chain is found (30s timeout). Full detail: [usage](usage.md#chain).
 
+An incomplete chain exits 1. Text prints a note. JSON sets `complete` to false, sets `missing_issuer` to the issuer name when no issuer was found (omitted for a cycle or a too-long chain), and sets `stopped_at` to the last certificate found. The note is not in the JSON. The report has no `ERROR:` prefix. A complete chain exits 0.
+
 ## Diff
 
 `diff` compares two certificate files. There is no network access. PEM comments and other PEM block types are ignored. DER is one certificate. A file with no certificate is an error.
