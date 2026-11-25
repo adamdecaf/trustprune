@@ -524,7 +524,7 @@ pre.raw {
 <body>
 `
 	// footer is the page script. It stays inline and does not fetch anything.
-	// renderAllowlistJSON matches checklistAllowlistJSON (Fingerprints,
+	// renderAllowlistJSON matches checklistAllowlistJSON (fingerprints,
 	// two-space indent, trailing newline, {} when nothing is checked).
 	// Sorting reorders rows in the document so keyboard and screen-reader
 	// order follow the chosen column. Checked fingerprints are taken from
@@ -536,7 +536,7 @@ pre.raw {
 function renderAllowlistJSON(fps) {
   var payload = {};
   if (fps.length > 0) {
-    payload.Fingerprints = fps;
+    payload.fingerprints = fps;
   }
   return JSON.stringify(payload, null, 2) + "\n";
 }
@@ -1134,7 +1134,7 @@ func certPrechecked(al *allowlist.Allowlist, cert *x509.Certificate) bool {
 }
 
 // checklistAllowlistJSON is the allowlist file the web checklist downloads.
-// Bytes match allowlist.ToFile for a .json path: a Fingerprints array,
+// Bytes match allowlist.ToFile for a .json path: a fingerprints array,
 // two-space indent, and a trailing newline. An empty selection is {}.
 func checklistAllowlistJSON(fingerprints []string) ([]byte, error) {
 	al := allowlist.Allowlist{}

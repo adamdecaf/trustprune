@@ -383,6 +383,8 @@ countries:
 
 Build an allowlist from hostnames, platform presets, browser history, and/or a URL list file. When generation runs, the default platform preset for this OS is included unless you pass `--no-presets` or an explicit `--presets` list. Target another OS with `--presets linux` (or `darwin` / `windows`). Apply the result with `trustprune allowlist --file …` (optionally `--app openssl --bundle` for a PEM bundle). To write a PEM bundle or Java truststore from a store and leave that store unchanged, use [`trustprune create`](#create). Generation verifies chains against the system trust store, not roots from a target PEM bundle; CAs present only in that bundle are not discovered.
 
+The summary table uses headers `CA`, `SHA256-FINGERPRINT`, `COUNT`, and `EXAMPLE-DNS-NAMES`, with two-space column gaps, so a CA name that contains spaces stays in the CA column. The fingerprint column shows the first 16 characters; `-v` prints the full fingerprint. JSON allowlists use a lowercase `fingerprints` key. Files with the older `"Fingerprints"` key are still read. YAML uses `fingerprints` as well.
+
 ```bash
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com,api.example.com
 trustprune gen-allowlist --out allowlist.yaml --hosts example.com --presets linux
