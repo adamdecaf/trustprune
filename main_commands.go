@@ -163,9 +163,7 @@ func appsCommand(st *runState) *cli.Command {
 		Usage: "List supported apps and whether each store was found",
 		UsageText: `trustprune apps [--format json]
 
-  List every supported application store plus the system store (named for the
-  OS: linux, darwin, or windows — matching backup paths under ~/.trustprune/<os>/,
-  or ~/Library/trustprune/<os>/ on Darwin), and show whether each was found on
+  List every supported application store and show whether each was found on
   this machine along with its store path.
 
   Detection is read-only and never modifies certificate stores.
@@ -174,9 +172,8 @@ func appsCommand(st *runState) *cli.Command {
     APP       STATUS     PATH
     chrome    found      /home/you/.pki/nssdb
     firefox   not-found  -
-    linux     found      /etc/ssl/certs/ca-certificates.crt
 
-  JSON output (same fields; the system store name is the OS name, not "platform"):
+  JSON output (same fields):
     trustprune apps --format json
 `,
 		Flags: []cli.Flag{
@@ -261,14 +258,22 @@ positional argument with --file or --url. A URL dials only when --remote is set.
 
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
-INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256. SHA256 is a 16-character prefix.
--v, --verbose prints the full 64-character SHA-256 in that table. JSON always
-uses the full fingerprint. The leaf is shown even when it is not in the store.
-Other certificates outside the store, expired or not-yet-valid certificates,
-and blocklisted certificates are omitted unless the matching flag is set.
-Included certificates are labeled (untrusted), (expired), (not yet valid),
-and/or (blocklisted). --expired covers a past NotAfter and a future NotBefore.
+INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is a 16-character prefix.
+-v, --verbose prints the full 64-character SHA-256 in that table.
+JSON always uses the full fingerprint. SUBJECT is the display name only.
+LABELS is "-" when none apply. Several labels are comma-separated with no
+spaces. The leaf is shown even when it is not in the store. Other
+certificates outside the store, expired or not-yet-valid certificates, and
+blocklisted certificates are omitted unless the matching flag is set.
+Included certificates are labeled untrusted, expired, not yet valid, and/or
+blocklisted. --expired covers a past NotAfter and a future NotBefore.
 --revoked does not use OCSP or CRLs.
+
+An incomplete chain exits 1. The table or JSON is written first and is
+not an ERROR: line. Text prints a note. JSON sets complete to false.
+missing_issuer is the issuer name when no issuer was found, and is omitted
+for a cycle or a chain that is too long. stopped_at is the last certificate
+found, and is omitted when the chain is complete. A complete chain exits 0.
 
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
@@ -384,7 +389,7 @@ Explicit http:// is rejected. If --app is provided then the certificates for tha
 application are loaded and used for the connection.
 
   --store <path> overrides discovery for --app java (cacerts), --app certifi (cacert.pem), and --app poppler (NSS db).
-  -v, --verbose prints the verified chain after the one-line summary. When verification fails it prints the chain the server presented. It has no effect with --format json.
+  -v, --verbose prints the verified chain after the one-line summary. Columns are INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. LABELS is "-" on a verified chain. When verification fails it prints the chain the server presented. It has no effect with --format json.
   --format text (default) or json. An unknown format is a usage error.
 
   Bare host, one-line success:
@@ -401,7 +406,7 @@ application are loaded and used for the connection.
     ERROR: https://expired.badssl.com: certificate expired 2015-04-12
 
   -v after a verification failure prints the chain from that failed handshake (same columns).
-  A subject ending in " (not in store)" is missing from the selected store.
+  LABELS is "not in store" when that certificate is missing from the selected store, and "-" when it is in the store.
   The add/allowlist hint is printed only when verification fails with an unknown authority.
   allowlist only keeps or removes certificates already in the store; it does not add a missing CA.
   Add a missing CA with add --file. After it is in the store, include its sha256 under fingerprints in an allowlist file so a later allowlist run keeps it.
@@ -965,7 +970,7 @@ func versionCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:         "version",
 		Usage:        "Show the version of trustprune",
-		UsageText:    getVersion(),
+		UsageText:    "trustprune version",
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
 			printVersion(c.Root().Writer)

@@ -274,10 +274,12 @@ func flagAllowlistCount() *cli.BoolFlag {
 }
 
 // flagVersion is the root --version alias of the version command.
-// There is no -v alias: -v/--verbose is flagVerbose on every command.
+// -version and -V select it. There is no -v alias: -v/--verbose is
+// flagVerbose on every command.
 func flagVersion() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "version",
+		Aliases:     []string{"V"},
 		Usage:       "print the version",
 		HideDefault: true,
 		Local:       true,

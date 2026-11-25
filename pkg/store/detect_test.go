@@ -50,20 +50,20 @@ func TestLocateChromeNSS(t *testing.T) {
 }
 
 func TestDetectStatusesShape(t *testing.T) {
-
 	statuses := DetectStatuses()
 	apps := GetApps()
-	if len(statuses) != len(apps)+1 {
-		t.Fatalf("want %d statuses (apps+os), got %d", len(apps)+1, len(statuses))
+	if len(statuses) != len(apps) {
+		t.Fatalf("want %d statuses (application stores only), got %d", len(apps), len(statuses))
 	}
 	for i, name := range apps {
 		if statuses[i].Name != name {
 			t.Errorf("statuses[%d].Name=%q want %q", i, statuses[i].Name, name)
 		}
 	}
-	last := statuses[len(statuses)-1]
-	if last.Name != runtime.GOOS {
-		t.Errorf("last status name=%q want %s", last.Name, runtime.GOOS)
+	for _, st := range statuses {
+		if st.Name == runtime.GOOS {
+			t.Errorf("status name %q is the platform OS, not an application store", st.Name)
+		}
 	}
 }
 

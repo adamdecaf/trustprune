@@ -65,8 +65,8 @@ Go programs can apply that allowlist without changing a store. `certpool.New` re
 | [diff](docs/usage.md#diff) | Compare two certificate files. One certificate each prints differing fields. PEM bundles are compared by SHA-256 fingerprint |
 | [chain](docs/usage.md#chain) | Show the certificate chain for a file or URL (read-only) |
 | [gen-allowlist](docs/allowlists.md#generating-allowlists) | Build an allowlist from hostnames, platform presets, browser history, or URL lists |
-| [apps](docs/usage.md#apps) | List supported app and OS stores with detection status and paths |
-| [version](docs/usage.md#version) | Print the version (`trustprune version` or `trustprune --version`) |
+| [apps](docs/usage.md#apps) | List supported application stores with detection status and paths |
+| [version](docs/usage.md#version) | Print the version (`trustprune version`, `trustprune --version`, or `trustprune -V`) |
 
 Allowlisting also applies Chromium's certificate blocklist, a Mozilla `certdata.txt` blocklist (server-auth distrust and roots whose distrust-after date has passed), and a built-in denylist of known-distrusted roots and their public keys (DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots, the compromised eMudhra G3 intermediates, DYMO Root CA (for localhost), and the Sennheiser HeadSetup roots), so those certificates are never kept. That behavior cannot be disabled today.
 
@@ -226,6 +226,7 @@ trustprune diff --format json old.pem new.der
 
 trustprune version
 trustprune --version
+trustprune -V
 # No subcommand prints usage and exits 0; an unknown --app (e.g. --app nope) exits 1 and lists the valid apps
 ```
 

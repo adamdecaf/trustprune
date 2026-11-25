@@ -46,15 +46,15 @@ func (s Status) StatusLabel() string {
 	return "not-found"
 }
 
-// DetectStatuses returns status for every supported app (sorted) plus the
-// system/OS store (named runtime.GOOS). Paths come from each store's existing probe logic.
+// DetectStatuses returns status for every supported application store, in
+// GetApps order. The platform OS is not a row; ForApp still accepts
+// runtime.GOOS as that store. Paths come from each store's existing probe logic.
 func DetectStatuses() []Status {
 	apps := GetApps()
-	out := make([]Status, 0, len(apps)+1)
+	out := make([]Status, 0, len(apps))
 	for _, name := range apps {
 		out = append(out, detectApp(name))
 	}
-	out = append(out, detectPlatform())
 	return out
 }
 

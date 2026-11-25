@@ -123,6 +123,8 @@ func TestConnectFormatUsage(t *testing.T) {
 			"default: text",
 			"options: json, text",
 			"no effect with --format json",
+			"INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS",
+			"not in store",
 			"printed only when verification fails with an unknown authority",
 			"to add a missing CA, run: trustprune add --file <cert>",
 			"An expired site certificate gets a short note that adding a root won't help.",
@@ -152,8 +154,15 @@ func TestConnectPresentedChainExitCode(t *testing.T) {
 		if res.code != 1 {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "presented chain:") || !strings.Contains(res.stdout, connectNotInStoreSubject(cert)) {
+		if !strings.Contains(res.stdout, "presented chain:") || presentedSubjectLabel(res.stdout, cert) != "not in store" {
 			t.Fatalf("stdout =\n%s", res.stdout)
+		}
+		name := cert.Subject.CommonName
+		if name == "" {
+			name = cert.Subject.String()
+		}
+		if strings.Contains(res.stdout, name+" (not in store)") {
+			t.Fatalf("label appended to subject:\n%s", res.stdout)
 		}
 		if !strings.Contains(res.stdout, "to add a missing CA, run: trustprune add --file <cert>") || !strings.Contains(res.stdout, "include sha256 "+fp+" under fingerprints") {
 			t.Fatalf("missing hint:\n%s", res.stdout)
@@ -196,10 +205,36 @@ func TestConnectPresentedChainExitCode(t *testing.T) {
 	})
 }
 
-func connectNotInStoreSubject(cert *x509.Certificate) string {
+func presentedSubjectLabel(out string, cert *x509.Certificate) string {
 	name := cert.Subject.CommonName
 	if name == "" {
 		name = cert.Subject.String()
 	}
-	return name + " (not in store)"
+	for _, line := range strings.Split(out, "\n") {
+		cells := splitAlignedCells(line)
+		if len(cells) >= 2 && cells[1] == name {
+			return cells[len(cells)-1]
+		}
+	}
+	return ""
+}
+
+func splitAlignedCells(line string) []string {
+	line = strings.TrimRight(line, " ")
+	if line == "" {
+		return nil
+	}
+	var cells []string
+	for {
+		i := strings.Index(line, "  ")
+		if i < 0 {
+			cells = append(cells, line)
+			return cells
+		}
+		cells = append(cells, line[:i])
+		line = strings.TrimLeft(line[i:], " ")
+		if line == "" {
+			return cells
+		}
+	}
 }

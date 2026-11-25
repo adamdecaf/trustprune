@@ -194,7 +194,10 @@ func TestTraceNotTruncatedOnStrayArgs(t *testing.T) {
 		if res.code != 0 {
 			t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "Usage of trustprune") {
+		if !strings.Contains(res.stdout, "Usage: trustprune <command> [flags]") {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "Usage of trustprune version") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		if strings.Contains(res.stdout, "ERROR: stopping trace") || strings.Contains(res.stderr, "ERROR: stopping trace") {
