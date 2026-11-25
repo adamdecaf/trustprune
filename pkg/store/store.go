@@ -163,8 +163,8 @@ func GetApps() []string {
 }
 
 // platformAppName reports whether app is the running OS name (runtime.GOOS).
-// `apps` prints that name for the platform store. It is accepted by ForApp
-// and is intentionally absent from GetApps.
+// ForApp accepts that name as the platform store. It is intentionally absent
+// from GetApps and from the apps listing.
 func platformAppName(app string) bool {
 	return strings.ToLower(app) == runtime.GOOS
 }

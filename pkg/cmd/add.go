@@ -15,7 +15,6 @@
 package cmd
 
 import (
-	"fmt"
 	"os"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -49,13 +48,11 @@ func AddCertsToAppFromStore(app, storePath, certFile string) error {
 func addCerts(st store.Modifier, where string) error {
 	bs, err := os.ReadFile(where)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 	certs, err := certutil.Decode(bs)
 	if err != nil {
-		fmt.Println(err)
-		os.Exit(1)
+		return err
 	}
 	return st.Add(certs)
 }
