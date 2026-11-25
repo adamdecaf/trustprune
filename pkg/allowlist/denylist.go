@@ -369,15 +369,20 @@ var deniedCerts = []deniedCert{
 // Denied reports whether cert is on the built-in denylist. A certificate
 // matches when its SHA-256 fingerprint matches, or when the SHA-256 of its
 // SubjectPublicKeyInfo matches. name is a short label for the matching entry.
+// If the SPKI bytes are missing, Denied returns true: the key cannot be
+// compared, so the certificate is not treated as trusted.
 func Denied(cert *x509.Certificate) (denied bool, name string) {
 	if cert == nil {
 		return false, ""
 	}
-	fp := certutil.GetHexSHA256Fingerprint(*cert)
 	spkiFP := spkiSHA256(cert)
+	if spkiFP == "" {
+		return true, "missing SPKI"
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
 	for i := range deniedCerts {
 		e := &deniedCerts[i]
-		if sameHex(e.fingerprint, fp) || (spkiFP != "" && sameHex(e.spki, spkiFP)) {
+		if sameHex(e.fingerprint, fp) || sameHex(e.spki, spkiFP) {
 			return true, e.name
 		}
 	}
