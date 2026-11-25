@@ -402,10 +402,12 @@ application are loaded and used for the connection.
 
   -v after a verification failure prints the chain from that failed handshake (same columns).
   A subject ending in " (not in store)" is missing from the selected store.
+  The add/allowlist hint is printed only when verification fails with an unknown authority.
   allowlist only keeps or removes certificates already in the store; it does not add a missing CA.
   Add a missing CA with add --file. After it is in the store, include its sha256 under fingerprints in an allowlist file so a later allowlist run keeps it.
     to add a missing CA, run: trustprune add --file <cert>
     after it is in the store, include sha256 <64 hex> under fingerprints in an allowlist file so a later allowlist run keeps it
+  An expired site certificate gets a short note that adding a root won't help.
 
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
