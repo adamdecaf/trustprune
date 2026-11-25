@@ -59,8 +59,13 @@ func TestBuildChainDefaultMatchesConnectTable(t *testing.T) {
 	if out != want {
 		t.Fatalf("default chain table:\n got:\n%s\nwant:\n%s", out, want)
 	}
-	if strings.Contains(out, "(untrusted)") || strings.Contains(out, "(expired)") || strings.Contains(out, "(blocklisted)") || strings.Contains(out, "incomplete:") {
-		t.Fatalf("default chain has a label or incomplete note:\n%s", out)
+	for _, row := range statusRows(out) {
+		if row.labels != "-" {
+			t.Fatalf("default chain label %q:\n%s", row.labels, out)
+		}
+	}
+	if strings.Contains(out, "incomplete:") {
+		t.Fatalf("default chain has an incomplete note:\n%s", out)
 	}
 }
 
@@ -129,9 +134,7 @@ func TestBuildChainUntrusted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "priv.example (untrusted)") {
-		t.Fatalf("private CA included without --untrusted:\n%s", out)
-	}
+	assertSubjectAbsent(t, out, "priv.example")
 	if !strings.Contains(out, "incomplete: no issuer for leaf.example; pass --untrusted") {
 		t.Fatalf("missing untrusted hint:\n%s", out)
 	}
@@ -144,15 +147,11 @@ func TestBuildChainUntrusted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "priv.example (untrusted)") {
-		t.Fatalf("private CA not labeled untrusted:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "priv.example", "untrusted")
 	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("complete private chain marked incomplete:\n%s", out)
 	}
-	if strings.Contains(out, "leaf.example (untrusted)") {
-		t.Fatalf("leaf labeled untrusted:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "leaf.example", "-")
 }
 
 func TestBuildChainExpired(t *testing.T) {
@@ -172,9 +171,7 @@ func TestBuildChainExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "old.example") && strings.Contains(chainDataLines(out)[0], "old.example (expired)") {
-		t.Fatal("expired CA row present")
-	}
+	assertSubjectAbsent(t, out, "old.example")
 	lines := chainDataLines(out)
 	if len(lines) != 1 {
 		t.Fatalf("rows = %d, want 1:\n%s", len(lines), out)
@@ -188,9 +185,7 @@ func TestBuildChainExpired(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "old.example (expired)") {
-		t.Fatalf("expired CA not labeled:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "old.example", "expired")
 	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("expired chain marked incomplete:\n%s", out)
 	}
@@ -217,12 +212,7 @@ func TestBuildChainExpiredLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "old-leaf.example (expired)") {
-		t.Fatalf("leaf not labeled expired:\n%s", out)
-	}
-	if strings.Contains(out, "old-leaf.example (untrusted") {
-		t.Fatalf("expired leaf labeled untrusted:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "old-leaf.example", "expired")
 }
 
 func TestBuildChainNotYetValid(t *testing.T) {
@@ -244,9 +234,7 @@ func TestBuildChainNotYetValid(t *testing.T) {
 	if lines := chainDataLines(out); len(lines) != 1 {
 		t.Fatalf("rows = %d, want 1:\n%s", len(lines), out)
 	}
-	if strings.Contains(out, "(not yet valid)") || strings.Contains(out, "(expired)") {
-		t.Fatalf("not-yet-valid CA included:\n%s", out)
-	}
+	assertNoLabels(t, out, "not yet valid", "expired")
 	if !strings.Contains(out, "incomplete: no issuer for leaf.example; pass --expired") {
 		t.Fatalf("missing not-yet-valid hint:\n%s", out)
 	}
@@ -256,10 +244,8 @@ func TestBuildChainNotYetValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "future.example (not yet valid)") {
-		t.Fatalf("not-yet-valid CA not labeled:\n%s", out)
-	}
-	if strings.Contains(out, "future.example (expired)") || strings.Contains(out, "incomplete:") {
+	assertSubjectLabel(t, out, "future.example", "not yet valid")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("not-yet-valid chain:\n%s", out)
 	}
 
@@ -275,7 +261,8 @@ func TestBuildChainNotYetValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "not yet valid") || strings.Contains(out, "(expired)") || strings.Contains(out, "incomplete:") {
+	assertNoLabels(t, out, "not yet valid", "expired")
+	if strings.Contains(out, "not yet valid") || strings.Contains(out, "incomplete:") {
 		t.Fatalf("NotBefore == now treated as not yet valid:\n%s", out)
 	}
 
@@ -298,10 +285,8 @@ func TestBuildChainNotYetValid(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "future-leaf.example (not yet valid)") {
-		t.Fatalf("leaf not labeled not yet valid:\n%s", out)
-	}
-	if strings.Contains(out, "incomplete:") || strings.Contains(out, "future-leaf.example (expired)") {
+	assertSubjectLabel(t, out, "future-leaf.example", "not yet valid")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("not-yet-valid leaf:\n%s", out)
 	}
 }
@@ -318,7 +303,8 @@ func TestBuildChainNotAfterEqualToNowIsCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "incomplete:") || strings.Contains(out, "(expired)") {
+	assertNoLabels(t, out, "expired")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("NotAfter == now treated as expired:\n%s", out)
 	}
 }
@@ -337,9 +323,7 @@ func TestBuildChainBlocklisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "(blocklisted)") {
-		t.Fatalf("blocklisted CA included without --revoked:\n%s", out)
-	}
+	assertNoLabels(t, out, "blocklisted")
 	if !strings.Contains(out, "incomplete: no issuer for leaf.example; pass --revoked") {
 		t.Fatalf("missing blocklist hint:\n%s", out)
 	}
@@ -353,9 +337,7 @@ func TestBuildChainBlocklisted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "blocked.example (blocklisted)") {
-		t.Fatalf("CA not labeled blocklisted:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "blocked.example", "blocklisted")
 	if strings.Contains(out, "(revoked)") {
 		t.Fatalf("label should be blocklisted, not revoked:\n%s", out)
 	}
@@ -382,9 +364,7 @@ func TestBuildChainBlocklistedLeaf(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "leaf.example (blocklisted)") {
-		t.Fatalf("leaf not labeled blocklisted:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "leaf.example", "blocklisted")
 }
 
 func TestBuildChainAllShorthand(t *testing.T) {
@@ -401,9 +381,7 @@ func TestBuildChainAllShorthand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "priv.example (untrusted, expired, blocklisted)") {
-		t.Fatalf("all shorthand missing combined label:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "priv.example", "untrusted,expired,blocklisted")
 }
 
 func TestBuildChainAllLabels(t *testing.T) {
@@ -421,9 +399,7 @@ func TestBuildChainAllLabels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out, "priv.example (untrusted, expired, blocklisted)") {
-		t.Fatalf("combined label missing:\n%s", out)
-	}
+	assertSubjectLabel(t, out, "priv.example", "untrusted,expired,blocklisted")
 }
 
 func TestNormalizeChainFormat(t *testing.T) {
@@ -751,7 +727,8 @@ func TestBuildChainPrefersCurrentIssuer(t *testing.T) {
 	if strings.Contains(out, "2015-04-12") {
 		t.Fatalf("expired duplicate chosen:\n%s", out)
 	}
-	if strings.Contains(out, "(expired)") || strings.Contains(out, "incomplete:") {
+	assertNoLabels(t, out, "expired")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("chain:\n%s", out)
 	}
 }
@@ -1007,9 +984,7 @@ func TestShowChainAllIncludesPrivateCA(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(buf.String(), "priv.example (untrusted, expired)") {
-		t.Fatalf("all shorthand:\n%s", buf.String())
-	}
+	assertSubjectLabel(t, buf.String(), "priv.example", "untrusted,expired")
 	if strings.Contains(buf.String(), "incomplete:") {
 		t.Fatalf("complete private chain marked incomplete:\n%s", buf.String())
 	}
@@ -1072,7 +1047,8 @@ func TestShowChainRemoteHTTPTLS(t *testing.T) {
 	}
 	// The leaf is not in the store. The CA is. Only a non-leaf outside
 	// the store is labeled untrusted. This chain's CA is in the bundle.
-	if strings.Contains(out, "(untrusted)") || strings.Contains(out, "incomplete:") {
+	assertNoLabels(t, out, "untrusted")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("remote chain:\n%s", out)
 	}
 	after, err := os.ReadFile(bundle)
@@ -1107,9 +1083,7 @@ func TestShowChainRemoteUntrustedIntermediate(t *testing.T) {
 	if !strings.Contains(plain.String(), "pass --untrusted") {
 		t.Fatalf("expected untrusted hint:\n%s", plain.String())
 	}
-	if strings.Contains(plain.String(), "mid.example (untrusted)") {
-		t.Fatalf("intermediate included without --untrusted:\n%s", plain.String())
-	}
+	assertSubjectAbsent(t, plain.String(), "mid.example")
 
 	var buf bytes.Buffer
 	err = ShowChain(&buf, ChainOptions{App: "openssl", Bundle: bundle, URL: u, Remote: true, Untrusted: true, Now: chainTestNow})
@@ -1117,10 +1091,9 @@ func TestShowChainRemoteUntrustedIntermediate(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "mid.example (untrusted)") || !strings.Contains(out, "root.example") {
-		t.Fatalf("remote chain:\n%s", out)
-	}
-	if strings.Contains(out, "root.example (untrusted)") || strings.Contains(out, "incomplete:") {
+	assertSubjectLabel(t, out, "mid.example", "untrusted")
+	assertSubjectLabel(t, out, "root.example", "-")
+	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("root should be trusted and the chain complete:\n%s", out)
 	}
 	assertSkipVerifyOff(t)
@@ -1220,6 +1193,112 @@ func TestReadChainFileDERTrailingWhitespace(t *testing.T) {
 func chainTimeout(err error) bool {
 	var ne net.Error
 	return errors.As(err, &ne) && ne.Timeout()
+}
+
+type statusRow struct {
+	subject string
+	labels  string
+}
+
+func statusRows(out string) []statusRow {
+	var rows []statusRow
+	for _, line := range strings.Split(out, "\n") {
+		cells := splitAlignedCells(line)
+		if len(cells) < 6 || !indexCell(cells[0]) {
+			continue
+		}
+		rows = append(rows, statusRow{subject: cells[1], labels: cells[len(cells)-1]})
+	}
+	return rows
+}
+
+func subjectLabel(out, subject string) (string, bool) {
+	for _, row := range statusRows(out) {
+		if row.subject == subject {
+			return row.labels, true
+		}
+	}
+	return "", false
+}
+
+func assertSubjectLabel(t *testing.T, out, subject, want string) {
+	t.Helper()
+	if strings.Contains(out, subject+" (") {
+		t.Fatalf("subject %q has a status suffix:\n%s", subject, out)
+	}
+	got, ok := subjectLabel(out, subject)
+	if !ok {
+		t.Fatalf("no row for subject %q:\n%s", subject, out)
+	}
+	if got != want {
+		t.Fatalf("LABELS for %q = %q, want %q:\n%s", subject, got, want, out)
+	}
+}
+
+func assertSubjectAbsent(t *testing.T, out, subject string) {
+	t.Helper()
+	if _, ok := subjectLabel(out, subject); ok {
+		t.Fatalf("subject %q is in the table:\n%s", subject, out)
+	}
+	if strings.Contains(out, subject+" (") {
+		t.Fatalf("subject %q has a status suffix:\n%s", subject, out)
+	}
+}
+
+func assertNoLabels(t *testing.T, out string, labels ...string) {
+	t.Helper()
+	found := map[string]struct{}{}
+	for _, row := range statusRows(out) {
+		if strings.Contains(row.subject, " (") {
+			t.Fatalf("subject %q has a status suffix:\n%s", row.subject, out)
+		}
+		if row.labels == "-" {
+			continue
+		}
+		for _, label := range strings.Split(row.labels, ",") {
+			found[label] = struct{}{}
+		}
+	}
+	for _, label := range labels {
+		if _, ok := found[label]; ok {
+			t.Fatalf("table has label %q:\n%s", label, out)
+		}
+		if strings.Contains(out, "("+label+")") {
+			t.Fatalf("label %q is still on a subject:\n%s", label, out)
+		}
+	}
+}
+
+func splitAlignedCells(line string) []string {
+	line = strings.TrimRight(line, " ")
+	if line == "" {
+		return nil
+	}
+	var cells []string
+	for {
+		i := strings.Index(line, "  ")
+		if i < 0 {
+			cells = append(cells, line)
+			return cells
+		}
+		cells = append(cells, line[:i])
+		line = strings.TrimLeft(line[i:], " ")
+		if line == "" {
+			return cells
+		}
+	}
+}
+
+func indexCell(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func chainDataLines(out string) []string {

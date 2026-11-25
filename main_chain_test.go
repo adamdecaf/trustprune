@@ -59,7 +59,7 @@ func TestChainCLI(t *testing.T) {
 			"labeled blocklisted",
 			"no OCSP or CRL",
 			"30s timeout",
-			"INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256",
+			"INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS",
 			"16-character prefix",
 			"full 64-character SHA-256",
 			"--app openssl --bundle",
@@ -102,10 +102,10 @@ func TestChainCLI(t *testing.T) {
 		if res.code != 0 {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "INDEX") || !strings.Contains(res.stdout, "SUBJECT") || !strings.Contains(res.stdout, "SHA256") {
+		if !strings.Contains(res.stdout, "INDEX") || !strings.Contains(res.stdout, "SUBJECT") || !strings.Contains(res.stdout, "SHA256") || !strings.Contains(res.stdout, "LABELS") {
 			t.Fatalf("missing table:\n%s", res.stdout)
 		}
-		if strings.Contains(res.stdout, "(untrusted)") || strings.Contains(res.stdout, "(expired)") || strings.Contains(res.stdout, "(blocklisted)") {
+		if strings.Contains(res.stdout, "untrusted") || strings.Contains(res.stdout, "expired") || strings.Contains(res.stdout, "blocklisted") || strings.Contains(res.stdout, "not yet valid") || strings.Contains(res.stdout, "not in store") {
 			t.Fatalf("default chain labeled:\n%s", res.stdout)
 		}
 		if strings.Contains(res.stdout, "incomplete:") {

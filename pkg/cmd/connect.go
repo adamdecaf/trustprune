@@ -58,9 +58,9 @@ type ConnectOptions struct {
 	Format string
 }
 
-// connectNotInStoreMark is appended to a presented-chain subject when that
-// certificate's SHA-256 is not in the store selected for the handshake.
-const connectNotInStoreMark = " (not in store)"
+// connectNotInStoreMark is the LABELS cell when a presented certificate's
+// SHA-256 is not in the store selected for the handshake.
+const connectNotInStoreMark = "not in store"
 
 // connectExpiredHint is the verbose line when the site certificate's NotAfter
 // is in the past. Adding a root does not fix that.
@@ -289,7 +289,7 @@ func presentedChainFromError(err error) presentedChain {
 
 // formatConnectPresentedText prints the presented chain, leaf first, with
 // the same columns as the verified chain. A certificate missing from roots
-// has connectNotInStoreMark on its subject. handshakeErr selects the trailing
+// has connectNotInStoreMark in LABELS. handshakeErr selects the trailing
 // hint. Unknown authority, when a certificate is missing, names trustprune
 // add and the last missing fingerprint (closest to the root). An expired
 // certificate says that adding a root will not help. A certificate that is
@@ -302,7 +302,7 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate, handshakeErr e
 		return "", errors.New("no presented certificate chain")
 	}
 	inStore := connectStoreFingerprints(roots)
-	headers := []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256"}
+	headers := statusTableHeaders()
 	rows := make([][]string, len(chain))
 	var hintFP string
 	for i, cert := range chain {
@@ -313,17 +313,18 @@ func formatConnectPresentedText(chain, roots []*x509.Certificate, handshakeErr e
 		if err != nil {
 			return "", fmt.Errorf("presented chain certificate %d: %w", i, err)
 		}
-		subject := connectName(cert.Subject)
+		var labels []string
 		if _, ok := inStore[full]; !ok {
-			subject += connectNotInStoreMark
+			labels = []string{connectNotInStoreMark}
 			hintFP = full
 		}
 		rows[i] = []string{
 			strconv.Itoa(i),
-			subject,
+			connectName(cert.Subject),
 			connectName(cert.Issuer),
 			cert.NotAfter.UTC().Format(connectDateLayout),
 			full[:16],
+			formatLabelsCell(labels),
 		}
 	}
 	var b strings.Builder
@@ -625,14 +626,14 @@ func formatConnectOK(rawURL string, state *tls.ConnectionState) (string, error) 
 }
 
 // formatConnectChainTable formats the verified chain, leaf first, as an
-// aligned table. Columns are index, subject, issuer, not-after, and the
-// first 16 hex characters of each certificate's SHA-256. The result ends
-// with a newline.
+// aligned table. Columns match the chain command. SHA256 is the first 16
+// hex characters. LABELS is "-" on every row: a verified chain has no
+// status label. The result ends with a newline.
 func formatConnectChainTable(chain []*x509.Certificate) (string, error) {
 	if len(chain) == 0 {
 		return "", errors.New("no verified certificate chain")
 	}
-	headers := []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256"}
+	headers := statusTableHeaders()
 	rows := make([][]string, len(chain))
 	for i, cert := range chain {
 		if cert == nil {
@@ -648,6 +649,7 @@ func formatConnectChainTable(chain []*x509.Certificate) (string, error) {
 			connectName(cert.Issuer),
 			cert.NotAfter.UTC().Format(connectDateLayout),
 			sum,
+			formatLabelsCell(nil),
 		}
 	}
 	return alignTable(headers, rows), nil
@@ -694,6 +696,22 @@ func connectSHA256Prefix(c *x509.Certificate) (string, error) {
 		return "", err
 	}
 	return fp[:16], nil
+}
+
+// statusTableHeaders is the column order for the chain table and both
+// connect -v tables. LABELS is last so SUBJECT stays a bare name.
+func statusTableHeaders() []string {
+	return []string{"INDEX", "SUBJECT", "ISSUER", "NOT-AFTER", "SHA256", "LABELS"}
+}
+
+// formatLabelsCell renders the LABELS column shared by chain and connect.
+// No labels is "-". Several labels are joined with "," and no spaces,
+// for example "untrusted,expired".
+func formatLabelsCell(labels []string) string {
+	if len(labels) == 0 {
+		return "-"
+	}
+	return strings.Join(labels, ",")
 }
 
 // alignTable left-aligns cells and separates columns with two spaces.

@@ -85,9 +85,8 @@ func TestConnectPresentedChain(t *testing.T) {
 		if !strings.Contains(out, "0") || !strings.Contains(out, leaf.Subject.CommonName) {
 			t.Fatal("missing leaf")
 		}
-		if !strings.Contains(out, ca.Subject.CommonName+connectNotInStoreMark) {
-			t.Fatalf("CA not marked:\n%s", out)
-		}
+		assertSubjectLabel(t, out, ca.Subject.CommonName, connectNotInStoreMark)
+		assertSubjectLabel(t, out, leaf.Subject.CommonName, connectNotInStoreMark)
 		leafLine, caLine := presentedLines(t, out)
 		if !strings.HasPrefix(leafLine, "0 ") || !strings.Contains(leafLine, leafFP[:16]) {
 			t.Fatalf("leaf line = %q", leafLine)
@@ -163,7 +162,8 @@ func TestConnectPresentedChain(t *testing.T) {
 			t.Fatalf("err = %v", err)
 		}
 		fp := certutil.GetHexSHA256Fingerprint(*cert.cert)
-		if !strings.Contains(out, "self.example"+connectNotInStoreMark) || !strings.Contains(out, "2032-05-06") || !strings.Contains(out, fp[:16]) {
+		assertSubjectLabel(t, out, "self.example", connectNotInStoreMark)
+		if !strings.Contains(out, "2032-05-06") || !strings.Contains(out, fp[:16]) {
 			t.Fatalf("stdout =\n%s", out)
 		}
 		if !strings.Contains(out, connectTrustHint(fp, "", "")) {
@@ -261,12 +261,11 @@ func TestConnectPresentedChain(t *testing.T) {
 		if err == nil || err.Error() != u.String()+": certificate expired 2015-04-12" {
 			t.Fatalf("err = %v", err)
 		}
-		if !strings.Contains(out, "presented chain:") || !strings.Contains(out, "old.example"+connectNotInStoreMark) || !strings.Contains(out, connectExpiredHint) {
+		if !strings.Contains(out, "presented chain:") || !strings.Contains(out, connectExpiredHint) {
 			t.Fatalf("stdout =\n%s", out)
 		}
-		if strings.Contains(out, "ca.example"+connectNotInStoreMark) {
-			t.Fatalf("CA marked missing:\n%s", out)
-		}
+		assertSubjectLabel(t, out, "old.example", connectNotInStoreMark)
+		assertSubjectLabel(t, out, "ca.example", "-")
 		if strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") || strings.Contains(out, connectNotYetValidHint) {
 			t.Fatalf("add hint on expired leaf:\n%s", out)
 		}
@@ -282,9 +281,10 @@ func TestConnectPresentedChain(t *testing.T) {
 		if err == nil || err.Error() != hostURL.String()+": hostname mismatch" {
 			t.Fatalf("err = %v", err)
 		}
-		if !strings.Contains(out, "presented chain:") || !strings.Contains(out, "wrong.example"+connectNotInStoreMark) {
+		if !strings.Contains(out, "presented chain:") {
 			t.Fatalf("stdout =\n%s", out)
 		}
+		assertSubjectLabel(t, out, "wrong.example", connectNotInStoreMark)
 		if strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") || strings.Contains(out, connectExpiredHint) || strings.Contains(out, connectNotYetValidHint) {
 			t.Fatalf("unexpected hint:\n%s", out)
 		}
@@ -300,9 +300,10 @@ func TestConnectPresentedChain(t *testing.T) {
 		if err == nil || err.Error() != u.String()+": certificate not yet valid until 2099-01-02" {
 			t.Fatalf("err = %v", err)
 		}
-		if !strings.Contains(out, "future.example"+connectNotInStoreMark) || !strings.Contains(out, connectNotYetValidHint) {
+		if !strings.Contains(out, connectNotYetValidHint) {
 			t.Fatalf("stdout =\n%s", out)
 		}
+		assertSubjectLabel(t, out, "future.example", connectNotInStoreMark)
 		if strings.Contains(out, connectExpiredHint) || strings.Contains(out, "to add a missing CA") || strings.Contains(out, "allowlist") {
 			t.Fatalf("wrong hint:\n%s", out)
 		}

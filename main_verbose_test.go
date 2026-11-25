@@ -203,14 +203,25 @@ func TestCLIVerboseFlag(t *testing.T) {
 func chainTableSHA256(t *testing.T, out string) string {
 	t.Helper()
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) < 2 || !strings.Contains(lines[0], "SHA256") {
+	if len(lines) < 2 {
 		t.Fatalf("chain table:\n%s", out)
 	}
-	fields := strings.Fields(lines[1])
-	if len(fields) == 0 {
-		t.Fatalf("empty chain row:\n%s", out)
+	header := splitAlignedCells(lines[0])
+	shaCol := -1
+	for i, cell := range header {
+		if cell == "SHA256" {
+			shaCol = i
+			break
+		}
 	}
-	sha := fields[len(fields)-1]
+	if shaCol < 0 {
+		t.Fatalf("chain table:\n%s", out)
+	}
+	fields := splitAlignedCells(lines[1])
+	if shaCol >= len(fields) {
+		t.Fatalf("chain row:\n%s", out)
+	}
+	sha := fields[shaCol]
 	for _, r := range sha {
 		if !unicode.Is(unicode.ASCII_Hex_Digit, r) {
 			t.Fatalf("SHA256 %q is not hex\n%s", sha, out)
