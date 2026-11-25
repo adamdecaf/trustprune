@@ -67,7 +67,10 @@ func TestCertUtil__sortNil(t *testing.T) {
 	if Less(named, nil) || !Less(nil, named) || Less(nil, nil) {
 		t.Fatal("nil Less mismatch")
 	}
-	bareSame := &x509.Certificate{Subject: pkix.Name{CommonName: "Bravo"}}
+	bareSame := &x509.Certificate{Subject: named.Subject}
+	if StringifyPKIXName(bareSame.Subject) != StringifyPKIXName(named.Subject) {
+		t.Fatalf("same subject required for fingerprint tie-break: %q vs %q", StringifyPKIXName(bareSame.Subject), StringifyPKIXName(named.Subject))
+	}
 	same := []*x509.Certificate{named, bareSame}
 	Sort(same)
 	if same[0] != bareSame || same[1] != named {
