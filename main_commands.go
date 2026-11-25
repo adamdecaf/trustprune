@@ -965,7 +965,7 @@ func versionCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:         "version",
 		Usage:        "Show the version of trustprune",
-		UsageText:    getVersion(),
+		UsageText:    "trustprune version",
 		ArgValidator: rejectPositionalArgs,
 		Action: withTrace(st, func(_ context.Context, c *cli.Command) error {
 			printVersion(c.Root().Writer)

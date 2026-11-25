@@ -128,9 +128,11 @@ func run(args []string, stdout, stderr io.Writer) (code int) {
 	}()
 
 	app := newApp(st)
-	applyOnUsageError(app)
+	// Same slice app.Run sees, so unknown-flag text can keep the typed dashes.
+	cliArgs := normalizeCLIArgs(args)
+	applyOnUsageError(app, cliArgs)
 	applyCommandNotFound(st, app)
-	err := app.Run(context.Background(), normalizeCLIArgs(args))
+	err := app.Run(context.Background(), cliArgs)
 
 	if st.traceErr != nil {
 		fmt.Fprintf(stdout, "ERROR: %v\n", st.traceErr)
@@ -194,14 +196,13 @@ func newApp(st *runState) *cli.Command {
 		Name:  "trustprune",
 		Usage: "list, backup, allowlist, restore, and create PEM bundles from CA trust stores",
 		// HideVersion skips urfave's VersionFlag, which aliases -v.
-		// -v/--verbose is flagVerbose. Root --version is flagVersion.
+		// -v/--verbose is flagVerbose. Root --version/-V is flagVersion.
 		HideVersion:                   true,
 		Writer:                        st.stdout,
 		ErrWriter:                     st.stderr,
 		ExitErrHandler:                func(context.Context, *cli.Command, error) {},
 		EnableShellCompletion:         false,
 		CustomRootCommandHelpTemplate: rootHelpTemplate(),
-		OnUsageError:                  onUsageError,
 		ArgValidator:                  rejectUnknownCommand,
 		Action:                        withTrace(st, rootHelpAction),
 		Flags:                         []cli.Flag{flagVersion(), flagVerbose()},
@@ -240,12 +241,17 @@ func withTrace(st *runState, fn cli.ActionFunc) cli.ActionFunc {
 	}
 }
 
-func applyOnUsageError(c *cli.Command) {
+// applyOnUsageError installs the usage-error handler on c and its
+// subcommands. args is the slice passed to app.Run so an unknown flag
+// can be echoed with the dash style the user typed.
+func applyOnUsageError(c *cli.Command, args []string) {
 	if c.OnUsageError == nil {
-		c.OnUsageError = onUsageError
+		c.OnUsageError = func(ctx context.Context, cmd *cli.Command, err error, isSubcommand bool) error {
+			return onUsageError(ctx, cmd, err, isSubcommand, args)
+		}
 	}
 	for _, sub := range c.Commands {
-		applyOnUsageError(sub)
+		applyOnUsageError(sub, args)
 	}
 }
 
@@ -265,15 +271,24 @@ func applyCommandNotFound(st *runState, c *cli.Command) {
 	}
 }
 
-func onUsageError(_ context.Context, c *cli.Command, err error, _ bool) error {
-	return usageExit(c, rewriteUsageError(err))
+func onUsageError(_ context.Context, c *cli.Command, err error, _ bool, args []string) error {
+	return usageExit(c, rewriteUsageError(err, args, c))
 }
 
-func rewriteUsageError(err error) string {
+// rewriteUsageError turns urfave usage errors into trustprune's wording.
+// urfave always reports "flag provided but not defined: -name" with one
+// leading dash. The typed form is taken from args: the first flag token
+// whose name matches (leading dashes stripped, stopping at '='), skipping
+// values consumed by earlier flags that take a value. A bare "--" ends
+// that search. If no token matches, the message stays "unknown flag --name".
+func rewriteUsageError(err error, args []string, c *cli.Command) string {
 	msg := err.Error()
 	const unknownPrefix = "flag provided but not defined: "
 	if strings.HasPrefix(msg, unknownPrefix) {
 		name := strings.TrimLeft(strings.TrimSpace(strings.TrimPrefix(msg, unknownPrefix)), "-")
+		if typed := typedFlagToken(args, name, c); typed != "" {
+			return "unknown flag " + typed
+		}
 		return "unknown flag --" + name
 	}
 	const reqOne = `Required flag "`
@@ -285,6 +300,119 @@ func rewriteUsageError(err error) string {
 		}
 	}
 	return msg
+}
+
+// typedFlagToken returns the first flag token in args whose name equals
+// name, without a "=value" suffix, keeping that token's dash prefix.
+// The scan starts after the failing subcommand's name so a root flag
+// written before that name is not reported. Tokens consumed as values
+// of earlier flags that take a value are skipped, including when that
+// value looks like a flag. --flag=value does not consume the next
+// token. A bare "--" ends the search. An empty result means no match.
+func typedFlagToken(args []string, name string, c *cli.Command) string {
+	if name == "" {
+		return ""
+	}
+	args = argsAfterCommand(args, c)
+	takesValue := flagsTakingValue(c)
+	skipValue := false
+	for _, arg := range args {
+		if skipValue {
+			skipValue = false
+			continue
+		}
+		if arg == "--" {
+			return ""
+		}
+		if len(arg) < 2 || arg[0] != '-' {
+			continue
+		}
+		token := arg
+		hasEqual := false
+		if i := strings.IndexByte(token, '='); i >= 0 {
+			token = token[:i]
+			hasEqual = true
+		}
+		flagName := strings.TrimLeft(token, "-")
+		if takes, ok := takesValue[flagName]; ok {
+			if takes && !hasEqual {
+				skipValue = true
+			}
+			continue
+		}
+		if flagName != name {
+			continue
+		}
+		return token
+	}
+	return ""
+}
+
+// argsAfterCommand returns the arguments after the failing subcommand's
+// name, or an alias. The root command, a missing name, or a bare "--"
+// before the command leaves args unchanged, so a trailing operand that
+// equals the program name cannot hide a rejected root flag.
+func argsAfterCommand(args []string, c *cli.Command) []string {
+	if c == nil || c.Root() == c {
+		return args
+	}
+	names := make(map[string]struct{})
+	if c.Name != "" {
+		names[c.Name] = struct{}{}
+	}
+	for _, alias := range c.Aliases {
+		if alias != "" {
+			names[alias] = struct{}{}
+		}
+	}
+	if len(names) == 0 {
+		return args
+	}
+	for i, arg := range args {
+		if arg == "--" {
+			return args
+		}
+		if _, ok := names[arg]; ok {
+			return args[i+1:]
+		}
+	}
+	return args
+}
+
+// flagsTakingValue maps flag names (no leading dashes) to whether that
+// flag consumes the next argument. The map includes c's flags and
+// persistent flags from its ancestors. Local flags on a parent are omitted.
+func flagsTakingValue(c *cli.Command) map[string]bool {
+	takes := make(map[string]bool)
+	if c == nil {
+		return takes
+	}
+	for i, cmd := range c.Lineage() {
+		addFlagsTakingValue(takes, cmd.Flags, i > 0)
+		for _, grp := range cmd.MutuallyExclusiveFlags {
+			for _, fs := range grp.Flags {
+				addFlagsTakingValue(takes, fs, i > 0)
+			}
+		}
+	}
+	return takes
+}
+
+func addFlagsTakingValue(takes map[string]bool, flags []cli.Flag, skipLocal bool) {
+	for _, f := range flags {
+		if skipLocal {
+			if lf, ok := f.(cli.LocalFlag); ok && lf.IsLocal() {
+				continue
+			}
+		}
+		tv := false
+		if df, ok := f.(cli.DocGenerationFlag); ok {
+			tv = df.TakesValue()
+		}
+		for _, name := range f.Names() {
+			takes[name] = tv
+		}
+	}
 }
 
 func usageExit(c *cli.Command, msg string) error {
@@ -369,7 +497,7 @@ func normalizeCLIArgs(args []string) []string {
 }
 
 func rootHelpTemplate() string {
-	return fmt.Sprintf(`Usage of trustprune version %s
+	return fmt.Sprintf(`Usage: trustprune <command> [flags]
 COMMANDS:{{template "visibleCommandCategoryTemplate" .}}
 
 APPS
@@ -385,7 +513,6 @@ DEBUGGING
 {{if .VisibleFlags}}
 OPTIONS:{{template "visibleFlagTemplate" .}}{{end}}
 `,
-		getVersion(),
 		store.FormatAppsHelpLine(),
 	)
 }

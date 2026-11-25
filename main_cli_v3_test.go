@@ -16,7 +16,9 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"io"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +57,30 @@ func TestCLIExitCodes(t *testing.T) {
 		assertUsageError(t, res, "unknown flag --bogus")
 		if strings.Contains(res.stderr, "unknown flag -bogus") {
 			t.Fatalf("dropped a dash: stderr=%q", res.stderr)
+		}
+	})
+
+	t.Run("unknown flag keeps single dash", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "-bogus")
+		assertUsageError(t, res, "unknown flag -bogus")
+		if strings.Contains(res.stderr, "unknown flag --bogus") {
+			t.Fatalf("added a dash: stderr=%q", res.stderr)
+		}
+	})
+
+	t.Run("unknown flag is not lost to a trailing program name", func(t *testing.T) {
+		res := runCLI(t, bin, home, "-bogus", "trustprune")
+		assertUsageError(t, res, "unknown flag -bogus")
+		if strings.Contains(res.stderr, "unknown flag --bogus") {
+			t.Fatalf("reported the trailing operand instead of the flag: stderr=%q", res.stderr)
+		}
+	})
+
+	t.Run("unknown flag after value is the rejected token", func(t *testing.T) {
+		res := runCLI(t, bin, home, "list", "--file", "-bogus", "--bogus")
+		assertUsageError(t, res, "unknown flag --bogus")
+		if strings.Contains(res.stderr, "unknown flag -bogus") {
+			t.Fatalf("reported the --file value: stderr=%q", res.stderr)
 		}
 	})
 
@@ -221,6 +247,11 @@ func TestCLIUsageErrorPrefix(t *testing.T) {
 			want: "ERROR: unknown flag --foo\nrun 'trustprune list --help' for usage\n",
 		},
 		{
+			name: "unknown single-dash flag",
+			args: []string{"list", "-foo"},
+			want: "ERROR: unknown flag -foo\nrun 'trustprune list --help' for usage\n",
+		},
+		{
 			name: "unknown command",
 			args: []string{"no-such"},
 			want: "ERROR: unknown command \"no-such\"\nrun 'trustprune --help' for usage\n",
@@ -255,6 +286,7 @@ func TestCLIVersionFlag(t *testing.T) {
 	command := runCLI(t, bin, home, "version")
 	long := runCLI(t, bin, home, "--version")
 	single := runCLI(t, bin, home, "-version")
+	dashV := runCLI(t, bin, home, "-V")
 	for _, tc := range []struct {
 		name string
 		res  cliResult
@@ -262,6 +294,7 @@ func TestCLIVersionFlag(t *testing.T) {
 		{"version", command},
 		{"--version", long},
 		{"-version", single},
+		{"-V", dashV},
 	} {
 		if tc.res.code != 0 {
 			t.Fatalf("%s code=%d stdout=%q stderr=%q", tc.name, tc.res.code, tc.res.stdout, tc.res.stderr)
@@ -273,23 +306,41 @@ func TestCLIVersionFlag(t *testing.T) {
 			t.Fatalf("%s stdout=%q want %q", tc.name, tc.res.stdout, want)
 		}
 	}
-	if long.stdout != command.stdout || single.stdout != command.stdout {
-		t.Fatalf("version outputs differ: command=%q --version=%q -version=%q", command.stdout, long.stdout, single.stdout)
+	if long.stdout != command.stdout || single.stdout != command.stdout || dashV.stdout != command.stdout {
+		t.Fatalf("version outputs differ: command=%q --version=%q -version=%q -V=%q", command.stdout, long.stdout, single.stdout, dashV.stdout)
 	}
 
 	// -v is verbose, not a version alias. Root -v with no subcommand still prints help.
-	dashV := runCLI(t, bin, home, "-v")
-	if dashV.code != 0 {
-		t.Fatalf("root -v code=%d stdout=%q stderr=%q", dashV.code, dashV.stdout, dashV.stderr)
+	dashLower := runCLI(t, bin, home, "-v")
+	if dashLower.code != 0 {
+		t.Fatalf("root -v code=%d stdout=%q stderr=%q", dashLower.code, dashLower.stdout, dashLower.stderr)
 	}
-	if dashV.stdout == want || !strings.Contains(dashV.stdout, "COMMANDS") {
-		t.Fatalf("root -v printed the version: stdout=%q stderr=%q", dashV.stdout, dashV.stderr)
+	if dashLower.stdout == want || !strings.Contains(dashLower.stdout, "COMMANDS") {
+		t.Fatalf("root -v printed the version: stdout=%q stderr=%q", dashLower.stdout, dashLower.stderr)
 	}
 
 	listVersion := runCLI(t, bin, home, "list", "--version")
-	assertUsageError(t, listVersion, "unknown flag")
+	assertUsageError(t, listVersion, "unknown flag --version")
 	if strings.Contains(listVersion.stdout, "(Go:") {
 		t.Fatalf("list --version printed the version: stdout=%q", listVersion.stdout)
+	}
+
+	listDashV := runCLI(t, bin, home, "list", "-V")
+	assertUsageError(t, listDashV, "unknown flag -V")
+	if strings.Contains(listDashV.stderr, "unknown flag --V") {
+		t.Fatalf("list -V rewritten with two dashes: stderr=%q", listDashV.stderr)
+	}
+	if strings.Contains(listDashV.stdout, "(Go:") {
+		t.Fatalf("list -V printed the version: stdout=%q", listDashV.stdout)
+	}
+
+	rootThenListDashV := runCLI(t, bin, home, "--V", "list", "-V")
+	assertUsageError(t, rootThenListDashV, "unknown flag -V")
+	if strings.Contains(rootThenListDashV.stderr, "unknown flag --V") {
+		t.Fatalf("reported the root flag: stderr=%q", rootThenListDashV.stderr)
+	}
+	if strings.Contains(rootThenListDashV.stdout, "(Go:") {
+		t.Fatalf("trustprune --V list -V printed the version: stdout=%q", rootThenListDashV.stdout)
 	}
 
 	listVerbose := runCLI(t, bin, home, "list", "-file", filepath.Join("testdata", "example.crt"), "-count", "-v")
@@ -311,9 +362,156 @@ func TestCLIVersionFlag(t *testing.T) {
 	if versionLine == "" {
 		t.Fatalf("root help missing --version:\n%s", help.stdout)
 	}
+	if !strings.Contains(versionLine, "-V") {
+		t.Fatalf("root --version missing -V alias: %q", versionLine)
+	}
 	// "--version" itself contains the letters "-v"; an alias would remain after that name is removed.
 	if strings.Contains(strings.ReplaceAll(versionLine, "--version", ""), "-v") {
 		t.Fatalf("root --version aliased -v: %q", versionLine)
+	}
+}
+
+func TestCLIHelpUsageLines(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	for _, args := range [][]string{{}, {"--help"}, {"-h"}} {
+		res := runCLI(t, bin, home, args...)
+		if res.code != 0 {
+			t.Fatalf("%v code=%d stdout=%q stderr=%q", args, res.code, res.stdout, res.stderr)
+		}
+		first, _, _ := strings.Cut(res.stdout, "\n")
+		if first != "Usage: trustprune <command> [flags]" {
+			t.Fatalf("%v first line=%q\n%s", args, first, res.stdout)
+		}
+		if strings.HasPrefix(res.stdout, "Usage of trustprune version") || strings.Contains(res.stdout, "Usage of trustprune version") {
+			t.Fatalf("%v still opens with the version string:\n%s", args, res.stdout)
+		}
+	}
+
+	ver := runCLI(t, bin, home, "version", "--help")
+	if ver.code != 0 {
+		t.Fatalf("version --help code=%d stdout=%q stderr=%q", ver.code, ver.stdout, ver.stderr)
+	}
+	body := ver.stdout + ver.stderr
+	usage := usageBlock(body)
+	if !strings.Contains(usage, "trustprune version") {
+		t.Fatalf("version usage block=%q\n%s", usage, body)
+	}
+	if strings.Contains(usage, getVersion()) {
+		t.Fatalf("version usage used the version string: %q", usage)
+	}
+}
+
+func usageBlock(out string) string {
+	i := strings.Index(out, "USAGE:")
+	if i < 0 {
+		i = strings.Index(out, "Usage:")
+	}
+	if i < 0 {
+		return ""
+	}
+	rest := out[i:]
+	if j := strings.Index(rest, "\n\n"); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+func TestRewriteUsageErrorDashStyle(t *testing.T) {
+	rootCmd, fileCmd := setupRootAndList(t)
+	cases := []struct {
+		name string
+		msg  string
+		args []string
+		cmd  *cli.Command
+		want string
+	}{
+		{
+			name: "double dash",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--bogus"},
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "single dash",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "-bogus"},
+			want: "unknown flag -bogus",
+		},
+		{
+			name: "equals keeps dash style without value",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--bogus=1"},
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "fallback when token missing",
+			msg:  "flag provided but not defined: -foo",
+			args: []string{"trustprune", "list"},
+			want: "unknown flag --foo",
+		},
+		{
+			name: "bare double dash ends flags",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--", "-bogus"},
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "first match wins",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "-bogus", "--bogus"},
+			want: "unknown flag -bogus",
+		},
+		{
+			name: "value of a flag is not the rejected token",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--file", "-bogus", "--bogus"},
+			cmd:  fileCmd,
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "equals form does not consume the next token",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "list", "--file=-bogus", "--bogus"},
+			cmd:  fileCmd,
+			want: "unknown flag --bogus",
+		},
+		{
+			name: "root flag before subcommand is not the rejected token",
+			msg:  "flag provided but not defined: -V",
+			args: []string{"trustprune", "--V", "list", "-V"},
+			cmd:  fileCmd,
+			want: "unknown flag -V",
+		},
+		{
+			name: "trailing program name is not the command",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"trustprune", "-bogus", "trustprune"},
+			cmd:  rootCmd,
+			want: "unknown flag -bogus",
+		},
+		{
+			name: "path invocation with trailing program name",
+			msg:  "flag provided but not defined: -bogus",
+			args: []string{"./trustprune", "-bogus", "trustprune"},
+			cmd:  rootCmd,
+			want: "unknown flag -bogus",
+		},
+		{
+			name: "required flag unchanged",
+			msg:  `Required flag "file" not set`,
+			args: nil,
+			want: "required flag --file not set",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := rewriteUsageError(errors.New(tc.msg), tc.args, tc.cmd)
+			if got != tc.want {
+				t.Fatalf("got %q want %q", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -408,4 +606,35 @@ func TestFinishRunUsagePaths(t *testing.T) {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
 	})
+}
+
+// setupRootAndList builds a tiny command tree and runs it once so urfave
+// attaches list to the root. Subcommand cases need that parent link so
+// argsAfterCommand slices after the command name.
+func setupRootAndList(t *testing.T) (root, list *cli.Command) {
+	t.Helper()
+	list = &cli.Command{
+		Name:  "list",
+		Flags: []cli.Flag{&cli.StringFlag{Name: "file"}},
+		Action: func(context.Context, *cli.Command) error {
+			return nil
+		},
+	}
+	root = &cli.Command{
+		Name:     "trustprune",
+		Commands: []*cli.Command{list},
+		Action: func(context.Context, *cli.Command) error {
+			return nil
+		},
+		Writer:         io.Discard,
+		ErrWriter:      io.Discard,
+		ExitErrHandler: func(context.Context, *cli.Command, error) {},
+	}
+	if err := root.Run(context.Background(), []string{"trustprune"}); err != nil {
+		t.Fatal(err)
+	}
+	if list.Root() != root {
+		t.Fatal("list should be attached to the root")
+	}
+	return root, list
 }
