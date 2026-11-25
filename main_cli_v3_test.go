@@ -324,6 +324,15 @@ func TestCLIVersionFlag(t *testing.T) {
 		t.Fatalf("list -V printed the version: stdout=%q", listDashV.stdout)
 	}
 
+	rootThenListDashV := runCLI(t, bin, home, "--V", "list", "-V")
+	assertUsageError(t, rootThenListDashV, "unknown flag -V")
+	if strings.Contains(rootThenListDashV.stderr, "unknown flag --V") {
+		t.Fatalf("reported the root flag: stderr=%q", rootThenListDashV.stderr)
+	}
+	if strings.Contains(rootThenListDashV.stdout, "(Go:") {
+		t.Fatalf("trustprune --V list -V printed the version: stdout=%q", rootThenListDashV.stdout)
+	}
+
 	listVerbose := runCLI(t, bin, home, "list", "-file", filepath.Join("testdata", "example.crt"), "-count", "-v")
 	if listVerbose.code != 0 {
 		t.Fatalf("list -v code=%d stdout=%q stderr=%q", listVerbose.code, listVerbose.stdout, listVerbose.stderr)
@@ -460,6 +469,13 @@ func TestRewriteUsageErrorDashStyle(t *testing.T) {
 			args: []string{"trustprune", "list", "--file=-bogus", "--bogus"},
 			cmd:  fileCmd,
 			want: "unknown flag --bogus",
+		},
+		{
+			name: "root flag before subcommand is not the rejected token",
+			msg:  "flag provided but not defined: -V",
+			args: []string{"trustprune", "--V", "list", "-V"},
+			cmd:  fileCmd,
+			want: "unknown flag -V",
 		},
 		{
 			name: "required flag unchanged",

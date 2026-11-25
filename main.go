@@ -304,14 +304,16 @@ func rewriteUsageError(err error, args []string, c *cli.Command) string {
 
 // typedFlagToken returns the first flag token in args whose name equals
 // name, without a "=value" suffix, keeping that token's dash prefix.
-// Tokens consumed as values of earlier flags that take a value are
-// skipped, including when that value looks like a flag. --flag=value
-// does not consume the next token. A bare "--" ends the search. An
-// empty result means no match.
+// The scan starts after the failing subcommand's name so a root flag
+// written before that name is not reported. Tokens consumed as values
+// of earlier flags that take a value are skipped, including when that
+// value looks like a flag. --flag=value does not consume the next
+// token. A bare "--" ends the search. An empty result means no match.
 func typedFlagToken(args []string, name string, c *cli.Command) string {
 	if name == "" {
 		return ""
 	}
+	args = argsAfterCommand(args, c)
 	takesValue := flagsTakingValue(c)
 	skipValue := false
 	for _, arg := range args {
@@ -344,6 +346,36 @@ func typedFlagToken(args []string, name string, c *cli.Command) string {
 		return token
 	}
 	return ""
+}
+
+// argsAfterCommand returns the arguments after the failing subcommand's
+// name, or an alias. A root command, a missing name, or a bare "--"
+// before the command leaves args unchanged.
+func argsAfterCommand(args []string, c *cli.Command) []string {
+	if c == nil {
+		return args
+	}
+	names := make(map[string]struct{})
+	if c.Name != "" {
+		names[c.Name] = struct{}{}
+	}
+	for _, alias := range c.Aliases {
+		if alias != "" {
+			names[alias] = struct{}{}
+		}
+	}
+	if len(names) == 0 {
+		return args
+	}
+	for i, arg := range args {
+		if arg == "--" {
+			return args
+		}
+		if _, ok := names[arg]; ok {
+			return args[i+1:]
+		}
+	}
+	return args
 }
 
 // flagsTakingValue maps flag names (no leading dashes) to whether that
