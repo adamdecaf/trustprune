@@ -269,6 +269,12 @@ Included certificates are labeled untrusted, expired, not yet valid, and/or
 blocklisted. --expired covers a past NotAfter and a future NotBefore.
 --revoked does not use OCSP or CRLs.
 
+An incomplete chain exits 1. The table or JSON is written first and is
+not an ERROR: line. Text prints a note. JSON sets complete to false.
+missing_issuer is the issuer name when no issuer was found, and is omitted
+for a cycle or a chain that is too long. stopped_at is the last certificate
+found, and is omitted when the chain is complete. A complete chain exits 0.
+
   File (PEM or DER), using an explicit OpenSSL CA bundle as the trust store
     trustprune chain --file leaf.pem --app openssl --bundle /path/to/ca-bundle.pem
     trustprune chain leaf.pem --app openssl --bundle /path/to/ca-bundle.pem

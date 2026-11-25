@@ -65,6 +65,10 @@ func TestChainCLI(t *testing.T) {
 			"--app openssl --bundle",
 			"trustprune chain --url example.com --remote",
 			"trustprune chain --url example.com --remote --format json",
+			"An incomplete chain exits 1",
+			"missing_issuer",
+			"stopped_at",
+			"not an ERROR: line",
 			"default: text",
 			"options: json, text",
 			"--format text|json",
@@ -149,8 +153,8 @@ func TestChainCLI(t *testing.T) {
 				Labels   []string `json:"labels"`
 			} `json:"chain"`
 			Complete      bool   `json:"complete"`
-			Incomplete    string `json:"incomplete"`
 			MissingIssuer string `json:"missing_issuer"`
+			StoppedAt     string `json:"stopped_at"`
 		}
 		if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
 			t.Fatalf("json: %v\n%s", err, res.stdout)
@@ -161,9 +165,6 @@ func TestChainCLI(t *testing.T) {
 		if !strings.Contains(res.stdout, `"complete": true`) {
 			t.Fatalf("complete not encoded as true:\n%s", res.stdout)
 		}
-		if doc.Incomplete != "" {
-			t.Fatalf("incomplete = %q\n%s", doc.Incomplete, res.stdout)
-		}
 		if strings.Contains(res.stdout, `"incomplete"`) {
 			t.Fatalf("incomplete present when chain is complete:\n%s", res.stdout)
 		}
@@ -172,6 +173,12 @@ func TestChainCLI(t *testing.T) {
 		}
 		if strings.Contains(res.stdout, `"missing_issuer"`) {
 			t.Fatalf("missing_issuer present when chain is complete:\n%s", res.stdout)
+		}
+		if doc.StoppedAt != "" {
+			t.Fatalf("stopped_at = %q\n%s", doc.StoppedAt, res.stdout)
+		}
+		if strings.Contains(res.stdout, `"stopped_at"`) {
+			t.Fatalf("stopped_at present when chain is complete:\n%s", res.stdout)
 		}
 		if len(doc.Chain) != 1 {
 			t.Fatalf("chain len = %d\n%s", len(doc.Chain), res.stdout)
@@ -196,16 +203,23 @@ func TestChainCLI(t *testing.T) {
 	t.Run("json incomplete", func(t *testing.T) {
 		file := writeChainCLILeafAndCA(t)
 		res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", file, "--format", "json")
-		if res.code != 0 {
+		if res.code != 1 {
 			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stderr, "ERROR:") {
+			t.Fatalf("ERROR: prefix on incomplete chain\nstdout=%s\nstderr=%s", res.stdout, res.stderr)
+		}
+		if strings.TrimSpace(res.stderr) != "" {
+			t.Fatalf("stderr = %q", res.stderr)
 		}
 		var doc struct {
 			Chain []struct {
 				Subject string `json:"subject"`
+				Issuer  string `json:"issuer"`
 			} `json:"chain"`
 			Complete      bool   `json:"complete"`
-			Incomplete    string `json:"incomplete"`
 			MissingIssuer string `json:"missing_issuer"`
+			StoppedAt     string `json:"stopped_at"`
 		}
 		if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
 			t.Fatalf("json: %v\n%s", err, res.stdout)
@@ -216,18 +230,43 @@ func TestChainCLI(t *testing.T) {
 		if !strings.Contains(res.stdout, `"complete": false`) {
 			t.Fatalf("complete not encoded as false:\n%s", res.stdout)
 		}
-		wantNote := "incomplete: no issuer for leaf.example; pass --untrusted"
-		if doc.Incomplete != wantNote {
-			t.Fatalf("incomplete = %q, want %q\n%s", doc.Incomplete, wantNote, res.stdout)
+		if strings.Contains(res.stdout, `"incomplete"`) || strings.Contains(res.stdout, "pass --untrusted") {
+			t.Fatalf("human hint in json:\n%s", res.stdout)
 		}
-		if doc.MissingIssuer != "leaf.example" {
+		if doc.MissingIssuer != "priv.example" {
 			t.Fatalf("missing_issuer = %q\n%s", doc.MissingIssuer, res.stdout)
 		}
-		if !strings.Contains(res.stdout, `"missing_issuer": "leaf.example"`) {
+		if !strings.Contains(res.stdout, `"missing_issuer": "priv.example"`) {
 			t.Fatalf("missing_issuer not encoded:\n%s", res.stdout)
 		}
-		if len(doc.Chain) != 1 || doc.Chain[0].Subject != "leaf.example" {
+		if doc.StoppedAt != "leaf.example" {
+			t.Fatalf("stopped_at = %q\n%s", doc.StoppedAt, res.stdout)
+		}
+		if !strings.Contains(res.stdout, `"stopped_at": "leaf.example"`) {
+			t.Fatalf("stopped_at not encoded:\n%s", res.stdout)
+		}
+		if len(doc.Chain) != 1 || doc.Chain[0].Subject != "leaf.example" || doc.Chain[0].Issuer != "priv.example" {
 			t.Fatalf("chain = %+v\n%s", doc.Chain, res.stdout)
+		}
+	})
+
+	t.Run("text incomplete", func(t *testing.T) {
+		file := writeChainCLILeafAndCA(t)
+		res := runCLI(t, bin, home, "chain", "--app", "openssl", "--bundle", bundle, "--file", file)
+		if res.code != 1 {
+			t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "ERROR:") || strings.Contains(res.stderr, "ERROR:") {
+			t.Fatalf("ERROR: prefix on incomplete chain\nstdout=%s\nstderr=%s", res.stdout, res.stderr)
+		}
+		if strings.TrimSpace(res.stderr) != "" {
+			t.Fatalf("stderr = %q", res.stderr)
+		}
+		if !strings.Contains(res.stdout, "incomplete: no issuer for leaf.example; pass --untrusted") {
+			t.Fatalf("hint missing:\n%s", res.stdout)
+		}
+		if !strings.Contains(res.stdout, "INDEX") || !strings.Contains(res.stdout, "leaf.example") {
+			t.Fatalf("table missing:\n%s", res.stdout)
 		}
 	})
 
