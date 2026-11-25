@@ -49,6 +49,10 @@ import (
 //     (SennComCCCert and SenncomRootCA) come from Chromium's
 //     net/data/ssl/blocklist PEMs (CVE-2018-17612, Secorvo SSA-18-001,
 //     Microsoft ADV180029); hashes were recomputed from those PEMs.
+//     Superfish, eDellRoot, and DSDTestProvider come from Chromium's
+//     net/data/ssl/blocklist PEMs (Lenovo Superfish; Dell eDellRoot and
+//     DSDTestProvider, Dell SLN300321); hashes were recomputed from those
+//     PEMs.
 //  2. Record the lowercase hex SHA-256 of the certificate DER and of
 //     cert.RawSubjectPublicKeyInfo. The certificate hash must match the
 //     source. Leave the entry out if you are not sure.
@@ -329,6 +333,36 @@ var deniedCerts = []deniedCert{
 		name:        "SenncomRootCA",
 		fingerprint: "91e5cc32910686c5cac25c18cc805696c7b33868c280caf0c72844a2a8eb91e2",
 		spki:        "0c43ea8bcde9fc3bca165664ac8215567e3489d5393a0c81e1a79141992e1953",
+	},
+
+	// Lenovo Superfish preinstalled root. One shared certificate across
+	// machines; the private key was extracted. Chromium blocklist README
+	// "Superfish". Source: Chromium net/data/ssl/blocklist PEMs (the
+	// archive blocklist_gen.go downloads). Hashes recomputed from those
+	// PEMs.
+	{
+		name:        "Superfish",
+		fingerprint: "b6fe9151402bad1c06d7e66db67a26aa7356f2e6c644dbcf9f98968ff632e1b7",
+		spki:        "4bb8f35ba1e126f8dde1b0c420625ed86dce61a7bddadbdea9aba578ff13145e",
+	},
+
+	// Dell eDellRoot and DSDTestProvider. Preinstalled roots whose private
+	// keys were extracted. Chromium blocklist README "Dell" (Dell
+	// SLN300321). eDellRoot has no basicConstraints, so IsCA is false;
+	// Denied still matches by fingerprint and SPKI. DSDTestProvider has a
+	// negative serial number, so crypto/x509.ParseCertificate fails; the
+	// SPKI is still recorded so a later certificate that reused the key is
+	// rejected. Source: Chromium net/data/ssl/blocklist PEMs (the archive
+	// blocklist_gen.go downloads). Hashes recomputed from those PEMs.
+	{
+		name:        "eDellRoot",
+		fingerprint: "ec30c9c3065a06bb07dc5b1c6b497f370c1ca65c0f30c08e042ba6bcecc78f2c",
+		spki:        "cdee9f3305572a677e1a6c82dc1e02a35b11cae6a684338c9f37fe1ac8daec23",
+	},
+	{
+		name:        "DSDTestProvider",
+		fingerprint: "0f912fd7be760be25afbc56bdc09cd9e5dcc9c6f6a55a778aefcb6aa30e31554",
+		spki:        "130ad4e0633521290531b6651f5759b0bc7bc656709ff8f365c2143b0389b6f6",
 	},
 }
 

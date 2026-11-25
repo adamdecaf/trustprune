@@ -436,6 +436,146 @@ func TestDenied_SennheiserHeadSetupRoots(t *testing.T) {
 	}
 }
 
+func TestDenied_SuperfishAndEDellRoot(t *testing.T) {
+	cases := []struct {
+		file     string
+		wantFP   string
+		wantSPKI string
+		wantName string
+	}{
+		{
+			file:     "superfish.pem",
+			wantFP:   "b6fe9151402bad1c06d7e66db67a26aa7356f2e6c644dbcf9f98968ff632e1b7",
+			wantSPKI: "4bb8f35ba1e126f8dde1b0c420625ed86dce61a7bddadbdea9aba578ff13145e",
+			wantName: "Superfish",
+		},
+		{
+			file:     "edellroot.pem",
+			wantFP:   "ec30c9c3065a06bb07dc5b1c6b497f370c1ca65c0f30c08e042ba6bcecc78f2c",
+			wantSPKI: "cdee9f3305572a677e1a6c82dc1e02a35b11cae6a684338c9f37fe1ac8daec23",
+			wantName: "eDellRoot",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantName, func(t *testing.T) {
+			// #nosec G304 -- testdata fixture, not user input
+			raw, err := os.ReadFile(filepath.Join("testdata", tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			block, _ := pem.Decode(raw)
+			if block == nil || block.Type != "CERTIFICATE" {
+				t.Fatal("testdata PEM has no CERTIFICATE block")
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := certutil.GetHexSHA256Fingerprint(*cert); got != tc.wantFP {
+				t.Fatalf("fixture fingerprint %s, want %s", got, tc.wantFP)
+			}
+			if got := spkiSHA256(cert); got != tc.wantSPKI {
+				t.Fatalf("fixture SPKI %s, want %s", got, tc.wantSPKI)
+			}
+			if denied, name := Denied(cert); !denied || name != tc.wantName {
+				t.Fatalf("Denied(fixture)=%v %q", denied, name)
+			}
+
+			parentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := &x509.Certificate{
+				SerialNumber: big.NewInt(1),
+				Subject: pkix.Name{
+					CommonName: "Test Parent",
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+			}
+			tmpl := &x509.Certificate{
+				SerialNumber: big.NewInt(2),
+				Subject: pkix.Name{
+					CommonName: "Reissued " + tc.wantName,
+					Country:    []string{"US"},
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+				PublicKey:             cert.PublicKey,
+			}
+			der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, tmpl.PublicKey, parentKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reissued, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if certutil.GetHexSHA256Fingerprint(*reissued) == tc.wantFP {
+				t.Fatal("reissued certificate must not keep the denylisted certificate fingerprint")
+			}
+			if spkiSHA256(reissued) != tc.wantSPKI {
+				t.Fatalf("reissued SPKI %s, want %s", spkiSHA256(reissued), tc.wantSPKI)
+			}
+			if denied, name := Denied(reissued); !denied || name != tc.wantName {
+				t.Fatalf("Denied(reissued)=%v %q", denied, name)
+			}
+		})
+	}
+}
+
+func TestDenied_DSDTestProvider(t *testing.T) {
+	const (
+		wantFP   = "0f912fd7be760be25afbc56bdc09cd9e5dcc9c6f6a55a778aefcb6aa30e31554"
+		wantSPKI = "130ad4e0633521290531b6651f5759b0bc7bc656709ff8f365c2143b0389b6f6"
+		wantName = "DSDTestProvider"
+	)
+	// #nosec G304 -- testdata fixture, not user input
+	raw, err := os.ReadFile(filepath.Join("testdata", "dsdtestprovider.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatal("testdata PEM has no CERTIFICATE block")
+	}
+	// Negative serial: crypto/x509 rejects this certificate. The cryptobyte
+	// fallback fills Raw (enough for the certificate SHA-256 and Denied) but
+	// not RawSubjectPublicKeyInfo or PublicKey, so this test does not call
+	// spkiSHA256 on the fixture or re-issue with cert.PublicKey.
+	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+		t.Fatal("crypto/x509.ParseCertificate must reject DSDTestProvider")
+	} else if !strings.Contains(err.Error(), "negative serial") {
+		t.Fatalf("expected negative serial parse error, got %v", err)
+	}
+	cert, err := certutil.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := certutil.GetHexSHA256Fingerprint(*cert); got != wantFP {
+		t.Fatalf("fixture fingerprint %s, want %s", got, wantFP)
+	}
+	if denied, name := Denied(cert); !denied || name != wantName {
+		t.Fatalf("Denied(fixture)=%v %q", denied, name)
+	}
+	var gotSPKI string
+	for _, e := range deniedCerts {
+		if e.fingerprint == wantFP && e.name == wantName {
+			gotSPKI = e.spki
+			break
+		}
+	}
+	if gotSPKI != wantSPKI {
+		t.Fatalf("denylist SPKI %s, want %s", gotSPKI, wantSPKI)
+	}
+}
+
 func TestDenied_nil(t *testing.T) {
 	if denied, name := Denied(nil); denied || name != "" {
 		t.Fatalf("Denied(nil)=%v %q", denied, name)
