@@ -16,6 +16,7 @@ package allowlist
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -431,6 +432,155 @@ func TestFromPathOrURL_MalformedURLDoesNotLeakPassword(t *testing.T) {
 	}
 }
 
+func TestFromPathOrURL_ErrorsDoNotLeakPassword(t *testing.T) {
+	const password = "s3cret"
+	withUser := func(t *testing.T, srv *httptest.Server, path string) string {
+		t.Helper()
+		u, err := url.Parse(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword("alice", password)
+		u.Path = path
+		return u.String()
+	}
+
+	tests := []struct {
+		name    string
+		want    string
+		timeout bool
+		setup   func(t *testing.T) (string, FetchOptions)
+	}{
+		{
+			name: "redirect to http with userinfo",
+			want: "redirect to non-https",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Location", "http://alice:"+password+"@example.com/allowlist")
+					w.WriteHeader(http.StatusFound)
+				})
+				return withUser(t, srv, "/start"), FetchOptions{Client: srv.Client()}
+			},
+		},
+		{
+			name: "malformed Location",
+			want: "malformed redirect location",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Location", "https://alice:"+password+"@example.com/%zz")
+					w.WriteHeader(http.StatusFound)
+				})
+				return withUser(t, srv, "/start"), FetchOptions{Client: srv.Client()}
+			},
+		},
+		{
+			name: "https redirect target with userinfo",
+			want: "network error",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Location", "https://alice:"+password+"@127.0.0.1:1/allowlist")
+					w.WriteHeader(http.StatusFound)
+				})
+				return withUser(t, srv, "/start"), FetchOptions{Client: srv.Client()}
+			},
+		},
+		{
+			name:    "timeout",
+			want:    "timeout",
+			timeout: true,
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					<-r.Context().Done()
+				})
+				client := srv.Client()
+				client.Timeout = 50 * time.Millisecond
+				return withUser(t, srv, "/hang"), FetchOptions{Client: client}
+			},
+		},
+		{
+			name: "status 404 with userinfo",
+			want: "404",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					http.Error(w, "nope", http.StatusNotFound)
+				})
+				return withUser(t, srv, "/missing.yaml"), FetchOptions{Client: srv.Client()}
+			},
+		},
+		{
+			name: "unparsable body with userinfo",
+			want: "unable to read allowlist",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("[\n"))
+				})
+				return withUser(t, srv, "/bad.yaml"), FetchOptions{Client: srv.Client()}
+			},
+		},
+		{
+			name: "malformed request URL",
+			want: "invalid allowlist URL",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				return "https://alice:" + password + "@example.com/%zz", FetchOptions{}
+			},
+		},
+		{
+			name: "sha256 mismatch with userinfo",
+			want: "SHA-256 mismatch",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte("countries:\n  - US\n"))
+				})
+				return withUser(t, srv, "/a.yaml"), FetchOptions{
+					Client: srv.Client(),
+					SHA256: strings.Repeat("ab", 32),
+				}
+			},
+		},
+		{
+			name: "size cap with userinfo",
+			want: "byte limit",
+			setup: func(t *testing.T) (string, FetchOptions) {
+				payload := bytes.Repeat([]byte("a"), 1000)
+				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Length", strconv.Itoa(len(payload)))
+					_, _ = w.Write(payload)
+				})
+				return withUser(t, srv, "/big.yaml"), FetchOptions{Client: srv.Client(), MaxSize: 32}
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ref, opts := tc.setup(t)
+			_, err := FromPathOrURL(ref, opts)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			msg := err.Error()
+			if strings.Contains(msg, password) {
+				t.Fatalf("password leaked: %s", msg)
+			}
+			if !strings.Contains(msg, tc.want) {
+				t.Fatalf("err = %v, want %q", err, tc.want)
+			}
+			if strings.Contains(msg, "failed to parse Location") || strings.Contains(msg, "invalid URL escape") {
+				t.Fatalf("raw client or parse error leaked: %s", msg)
+			}
+			if tc.timeout {
+				if !errors.Is(err, context.DeadlineExceeded) {
+					t.Fatalf("timeout not errors.Is DeadlineExceeded: %v", err)
+				}
+				var te interface{ Timeout() bool }
+				if !errors.As(err, &te) || !te.Timeout() {
+					t.Fatalf("Timeout() = false: %v", err)
+				}
+			}
+		})
+	}
+}
+
 func TestFromPathOrURL_Redirect(t *testing.T) {
 	body := []byte("countries:\n  - JP\n")
 	var httpHits int
@@ -467,7 +617,7 @@ func TestFromPathOrURL_Redirect(t *testing.T) {
 
 	t.Run("http refused", func(t *testing.T) {
 		_, err := FromPathOrURL(srv.URL+"/to-http", opts)
-		if err == nil || !strings.Contains(err.Error(), "allowlist URLs must be https") {
+		if err == nil || !strings.Contains(err.Error(), "redirect to non-https") {
 			t.Fatalf("err = %v", err)
 		}
 		if strings.Contains(err.Error(), "connection refused") {

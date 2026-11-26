@@ -15,8 +15,11 @@
 package allowlist
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -213,7 +216,7 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 	client := allowlistClient(opts.Client)
 	req, err := http.NewRequest(http.MethodGet, ref, nil)
 	if err != nil {
-		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
+		return nil, fmt.Errorf("allowlist %s: invalid request", diagnosticRef(ref))
 	}
 	req.Close = true
 
@@ -221,13 +224,13 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 	if resp != nil && resp.Body != nil {
 		defer func() {
 			cerr := resp.Body.Close()
-			if err == nil {
-				err = cerr
+			if err == nil && cerr != nil {
+				err = sanitizeFetchError(ref, cerr)
 			}
 		}()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
+		return nil, sanitizeFetchError(ref, err)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("allowlist %s: response status %s", diagnosticRef(ref), resp.Status)
@@ -244,7 +247,7 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 		if errors.Is(err, errBodyTooLarge) {
 			return nil, fmt.Errorf("allowlist %s exceeds %d byte limit", diagnosticRef(ref), max)
 		}
-		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
+		return nil, sanitizeFetchError(ref, err)
 	}
 	return body, nil
 }
@@ -275,19 +278,107 @@ func allowlistClient(base *http.Client) *http.Client {
 	return &clone
 }
 
+var (
+	errRedirectNotHTTPS = errors.New("redirect to non-https")
+	errTooManyRedirects = errors.New("too many redirects")
+)
+
 func allowlistRedirect(req *http.Request, via []*http.Request) error {
 	if len(via) >= maxRedirects {
-		return fmt.Errorf("allowlist URL exceeded %d redirects", maxRedirects)
+		return errTooManyRedirects
 	}
 	scheme := ""
 	if req != nil && req.URL != nil {
 		scheme = req.URL.Scheme
 	}
 	if scheme != "https" {
-		if scheme == "" {
-			scheme = "unknown"
-		}
-		return fmt.Errorf("allowlist URL redirected to %s: allowlist URLs must be https", scheme)
+		return errRedirectNotHTTPS
 	}
 	return nil
+}
+
+// fetchTimeoutError is a fetch failure caused by a deadline. Error reports
+// only the redacted request URL and "timeout". The original error is
+// available to errors.Is and errors.As.
+type fetchTimeoutError struct {
+	msg string
+	err error
+}
+
+func (e *fetchTimeoutError) Error() string { return e.msg }
+func (e *fetchTimeoutError) Unwrap() error { return e.err }
+func (e *fetchTimeoutError) Timeout() bool { return true }
+
+// sanitizeFetchError turns a net/http client or I/O error into a message
+// that uses the redacted original request URL and a safe description.
+// The raw *url.Error, Location header, and client error text are never
+// included in the returned Error string.
+func sanitizeFetchError(ref string, err error) error {
+	if err == nil {
+		return nil
+	}
+	var te *fetchTimeoutError
+	if errors.As(err, &te) {
+		return err
+	}
+	msg := fmt.Sprintf("allowlist %s: %s", diagnosticRef(ref), fetchErrorDescription(err))
+	if isTimeout(err) {
+		return &fetchTimeoutError{msg: msg, err: err}
+	}
+	return errors.New(msg)
+}
+
+func fetchErrorDescription(err error) string {
+	switch {
+	case errors.Is(err, errTooManyRedirects):
+		return "too many redirects"
+	case errors.Is(err, errRedirectNotHTTPS):
+		return "redirect to non-https"
+	case isMalformedLocation(err):
+		return "malformed redirect location"
+	case isTimeout(err):
+		return "timeout"
+	case isTLSError(err):
+		return "TLS failure"
+	default:
+		return "network error"
+	}
+}
+
+func isMalformedLocation(err error) bool {
+	var uerr *url.Error
+	if errors.As(err, &uerr) && uerr.Err != nil {
+		err = uerr.Err
+	}
+	return strings.HasPrefix(err.Error(), "failed to parse Location header")
+}
+
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var te interface{ Timeout() bool }
+	return errors.As(err, &te) && te.Timeout()
+}
+
+func isTLSError(err error) bool {
+	var (
+		ua x509.UnknownAuthorityError
+		hn x509.HostnameError
+		ci x509.CertificateInvalidError
+		sr x509.SystemRootsError
+		cv *tls.CertificateVerificationError
+		rh tls.RecordHeaderError
+	)
+	if errors.As(err, &ua) || errors.As(err, &hn) || errors.As(err, &ci) || errors.As(err, &sr) || errors.As(err, &cv) || errors.As(err, &rh) {
+		return true
+	}
+	var uerr *url.Error
+	if errors.As(err, &uerr) && uerr.Err != nil {
+		msg := uerr.Err.Error()
+		if strings.HasPrefix(msg, "tls:") || strings.Contains(msg, "TLS handshake") {
+			return true
+		}
+	}
+	return false
 }
