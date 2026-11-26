@@ -15,10 +15,10 @@
 package cmd
 
 import (
+	"bytes"
 	"crypto/x509"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
@@ -39,7 +39,8 @@ On a rooted device or emulator, adb can pull a copy of the store for this report
 // pulled Android cacerts directory with FromAndroidDir, loads the allowlist
 // at cfg.AllowlistPath, and prints the certificates allowlist.Matches would
 // not keep, plus short Settings and adb steps. It does not write to dir or
-// to a device.
+// to a device. The report is written with ui.WriteConfiguredText so --out
+// stages the same way as other list output.
 func ListAndroidGuide(dir string, cfg *ui.Config) error {
 	certs, err := certutil.FromAndroidDir(dir)
 	if err != nil {
@@ -61,7 +62,11 @@ func ListAndroidGuide(dir string, cfg *ui.Config) error {
 		}
 	}
 	certutil.Sort(disable)
-	return writeAndroidGuide(os.Stdout, disable)
+	var buf bytes.Buffer
+	if err := writeAndroidGuide(&buf, disable); err != nil {
+		return err
+	}
+	return ui.WriteConfiguredText(cfg, strings.TrimRight(buf.String(), "\n"))
 }
 
 func writeAndroidGuide(w io.Writer, disable []*x509.Certificate) error {

@@ -146,6 +146,69 @@ func TestListAppAndroidGuide(t *testing.T) {
 	}
 }
 
+func TestListAppAndroidOutputFlags(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	dir := t.TempDir()
+	keep := mintListAndroidCA(t, "Android Keep Root", 1)
+	drop := mintListAndroidCA(t, "Android Disable Root", 2)
+	writeListAndroidPEM(t, dir, "aaaaaaaa.0", keep)
+	writeListAndroidPEM(t, dir, "bbbbbbbb.0", drop)
+	keepFP := certutil.GetHexSHA256Fingerprint(*keep)
+	dropFP := certutil.GetHexSHA256Fingerprint(*drop)
+	alPath := filepath.Join(t.TempDir(), "allowlist.yaml")
+	if err := (allowlist.Allowlist{Fingerprints: []string{keepFP}}).ToFile(alPath); err != nil {
+		t.Fatal(err)
+	}
+	base := []string{"list", "--app", "android", "--file", dir, "--allowlist", alPath}
+
+	tests := []struct {
+		name      string
+		extra     []string
+		wantUsage string
+		outFile   bool
+	}{
+		{name: "out", extra: []string{"--out", filepath.Join(t.TempDir(), "report.txt")}, outFile: true},
+		{name: "count", extra: []string{"--count"}, wantUsage: "list --app android does not support --count"},
+		{name: "format", extra: []string{"--format", "json"}, wantUsage: "list --app android does not support --format"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			args := append(append([]string{}, base...), tc.extra...)
+			res := runCLI(t, bin, home, args...)
+			if tc.wantUsage != "" {
+				assertUsageError(t, res, tc.wantUsage)
+				return
+			}
+			if res.code != 0 {
+				t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
+			}
+			if !tc.outFile {
+				return
+			}
+			if res.stdout != "" {
+				t.Fatalf("stdout=%q, want empty when --out is set", res.stdout)
+			}
+			outPath := tc.extra[1]
+			// #nosec G304 -- temp report path under t.TempDir
+			body, err := os.ReadFile(outPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := string(body)
+			if strings.Contains(got, keepFP) {
+				t.Fatalf("kept fingerprint was listed as disabled:\n%s", got)
+			}
+			if !strings.Contains(got, dropFP) {
+				t.Fatalf("disabled fingerprint missing:\n%s", got)
+			}
+			if !strings.Contains(got, "Settings > Security > Encryption & credentials > Trusted credentials") {
+				t.Fatalf("Settings steps missing:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestListAppAndroidRequiresAllowlist(t *testing.T) {
 	bin := cliBinary(t)
 	home := t.TempDir()

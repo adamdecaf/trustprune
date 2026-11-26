@@ -908,6 +908,12 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 		if flagString(c, "allowlist") == "" {
 			return ctx, usageExit(c, "list --app android requires --allowlist <path>")
 		}
+		if c.Bool("count") {
+			return ctx, usageExit(c, "list --app android does not support --count")
+		}
+		if !strings.EqualFold(format, ui.DefaultFormat()) {
+			return ctx, usageExit(c, "list --app android does not support --format")
+		}
 	} else if app != "" && file != "" {
 		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java, certifi, or poppler path")
 	}
