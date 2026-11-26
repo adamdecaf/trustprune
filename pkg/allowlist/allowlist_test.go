@@ -263,9 +263,11 @@ func TestBlocklisted(t *testing.T) {
 	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
 	origChrome := blocklistedFingerprints
 	origMozilla := mozillaBlocklistedFingerprints
+	origApple := appleBlocklistedFingerprints
 	t.Cleanup(func() {
 		blocklistedFingerprints = origChrome
 		mozillaBlocklistedFingerprints = origMozilla
+		appleBlocklistedFingerprints = origApple
 	})
 
 	blocklistedFingerprints = append([]string{fp}, blocklistedFingerprints...)
@@ -276,6 +278,11 @@ func TestBlocklisted(t *testing.T) {
 	mozillaBlocklistedFingerprints = append([]string{fp}, mozillaBlocklistedFingerprints...)
 	if !Blocklisted(certs[0]) {
 		t.Fatal("mozilla blocklist should match the certificate SHA-256")
+	}
+	mozillaBlocklistedFingerprints = origMozilla
+	appleBlocklistedFingerprints = append([]string{fp}, appleBlocklistedFingerprints...)
+	if !Blocklisted(certs[0]) {
+		t.Fatal("Apple blocklist should match the certificate SHA-256")
 	}
 }
 

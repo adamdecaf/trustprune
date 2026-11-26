@@ -71,7 +71,7 @@ type ChainOptions struct {
 	// NotAfter before Now, or NotBefore after Now. A future NotBefore
 	// is labeled "not yet valid". A past NotAfter is labeled "expired".
 	Expired bool
-	// Revoked includes certificates on the offline Chromium and Mozilla
+	// Revoked includes certificates on the offline Chromium, Mozilla, and Apple
 	// blocklists. Included certificates are labeled blocklisted.
 	// There is no OCSP or CRL lookup.
 	Revoked bool
@@ -198,7 +198,7 @@ func isIncompleteChain(err error) bool {
 // A nil writer uses os.Stdout.
 //
 // The default chain uses trusted, in-date certificates that are not on
-// the offline Chromium or Mozilla blocklists. The leaf is shown when it
+// the offline Chromium, Mozilla, or Apple blocklists. The leaf is shown when it
 // passes the validity and blocklist checks, even if it is not in the store.
 // With no labels, the table matches connect's verified chain table.
 // Format json prints one object; text (the default) is unchanged.
