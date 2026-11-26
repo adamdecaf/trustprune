@@ -100,6 +100,7 @@ trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
 trustprune list --file /tmp/android-cacerts
+trustprune list --app android --file /tmp/android-cacerts --allowlist allowlist.yaml
 # Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 trustprune list --ui web --allowlist allowlist.json
@@ -110,7 +111,7 @@ trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists
 |------|---------|
 | `--app <name>` | List from an application store |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory instead of discovery. `list` output shows the chosen path |
-| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar), or from a pulled Android cacerts directory of `<hash>.0` PEM or DER files, including `.crt`/`.cer`/`.der` exports of user-installed CAs. Cannot be combined with `--app`; use `--store` to override a java, certifi, or poppler path |
+| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar), or from a pulled Android cacerts directory of `<hash>.0` PEM or DER files, including `.crt`/`.cer`/`.der` exports of user-installed CAs. Cannot be combined with `--app`, except `list --app android --file <dir> --allowlist <path>`. Use `--store` to override a java, certifi, or poppler path |
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
 | `--url <endpoint>` | Download a PEM or DER certificate bundle and list it (not a TLS site lookup). Mozilla `certdata.txt` is also accepted. To see a site's certificate chain, run `trustprune chain <host> --remote` |
 | `--count` | Print only the number of certificates |
@@ -118,8 +119,10 @@ trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists
 | `--out <path>` | Write the formatted output to `<path>` instead of stdout for every `--format` and for `--count`. Stdout stays empty |
 | `-v`, `--verbose` | On the default table, show the full fingerprint, serial, source or store path (`-` for URLs), and hyphenated `NOT-BEFORE` / `NOT-AFTER`. Columns fit the longest header or cell and are separated by two spaces. When every row has the same path, print `PATH: <path>` above the table and omit the PATH column; mixed paths keep the column. DAYS stays numeric (including negative when expired). Also accepted globally (`trustprune -v list …`) |
 | `--ui <type>` | Presentation: `cli` (default) or `web` (local page) |
-| `--allowlist <path>` | With `--ui web`: local allowlist JSON or YAML, or an https URL, the same allowlist `allowlist --file` reads. Certificates that allowlist would keep start checked |
+| `--allowlist <path>` | With `--ui web`: local allowlist JSON or YAML, or an https URL, the same allowlist `allowlist --file` reads. Certificates that allowlist would keep start checked. Also required with `list --app android` (no `--ui web` needed): the report lists certificates that allowlist would not keep |
 | `--sha256 <hex>` | With `--allowlist`: SHA-256 of the allowlist file bytes (64 hex digits, any case). Checked before the allowlist is parsed |
+
+`list --app android --file <dir> --allowlist <path>` is a guide-only report. It reads a pulled Android cacerts or `cacerts-added` directory the same way `list --file <dir>` does, prints the certificates that allowlist (and the built-in denylist) would not keep, and prints short Settings and adb steps. trustprune does not write to the device. `--app android` is not a registered store; `add`, `allowlist`, `backup`, and `restore` still reject it as an unknown app.
 
 `list --ui web` shows each certificate on a local page with a keep switch. A checked switch means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist`, a certificate starts checked when that allowlist would keep it. `--allowlist` may be a local YAML or JSON file or an https URL. `--sha256` is the SHA-256 of those file bytes and is checked before the page is built. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
 

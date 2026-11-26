@@ -183,7 +183,9 @@ On a managed device, a device-owner or profile-owner app can install a user CA w
 
 `trustprune list --file <dir>` lists a pulled Android system cacerts directory of `<hash>.0` PEM or DER files, and `.crt`/`.cer`/`.der` exports of user-installed CAs. That is offline analysis of a copy the user already pulled; it does not talk to the device.
 
-1. **Guide only.** A command such as `trustprune list --app android` would print the Settings path and the `adb pull` lines above, and could print an allowlist or a disable report the user applies by hand in Settings. `add`, `allowlist`, `backup`, and `restore` would print the same guide and exit non-zero. No device I/O. `--app android` is not a supported app today.
+`trustprune list --app android --file <dir> --allowlist <path>` is a guide-only report on that same pulled directory: it prints the certificates the allowlist (and built-in denylist) would not keep, plus short Settings and adb steps. It does not write to the device. `--app android` is not in the supported-app list; `add`, `allowlist`, `backup`, and `restore` still reject it as an unknown app.
+
+1. **Guide only, later.** Register `--app android` so `add`, `allowlist`, `backup`, and `restore` print the same guide and exit non-zero, with no device I/O.
 2. **Longer term.** A companion that ranks which system CAs to disable first, then walks the user through the Settings toggle (or asks an MDM admin to install or remove a user CA). It still cannot write the system store on a stock device.
 3. **Out of scope.** Magisk and bind-mount automation, an MDM client, and writing `cacerts-removed` from the host.
 

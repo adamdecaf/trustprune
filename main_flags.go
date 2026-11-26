@@ -160,7 +160,7 @@ func flagUI() *cli.StringFlag {
 func flagListAllowlist() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:      "allowlist",
-		Usage:     "with --ui web, local YAML/JSON allowlist or https URL (same as allowlist --file) whose matches start checked",
+		Usage:     "with --ui web, or with --app android, local YAML/JSON allowlist or https URL (same as allowlist --file)",
 		TakesFile: true,
 		Local:     true,
 	}
