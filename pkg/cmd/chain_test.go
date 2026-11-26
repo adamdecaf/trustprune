@@ -862,7 +862,7 @@ func TestResolveChainLeafLocalSkipsRemote(t *testing.T) {
 			return nil, errors.New("remote")
 		},
 	}
-	got, extras, err := resolveChainLeaf(opts, []*x509.Certificate{leaf}, []*x509.Certificate{ca}, nil)
+	got, extras, presented, err := resolveChainLeaf(opts, []*x509.Certificate{leaf}, []*x509.Certificate{ca}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -872,6 +872,9 @@ func TestResolveChainLeafLocalSkipsRemote(t *testing.T) {
 	if len(extras) != 0 {
 		t.Fatalf("extras = %d", len(extras))
 	}
+	if len(presented) != 0 {
+		t.Fatalf("presented = %d", len(presented))
+	}
 }
 
 func TestResolveChainLeafRemoteFallback(t *testing.T) {
@@ -879,7 +882,7 @@ func TestResolveChainLeafRemoteFallback(t *testing.T) {
 	leaf, ca := mintLeafAndCA(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
 	u := mustURL(t, "https://leaf.example")
 	opts := ChainOptions{URL: u, Now: chainTestNow}
-	_, _, err := resolveChainLeaf(opts, nil, nil, nil)
+	_, _, _, err := resolveChainLeaf(opts, nil, nil, nil)
 	if err == nil || err.Error() != "no local chain for https://leaf.example; pass --remote to look up the TLS chain" {
 		t.Fatalf("err = %v", err)
 	}
@@ -890,7 +893,7 @@ func TestResolveChainLeafRemoteFallback(t *testing.T) {
 		}
 		return []*x509.Certificate{leaf, ca}, nil
 	}
-	got, extras, err := resolveChainLeaf(opts, nil, nil, nil)
+	got, extras, presented, err := resolveChainLeaf(opts, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -900,13 +903,16 @@ func TestResolveChainLeafRemoteFallback(t *testing.T) {
 	if len(extras) != 1 || chainFP(extras[0]) != chainFP(ca) {
 		t.Fatalf("extras = %#v", extras)
 	}
+	if len(presented) != 1 || chainFP(presented[0]) != chainFP(ca) {
+		t.Fatalf("presented = %#v", presented)
+	}
 }
 
 func TestResolveChainLeafRedactsURL(t *testing.T) {
 	t.Parallel()
 	u := mustURL(t, "https://alice:s3cret@leaf.example:8443/hidden?token=sekrit#frag")
 	opts := ChainOptions{URL: u, Now: chainTestNow}
-	_, _, err := resolveChainLeaf(opts, nil, nil, nil)
+	_, _, _, err := resolveChainLeaf(opts, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -919,7 +925,7 @@ func TestResolveChainLeafRedactsURL(t *testing.T) {
 	opts.Fetch = func(*url.URL) ([]*x509.Certificate, error) {
 		return nil, nil
 	}
-	_, _, err = resolveChainLeaf(opts, nil, nil, nil)
+	_, _, _, err = resolveChainLeaf(opts, nil, nil, nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -1070,6 +1076,108 @@ func TestShowChainDERFile(t *testing.T) {
 	}
 }
 
+func TestShowChainRemotePresentedIntermediate(t *testing.T) {
+	t.Parallel()
+	root, rootKey := mintCA(t, "root.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	leaf, mid, _ := mintTLSChainUnder(t, root, rootKey, "leaf.example", "mid.example")
+	u := mustURL(t, "https://leaf.example")
+	fetch := func(*url.URL) ([]*x509.Certificate, error) {
+		return []*x509.Certificate{leaf, mid}, nil
+	}
+
+	t.Run("completes when the presented intermediate chains to a trusted root", func(t *testing.T) {
+		t.Parallel()
+		bundle := filepath.Join(t.TempDir(), "ca.pem")
+		if err := certutil.ToFile(bundle, []*x509.Certificate{root}); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err := ShowChain(&buf, ChainOptions{
+			App:    "openssl",
+			Bundle: bundle,
+			URL:    u,
+			Remote: true,
+			Now:    chainTestNow,
+			Fetch:  fetch,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := buf.String()
+		assertSubjectLabel(t, out, "leaf.example", "-")
+		assertSubjectLabel(t, out, "mid.example", "-")
+		assertSubjectLabel(t, out, "root.example", "-")
+		if strings.Contains(out, "incomplete:") {
+			t.Fatalf("complete remote chain:\n%s", out)
+		}
+		if lines := chainDataLines(out); len(lines) != 3 {
+			t.Fatalf("rows = %d, want 3:\n%s", len(lines), out)
+		}
+	})
+
+	t.Run("still needs --untrusted when the root is not trusted", func(t *testing.T) {
+		t.Parallel()
+		other, _ := mintCA(t, "other.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+		bundle := filepath.Join(t.TempDir(), "ca.pem")
+		if err := certutil.ToFile(bundle, []*x509.Certificate{other}); err != nil {
+			t.Fatal(err)
+		}
+		var buf bytes.Buffer
+		err := ShowChain(&buf, ChainOptions{
+			App:    "openssl",
+			Bundle: bundle,
+			URL:    u,
+			Remote: true,
+			Now:    chainTestNow,
+			Fetch:  fetch,
+		})
+		assertIncompleteChain(t, err)
+		out := buf.String()
+		if !strings.Contains(out, "pass --untrusted") {
+			t.Fatalf("expected untrusted hint:\n%s", out)
+		}
+		assertSubjectAbsent(t, out, "mid.example")
+		assertSubjectAbsent(t, out, "root.example")
+	})
+}
+
+func TestShowChainRemotePresentedRootStaysUntrusted(t *testing.T) {
+	t.Parallel()
+	// Unrelated bundle plus a server-presented self-signed root. With
+	// --untrusted the root is included, but it must stay labeled untrusted.
+	root, rootKey := mintCA(t, "root.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	leaf, mid, _ := mintTLSChainUnder(t, root, rootKey, "leaf.example", "mid.example")
+	other, _ := mintCA(t, "other.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	bundle := filepath.Join(t.TempDir(), "ca.pem")
+	if err := certutil.ToFile(bundle, []*x509.Certificate{other}); err != nil {
+		t.Fatal(err)
+	}
+	u := mustURL(t, "https://leaf.example")
+	fetch := func(*url.URL) ([]*x509.Certificate, error) {
+		return []*x509.Certificate{leaf, mid, root}, nil
+	}
+	var buf bytes.Buffer
+	err := ShowChain(&buf, ChainOptions{
+		App:       "openssl",
+		Bundle:    bundle,
+		URL:       u,
+		Remote:    true,
+		Untrusted: true,
+		Now:       chainTestNow,
+		Fetch:     fetch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	assertSubjectLabel(t, out, "leaf.example", "-")
+	assertSubjectLabel(t, out, "mid.example", "-")
+	assertSubjectLabel(t, out, "root.example", "untrusted")
+	if strings.Contains(out, "incomplete:") {
+		t.Fatalf("expected a complete chain with --untrusted:\n%s", out)
+	}
+}
+
 func TestShowChainRemoteHTTPTLS(t *testing.T) {
 	leaf, ca, server := mintTLSChain(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
 	srv := newChainServer(t, server)
@@ -1137,19 +1245,23 @@ func TestShowChainRemoteUntrustedIntermediate(t *testing.T) {
 	}
 	var plain bytes.Buffer
 	err = ShowChain(&plain, ChainOptions{App: "openssl", Bundle: bundle, URL: u, Remote: true, Now: chainTestNow})
-	assertIncompleteChain(t, err)
-	if !strings.Contains(plain.String(), "pass --untrusted") {
-		t.Fatalf("expected untrusted hint:\n%s", plain.String())
+	if err != nil {
+		t.Fatal(err)
 	}
-	assertSubjectAbsent(t, plain.String(), "mid.example")
+	out := plain.String()
+	assertSubjectLabel(t, out, "mid.example", "-")
+	assertSubjectLabel(t, out, "root.example", "-")
+	if strings.Contains(out, "incomplete:") {
+		t.Fatalf("presented intermediate should complete the chain:\n%s", out)
+	}
 
 	var buf bytes.Buffer
 	err = ShowChain(&buf, ChainOptions{App: "openssl", Bundle: bundle, URL: u, Remote: true, Untrusted: true, Now: chainTestNow})
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := buf.String()
-	assertSubjectLabel(t, out, "mid.example", "untrusted")
+	out = buf.String()
+	assertSubjectLabel(t, out, "mid.example", "-")
 	assertSubjectLabel(t, out, "root.example", "-")
 	if strings.Contains(out, "incomplete:") {
 		t.Fatalf("root should be trusted and the chain complete:\n%s", out)

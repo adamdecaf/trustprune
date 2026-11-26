@@ -114,8 +114,12 @@ func NormalizeChainFormat(format string) (string, error) {
 var errChainPresented = errors.New("presented chain captured for display")
 
 type chainInput struct {
-	leaf      *x509.Certificate
-	extras    []*x509.Certificate
+	leaf   *x509.Certificate
+	extras []*x509.Certificate
+	// presented is the intermediates from a --remote TLS lookup
+	// (the certificates after the leaf). They may be used to reach
+	// a trusted root without --untrusted.
+	presented []*x509.Certificate
 	trusted   []*x509.Certificate
 	untrusted []*x509.Certificate
 	opts      ChainOptions
@@ -248,13 +252,14 @@ func ShowChain(w io.Writer, opts ChainOptions) error {
 		untrustedStore = listed
 	}
 
-	leaf, extras, err := resolveChainLeaf(opts, fileCerts, trusted, untrustedStore)
+	leaf, extras, presented, err := resolveChainLeaf(opts, fileCerts, trusted, untrustedStore)
 	if err != nil {
 		return err
 	}
 	out, note, err := renderChain(chainInput{
 		leaf:      leaf,
 		extras:    extras,
+		presented: presented,
 		trusted:   trusted,
 		untrusted: untrustedStore,
 		opts:      opts,
@@ -289,37 +294,38 @@ func chainOpenStore(opts ChainOptions) (store.Store, error) {
 	return store.ForAppWithStore(app, opts.StorePath)
 }
 
-func resolveChainLeaf(opts ChainOptions, fileCerts, trusted, untrustedStore []*x509.Certificate) (*x509.Certificate, []*x509.Certificate, error) {
+func resolveChainLeaf(opts ChainOptions, fileCerts, trusted, untrustedStore []*x509.Certificate) (*x509.Certificate, []*x509.Certificate, []*x509.Certificate, error) {
 	if opts.URL == nil {
 		leaf, extras := selectFileLeaf(fileCerts)
 		if leaf == nil {
-			return nil, nil, fmt.Errorf("%s: no certificate", opts.File)
+			return nil, nil, nil, fmt.Errorf("%s: no certificate", opts.File)
 		}
-		return leaf, extras, nil
+		return leaf, extras, nil, nil
 	}
 	host := opts.URL.Hostname()
 	if c := firstHostMatch(host, fileCerts); c != nil {
-		return c, others(fileCerts, c), nil
+		return c, others(fileCerts, c), nil, nil
 	}
 	if c := firstHostMatch(host, trusted); c != nil {
-		return c, fileCerts, nil
+		return c, fileCerts, nil, nil
 	}
 	if c := firstHostMatch(host, untrustedStore); c != nil {
 		extras := append(append([]*x509.Certificate{}, fileCerts...), others(untrustedStore, c)...)
-		return c, extras, nil
+		return c, extras, nil, nil
 	}
 	if !opts.Remote {
-		return nil, nil, fmt.Errorf("no local chain for %s; pass --remote to look up the TLS chain", chainLookupURL(opts.URL))
+		return nil, nil, nil, fmt.Errorf("no local chain for %s; pass --remote to look up the TLS chain", chainLookupURL(opts.URL))
 	}
 	presented, err := fetchPresented(opts)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if len(presented) == 0 || presented[0] == nil {
-		return nil, nil, fmt.Errorf("remote lookup for %s: server presented no certificates", chainLookupURL(opts.URL))
+		return nil, nil, nil, fmt.Errorf("remote lookup for %s: server presented no certificates", chainLookupURL(opts.URL))
 	}
-	extras := append(append([]*x509.Certificate{}, presented[1:]...), fileCerts...)
-	return presented[0], extras, nil
+	intermediates := append([]*x509.Certificate{}, presented[1:]...)
+	extras := append(append([]*x509.Certificate{}, intermediates...), fileCerts...)
+	return presented[0], extras, intermediates, nil
 }
 
 func fetchPresented(opts ChainOptions) ([]*x509.Certificate, error) {
@@ -387,9 +393,23 @@ func renderChain(in chainInput) (string, chainNote, error) {
 	}
 	trusted := chainTrustedSet(in.trusted)
 	pool := chainPool([]*x509.Certificate{in.leaf}, in.trusted, in.untrusted, in.extras)
-	rows, note, err := walkChain(in.leaf, pool, trusted, in.opts, now, blocked)
+	presented := chainTrustedSet(in.presented)
+	rows, note, err := walkChain(in.leaf, pool, trusted, presented, false, in.opts, now, blocked)
 	if err != nil {
 		return "", chainNote{}, err
+	}
+	// A --remote lookup often sends intermediates that are not in the
+	// store. If using them reaches a trusted root, show that complete
+	// chain. Otherwise keep the default walk, which still asks for
+	// --untrusted when the chain does not verify.
+	if note.incomplete != "" && len(in.presented) > 0 {
+		full, fullNote, err := walkChain(in.leaf, pool, trusted, presented, true, in.opts, now, blocked)
+		if err != nil {
+			return "", chainNote{}, err
+		}
+		if fullNote.incomplete == "" {
+			rows, note = full, fullNote
+		}
 	}
 	if format == chainFormatJSON {
 		text, err := formatChainJSON(rows, note)
@@ -418,7 +438,7 @@ func rejectLeaf(leaf *x509.Certificate, opts ChainOptions, now time.Time, blocke
 	return fmt.Errorf("leaf certificate %s; pass %s to include it", strings.Join(why, " and "), strings.Join(flags, " "))
 }
 
-func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[string]struct{}, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) ([]chainRow, chainNote, error) {
+func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted, presented map[string]struct{}, allowPresented bool, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) ([]chainRow, chainNote, error) {
 	var rows []chainRow
 	seen := map[string]struct{}{}
 	current := leaf
@@ -437,7 +457,7 @@ func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[str
 			}, nil
 		}
 		seen[fp] = struct{}{}
-		row, err := makeChainRow(current, len(rows) == 0, trusted, now, blocked)
+		row, err := makeChainRow(current, len(rows) == 0, trusted, presented, now, blocked)
 		if err != nil {
 			return nil, chainNote{}, err
 		}
@@ -445,7 +465,7 @@ func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[str
 		if chainSelfSigned(current) {
 			return rows, chainNote{}, nil
 		}
-		next, skip, ok := pickIssuer(current, pool, trusted, opts, now, blocked)
+		next, skip, ok := pickIssuer(current, pool, trusted, presented, allowPresented, opts, now, blocked)
 		if !ok {
 			return rows, incompleteNote(current, skip), nil
 		}
@@ -453,7 +473,7 @@ func walkChain(leaf *x509.Certificate, pool []*x509.Certificate, trusted map[str
 	}
 }
 
-func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct{}, now time.Time, blocked func(*x509.Certificate) bool) (chainRow, error) {
+func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted, presented map[string]struct{}, now time.Time, blocked func(*x509.Certificate) bool) (chainRow, error) {
 	sum, err := connectSHA256(cert)
 	if err != nil {
 		return chainRow{}, err
@@ -462,7 +482,10 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct
 	validity := chainValidityTag(cert, now)
 	isBlocked := chainIsBlocked(blocked, cert)
 	name := chainDisplayName(cert)
-	labels := chainLabels(isLeaf, inStore, validity, isBlocked)
+	// Presented intermediates are usually not in the store and are not
+	// labeled untrusted. A presented self-signed root outside the store
+	// keeps the untrusted label.
+	labels := chainLabels(isLeaf, inStore, validity, isBlocked, chainInStore(cert, presented) && !chainSelfSigned(cert))
 	return chainRow{
 		issuer:   connectName(cert.Issuer),
 		notAfter: cert.NotAfter,
@@ -473,11 +496,14 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted map[string]struct
 	}, nil
 }
 
-func chainLabels(isLeaf, inStore bool, validity string, blocked bool) []string {
+func chainLabels(isLeaf, inStore bool, validity string, blocked, presented bool) []string {
 	tags := make([]string, 0, 3)
 	// The leaf is the certificate the user asked about. It is shown even
 	// when it is not in the store, and that is not labeled untrusted.
-	if !isLeaf && !inStore {
+	// Server-presented intermediates are also usually not in the store.
+	// presented is false for a self-signed root, so that root stays labeled
+	// untrusted when it is outside the selected store.
+	if !isLeaf && !inStore && !presented {
 		tags = append(tags, "untrusted")
 	}
 	if validity != "" {
@@ -599,7 +625,7 @@ func formatChainJSON(rows []chainRow, note chainNote) (string, error) {
 	return buf.String(), nil
 }
 
-func pickIssuer(child *x509.Certificate, pool []*x509.Certificate, trusted map[string]struct{}, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) (*x509.Certificate, skipReason, bool) {
+func pickIssuer(child *x509.Certificate, pool []*x509.Certificate, trusted, presented map[string]struct{}, allowPresented bool, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) (*x509.Certificate, skipReason, bool) {
 	var best *x509.Certificate
 	var skipped skipReason
 	found := false
@@ -607,7 +633,7 @@ func pickIssuer(child *x509.Certificate, pool []*x509.Certificate, trusted map[s
 		if !chainIssuedBy(child, parent) {
 			continue
 		}
-		reason := issuerSkip(parent, trusted, opts, now, blocked)
+		reason := issuerSkip(parent, trusted, presented, allowPresented, opts, now, blocked)
 		if reason.skipped() {
 			skipped.add(reason)
 			continue
@@ -620,9 +646,9 @@ func pickIssuer(child *x509.Certificate, pool []*x509.Certificate, trusted map[s
 	return best, skipped, found
 }
 
-func issuerSkip(parent *x509.Certificate, trusted map[string]struct{}, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) skipReason {
+func issuerSkip(parent *x509.Certificate, trusted, presented map[string]struct{}, allowPresented bool, opts ChainOptions, now time.Time, blocked func(*x509.Certificate) bool) skipReason {
 	var reason skipReason
-	if !chainInStore(parent, trusted) && !opts.Untrusted {
+	if !chainInStore(parent, trusted) && !opts.Untrusted && !allowPresentedIssuer(parent, presented, allowPresented) {
 		reason.untrusted = true
 	}
 	if chainExpired(parent, now) && !opts.Expired {
@@ -632,6 +658,13 @@ func issuerSkip(parent *x509.Certificate, trusted map[string]struct{}, opts Chai
 		reason.revoked = true
 	}
 	return reason
+}
+
+// allowPresentedIssuer reports whether a server-presented intermediate
+// may be used without --untrusted. A presented self-signed certificate
+// is not treated as a trusted root.
+func allowPresentedIssuer(parent *x509.Certificate, presented map[string]struct{}, allow bool) bool {
+	return allow && chainInStore(parent, presented) && !chainSelfSigned(parent)
 }
 
 func chainBetterIssuer(a, b *x509.Certificate, trusted map[string]struct{}, now time.Time, blocked func(*x509.Certificate) bool) bool {
