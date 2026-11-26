@@ -1141,6 +1141,43 @@ func TestShowChainRemotePresentedIntermediate(t *testing.T) {
 	})
 }
 
+func TestShowChainRemotePresentedRootStaysUntrusted(t *testing.T) {
+	t.Parallel()
+	// Unrelated bundle plus a server-presented self-signed root. With
+	// --untrusted the root is included, but it must stay labeled untrusted.
+	root, rootKey := mintCA(t, "root.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	leaf, mid, _ := mintTLSChainUnder(t, root, rootKey, "leaf.example", "mid.example")
+	other, _ := mintCA(t, "other.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
+	bundle := filepath.Join(t.TempDir(), "ca.pem")
+	if err := certutil.ToFile(bundle, []*x509.Certificate{other}); err != nil {
+		t.Fatal(err)
+	}
+	u := mustURL(t, "https://leaf.example")
+	fetch := func(*url.URL) ([]*x509.Certificate, error) {
+		return []*x509.Certificate{leaf, mid, root}, nil
+	}
+	var buf bytes.Buffer
+	err := ShowChain(&buf, ChainOptions{
+		App:       "openssl",
+		Bundle:    bundle,
+		URL:       u,
+		Remote:    true,
+		Untrusted: true,
+		Now:       chainTestNow,
+		Fetch:     fetch,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	assertSubjectLabel(t, out, "leaf.example", "-")
+	assertSubjectLabel(t, out, "mid.example", "-")
+	assertSubjectLabel(t, out, "root.example", "untrusted")
+	if strings.Contains(out, "incomplete:") {
+		t.Fatalf("expected a complete chain with --untrusted:\n%s", out)
+	}
+}
+
 func TestShowChainRemoteHTTPTLS(t *testing.T) {
 	leaf, ca, server := mintTLSChain(t, "leaf.example", "ca.example", chainTestNow.Add(-time.Hour), chainTestNow.Add(365*24*time.Hour))
 	srv := newChainServer(t, server)

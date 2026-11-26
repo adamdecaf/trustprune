@@ -482,7 +482,10 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted, presented map[st
 	validity := chainValidityTag(cert, now)
 	isBlocked := chainIsBlocked(blocked, cert)
 	name := chainDisplayName(cert)
-	labels := chainLabels(isLeaf, inStore, validity, isBlocked, chainInStore(cert, presented))
+	// Presented intermediates are usually not in the store and are not
+	// labeled untrusted. A presented self-signed root outside the store
+	// keeps the untrusted label.
+	labels := chainLabels(isLeaf, inStore, validity, isBlocked, chainInStore(cert, presented) && !chainSelfSigned(cert))
 	return chainRow{
 		issuer:   connectName(cert.Issuer),
 		notAfter: cert.NotAfter,
@@ -498,6 +501,8 @@ func chainLabels(isLeaf, inStore bool, validity string, blocked, presented bool)
 	// The leaf is the certificate the user asked about. It is shown even
 	// when it is not in the store, and that is not labeled untrusted.
 	// Server-presented intermediates are also usually not in the store.
+	// presented is false for a self-signed root, so that root stays labeled
+	// untrusted when it is outside the selected store.
 	if !isLeaf && !inStore && !presented {
 		tags = append(tags, "untrusted")
 	}
