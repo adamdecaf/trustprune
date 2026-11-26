@@ -114,6 +114,7 @@ $(BETTERLEAKS_BIN):
 generate:
 	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
+	CGO_ENABLED=0 go run pkg/allowlist/apple_blocklist_gen.go -file pkg/allowlist/testdata/apple-blocked-certificates.html
 	$(MAKE) allowlists
 
 # allowlists writes the Mozilla included-root baseline from testdata/certdata.txt.gz.

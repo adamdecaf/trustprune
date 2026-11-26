@@ -258,7 +258,7 @@ positional argument with --file or --url. --url implies --remote. A positional
 URL still needs --remote to dial.
 
 The default table uses trusted, in-date certificates that are not on the
-offline Chromium or Mozilla blocklists. Columns match connect -v:
+offline Chromium, Mozilla, or Apple blocklists. Columns match connect -v:
 INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is a 16-character prefix.
 -v, --verbose prints the full 64-character SHA-256 in that table.
 JSON always uses the full fingerprint. SUBJECT is the display name only.

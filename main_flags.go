@@ -307,7 +307,7 @@ func flagChainExpired() *cli.BoolFlag {
 func flagChainRevoked() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "revoked",
-		Usage:       "include certificates on the offline Chromium and Mozilla blocklists (labeled blocklisted; no OCSP or CRL)",
+		Usage:       "include certificates on the offline Chromium, Mozilla, and Apple blocklists (labeled blocklisted; no OCSP or CRL)",
 		HideDefault: true,
 		Local:       true,
 	}
