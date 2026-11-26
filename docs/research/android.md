@@ -104,7 +104,7 @@ WebView in an app uses that app's network security config. Whether current Chrom
 
 ## Audit/list (first deliverable)
 
-Pull the system directory and list the copy. This needs no root. trustprune has no `--app android`. `--store` overrides Java, certifi, and poppler only. On `list`, `--file` is one local certificate file and cannot be combined with `--app`.
+Pull the system directory and list the copy. This needs no root. trustprune has no `--app android`. `--store` overrides Java, certifi, and poppler only. On `list`, `--file` is a local certificate file or a pulled Android cacerts directory, and cannot be combined with `--app`.
 
 API 34 and later:
 
@@ -115,16 +115,16 @@ adb pull /apex/com.android.conscrypt/cacerts /tmp/android-cacerts
 
 API 33 and earlier: use `/system/etc/security/cacerts` in both commands. If the APEX listing fails, try the older path.
 
-`adb pull` of a directory copies that directory. Concatenate the hash files inside the directory that actually contains them (`adb pull` sometimes nests an extra `cacerts` folder). The names are `*.0`, plus `*.1`, `*.2`, and so on (possibly more than one digit) when a subject hash collided:
+`adb pull` of a directory copies that directory. It sometimes nests an extra `cacerts` folder; pass the directory that actually contains the `<hash>.0` files (`*.1`, `*.2`, and so on when a subject hash collided):
 
 ```bash
-find /tmp/android-cacerts -maxdepth 1 -type f -name '*.[0-9]*' -exec cat {} + > /tmp/android-system-cas.pem
-trustprune list --file /tmp/android-system-cas.pem
+trustprune list --file /tmp/android-cacerts
+trustprune list --file /tmp/android-cacerts --count
 ```
 
-`list --file` keeps each PEM `CERTIFICATE` block and skips the OpenSSL text after it, so each system file contributes one certificate. One `.0` file can be passed to `list --file` on its own. `trustprune list --file /tmp/android-system-cas.pem --count` prints the count only.
+`list --file` on that directory reads each `<hash>.<n>` PEM file and skips the OpenSSL text after the certificate. `--format` and allowlist/denylist marking work the same as for other `list` sources. A single `.0` file, or a concatenated PEM bundle, can still be passed as a regular file.
 
-`trustprune list --app openssl --bundle /tmp/android-system-cas.pem` lists that same PEM file. `--bundle` has to be a regular file. A directory is rejected. Without `--bundle`, `--app openssl` discovers the computer's own OpenSSL store. When that store is a directory, only `*.pem` and `*.crt` are read, not `<hash>.0`. The pulled Android directory is not an input that directory reader accepts.
+`trustprune list --app openssl --bundle` still requires a regular PEM file. A directory is rejected. Without `--bundle`, `--app openssl` discovers the computer's own OpenSSL store. When that store is a directory, only `*.pem` and `*.crt` are read, not `<hash>.0`.
 
 `allowlist --file` is an allowlist document, not this bundle.
 
@@ -181,10 +181,9 @@ On a managed device, a device-owner or profile-owner app can install a user CA w
 
 ## Proposed follow-up
 
-Not implemented. No new flag exists for this.
+`trustprune list --file <dir>` lists a pulled Android system cacerts directory of `<hash>.0` PEM files. That is offline analysis of a copy the user already pulled; it does not talk to the device.
 
 1. **Guide only.** A command such as `trustprune list --app android` would print the Settings path and the `adb pull` lines above. `add`, `allowlist`, `backup`, and `restore` would print the same guide and exit non-zero. No device I/O. `--app android` is not a supported app today.
-2. **Directory listing.** Accept a pulled directory of `<hash>.0` files so the concatenate step is unnecessary. Until then, concatenate and run `trustprune list --file`, or `trustprune list --app openssl --bundle` on that PEM file.
-3. **Out of scope.** Magisk and bind-mount automation, an MDM client, and writing `cacerts-removed` from the host.
+2. **Out of scope.** Magisk and bind-mount automation, an MDM client, and writing `cacerts-removed` from the host.
 
 [← Platforms](../platforms.md)

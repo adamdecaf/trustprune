@@ -769,6 +769,7 @@ func listCommand(st *runState) *cli.Command {
     trustprune list --app acrobat
 
   List certificates from a file (no --app). --file here is not a store path.
+  A directory is a pulled Android cacerts folder of <hash>.0 PEM files.
     trustprune list --file <path>
 
   List certificates from a Java keystore, certifi bundle, or poppler NSS db (skips discovery).
@@ -821,7 +822,7 @@ APPS
 		Flags: []cli.Flag{
 			flagApp(),
 			flagStore(),
-			flagFile("PEM (or similar) file to list (without --app)", false),
+			flagFile("PEM (or similar) file, or a pulled Android cacerts directory, to list (without --app)", false),
 			flagBundle(),
 			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),

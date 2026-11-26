@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"crypto/x509"
 	"fmt"
 	"io"
 	"net/http"
@@ -32,13 +33,24 @@ var (
 )
 
 // ListCertsFromFile finds certificates at the given filepath
-// and lists them according to the ui/format options.
+// and lists them according to the ui/format options. A directory is
+// treated as a pulled Android cacerts folder of <hash>.0 PEM files.
 func ListCertsFromFile(where string, cfg *ui.Config) error {
-	bs, err := os.ReadFile(where)
+	st, err := os.Stat(where)
 	if err != nil {
 		return err
 	}
-	certs, err := certutil.Decode(bs)
+	var certs []*x509.Certificate
+	if st.IsDir() {
+		certs, err = certutil.FromAndroidDir(where)
+	} else {
+		var bs []byte
+		bs, err = os.ReadFile(where)
+		if err != nil {
+			return err
+		}
+		certs, err = certutil.Decode(bs)
+	}
 	if err != nil {
 		return err
 	}

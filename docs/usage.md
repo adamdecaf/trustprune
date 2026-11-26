@@ -99,6 +99,7 @@ trustprune list --app poppler --store /path/to/nssdb
 trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
+trustprune list --file /tmp/android-cacerts
 # Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 trustprune list --ui web --allowlist allowlist.json
@@ -108,7 +109,7 @@ trustprune list --ui web --allowlist allowlist.json
 |------|---------|
 | `--app <name>` | List from an application store |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory instead of discovery. `list` output shows the chosen path |
-| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar). Cannot be combined with `--app`; use `--store` to override a java, certifi, or poppler path |
+| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar), or from a pulled Android cacerts directory of `<hash>.0` PEM files. Cannot be combined with `--app`; use `--store` to override a java, certifi, or poppler path |
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
 | `--url <endpoint>` | Download a PEM or DER certificate bundle and list it (not a TLS site lookup). Mozilla `certdata.txt` is also accepted. To see a site's certificate chain, run `trustprune chain <host> --remote` |
 | `--count` | Print only the number of certificates |
