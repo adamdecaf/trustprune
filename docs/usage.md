@@ -14,7 +14,7 @@ nav_order: 4
 {:toc}
 </details>
 
-Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument) and, with `--remote`, a TLS lookup. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
+Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument). `--url` implies a TLS lookup; a positional URL still needs `--remote`. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -446,7 +446,7 @@ trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundl
 
 Show the certificate chain for a local file or a URL. The selected store is only listed. Nothing is added, removed, or backed up.
 
-`--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. One positional argument replaces `--file` or `--url`. If it names an existing regular file, it is read like `--file`. Otherwise it is a host or URL, like `--url`. Combining that argument with `--file` or `--url` is a usage error (exit 2). More than one positional argument is a usage error. The leaf for a URL is the first certificate in the file or store that matches that host. `--remote` dials that host only when no local leaf is found. A positional URL dials on the same rule. The dial uses a 30 second timeout and does not treat the server as trusted.
+`--file` is a PEM bundle or one DER certificate. Without `--url`, the leaf is chosen from that file (the certificate that does not sign another certificate in the file). `--url` is a host or `https` URL; a bare host is treated as `https`. Explicit `http://` is rejected. One positional argument replaces `--file` or `--url`. If it names an existing regular file, it is read like `--file`. Otherwise it is a host or URL, like `--url`. Combining that argument with `--file` or `--url` is a usage error (exit 2). More than one positional argument is a usage error. The leaf for a URL is the first certificate in the file or store that matches that host. `--url` implies `--remote`: it dials that host only when no local leaf is found. A positional URL still needs `--remote` to dial. The dial uses a 30 second timeout and does not treat the server as trusted.
 
 The default table uses trusted, in-date certificates that are not on the offline Chromium or Mozilla blocklists. Columns match `connect -v`: INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is the 16-character prefix. `-v` / `--verbose` prints the full 64-character SHA-256 in that table. JSON always uses the full fingerprint. SUBJECT is the display name only. LABELS is `-` when none apply. Several labels are joined with a comma and no spaces (`untrusted,expired`). The leaf is shown even when it is not in the store. Other certificates outside the store, expired or not-yet-valid certificates, and blocklisted certificates are omitted unless `--untrusted`, `--expired`, or `--revoked` is set. `--all` is those three flags together. It does not enable `--remote`. Included certificates are labeled `untrusted`, `expired`, `not yet valid`, and/or `blocklisted`. `--expired` includes a certificate whose `NotAfter` is in the past and a certificate whose `NotBefore` is in the future. `--revoked` matches the embedded Chromium and Mozilla blocklists. It does not use OCSP or CRLs.
 
@@ -464,10 +464,10 @@ trustprune chain --file leaf.pem --untrusted
 trustprune chain --file leaf.pem --expired
 trustprune chain --file leaf.pem --revoked
 trustprune chain --file leaf.pem --all
-trustprune chain --url example.com --remote
+trustprune chain --url example.com
 trustprune chain example.com --remote
-trustprune chain --url https://example.com --remote --untrusted
-trustprune chain --url example.com --remote --format json
+trustprune chain --url https://example.com --untrusted
+trustprune chain --url example.com --format json
 trustprune chain --app java --store /path/to/cacerts --file leaf.pem
 trustprune chain --app java --store /path/to/cacerts leaf.pem
 ```
@@ -491,7 +491,7 @@ INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
 | Flag | Meaning |
 |------|---------|
 | `--file <path>` | Certificate file (PEM or DER) to show a chain for, instead of a positional path |
-| `--url <url>` | Host or URL to show a chain for, instead of a positional URL. A bare host is treated as `https`. A positional URL also needs `--remote` to dial |
+| `--url <url>` | Host or URL to show a chain for, instead of a positional URL. A bare host is treated as `https`. Implies `--remote`. A positional URL still needs `--remote` to dial |
 | `--app <name>` | Use that application's store to decide which certificates are trusted |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: load that store instead of discovery |
 | `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |
@@ -499,7 +499,7 @@ INDEX  SUBJECT       ISSUER      NOT-AFTER   SHA256    LABELS
 | `--expired` | Include expired and not-yet-valid certificates |
 | `--revoked` | Include certificates on the offline Chromium and Mozilla blocklists (labeled `blocklisted`; no OCSP or CRL) |
 | `--all` | Include untrusted, expired, not-yet-valid, and blocklisted certificates |
-| `--remote` | Look up the TLS chain when no local chain is found (30s timeout) |
+| `--remote` | Look up the TLS chain when no local chain is found (30s timeout). Implied by `--url` |
 | `--format` | `text` (default) or `json`. An unknown name is a usage error (exit 2) whose message lists `json` and `text` |
 | `-v`, `--verbose` | Print the full 64-character SHA-256 in the text table. The default table uses a 16-character prefix. JSON is unchanged |
 

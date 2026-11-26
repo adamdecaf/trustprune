@@ -254,7 +254,8 @@ Nothing is added, removed, or backed up. Pass the target as --file <path>,
 --url <url>, or one positional argument. A positional argument that names an
 existing regular file is read like --file. Any other positional argument is a
 host or URL, like --url. A bare host is treated as https. Do not combine a
-positional argument with --file or --url. A URL dials only when --remote is set.
+positional argument with --file or --url. --url implies --remote. A positional
+URL still needs --remote to dial.
 
 The default table uses trusted, in-date certificates that are not on the
 offline Chromium or Mozilla blocklists. Columns match connect -v:
@@ -291,11 +292,11 @@ found, and is omitted when the chain is complete. A complete chain exits 0.
     trustprune chain --file leaf.pem --all
 
   Look up the TLS chain when no local certificate matches the host.
-  --url and a positional URL dial only with --remote.
-    trustprune chain --url example.com --remote
+  --url implies --remote. A positional URL still needs --remote to dial.
+    trustprune chain --url example.com
     trustprune chain example.com --remote
-    trustprune chain --url https://example.com --remote --untrusted
-    trustprune chain --url example.com --remote --format json
+    trustprune chain --url https://example.com --untrusted
+    trustprune chain --url example.com --format json
 
   --store overrides java, certifi, or poppler. --bundle requires --app openssl.
 
@@ -306,7 +307,7 @@ APPS
 			flagStore(),
 			flagBundle(),
 			flagFile("certificate file (PEM or DER) to show a chain for (instead of a positional path)", false),
-			flagURL("host or URL to show a chain for (instead of a positional URL)"),
+			flagURL("host or URL to show a chain for (instead of a positional URL; implies --remote)"),
 			flagChainUntrusted(),
 			flagChainExpired(),
 			flagChainRevoked(),
@@ -363,7 +364,7 @@ func chainAction(_ context.Context, c *cli.Command) error {
 		Expired:   c.Bool("expired"),
 		Revoked:   c.Bool("revoked"),
 		All:       c.Bool("all"),
-		Remote:    c.Bool("remote"),
+		Remote:    c.Bool("remote") || flagString(c, "url") != "",
 		Format:    c.String("format"),
 		Verbose:   isVerbose(c),
 	}
