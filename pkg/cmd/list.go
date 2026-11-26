@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -85,9 +86,22 @@ func ListCertsFromURL(where string, cfg *ui.Config) (err error) {
 		return err
 	}
 	if len(certs) == 0 {
-		return fmt.Errorf("%s did not return a PEM or DER certificate bundle; to see a site's certificate chain run: trustprune chain <host> --remote", where)
+		return listURLNoCertsError(where)
 	}
 	return ui.ListCertificates(certs, cfg)
+}
+
+// listURLNoCertsError is used when --url downloaded a body with no
+// certificates. The message names that URL and points at chain for a
+// live site lookup, using the host when the URL can be parsed.
+func listURLNoCertsError(where string) error {
+	hint := "trustprune chain <host> --remote"
+	if u, err := url.Parse(where); err == nil {
+		if host := strings.TrimSpace(u.Hostname()); host != "" {
+			hint = "trustprune chain " + host + " --remote"
+		}
+	}
+	return fmt.Errorf("no PEM/DER certificates at %s; for a site chain use: %s", where, hint)
 }
 
 // ListCertsForPlatform finds certs for the given platform.
