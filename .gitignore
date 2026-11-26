@@ -24,6 +24,8 @@ build/*/*.class
 *.yaml
 !testdata/*.yaml
 !.coderabbit.yaml
+# Baseline allowlist served from the docs site. See docs/allowlists.md.
+!docs/downloads/allowlists/mozilla-included.yaml
 *.json
 !testdata/*.json
 
