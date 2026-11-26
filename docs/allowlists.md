@@ -85,11 +85,15 @@ Download it from the docs site: <https://trustprune.com/downloads/allowlists/moz
 
 The same file is in the repo at `docs/downloads/allowlists/mozilla-included.yaml`.
 
+`--file` accepts that https URL directly. `http://` and any other scheme are rejected. `--sha256` is optional and is the SHA-256 of the file bytes (64 hex digits, any case). It is checked before the allowlist is parsed. `curl` still saves a local copy.
+
 ```
+$ trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
+$ trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
+$ trustprune create --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --out mozilla-roots.pem
+
 $ curl -fsSL https://trustprune.com/downloads/allowlists/mozilla-included.yaml -o mozilla-included.yaml
 $ trustprune allowlist --file mozilla-included.yaml --dry-run
-$ trustprune allowlist --file mozilla-included.yaml
-$ trustprune create --file mozilla-included.yaml --out mozilla-roots.pem
 ```
 
 `allowlist` still requires a prior backup. Applying the file still skips denylisted and blocklisted certificates. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).

@@ -20,12 +20,16 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"html"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -547,6 +551,31 @@ func TestWebChecklistPrecheck(t *testing.T) {
 		got := parseAllowlistJSON(t, body)
 		assertFingerprints(t, got, nil)
 	})
+}
+
+func TestPrepareWebAllowlistURL(t *testing.T) {
+	body := []byte("countries:\n  - US\n")
+	sum := sha256.Sum256(body)
+	pin := hex.EncodeToString(sum[:])
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(srv.Close)
+	prev := allowlist.HTTPClient
+	allowlist.HTTPClient = srv.Client()
+	t.Cleanup(func() { allowlist.HTTPClient = prev })
+
+	al, err := prepareWebAllowlist(&Config{AllowlistPath: srv.URL + "/allowlist.yaml", AllowlistSHA256: strings.ToUpper(pin)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if al == nil || len(al.Countries) != 1 || al.Countries[0] != "US" {
+		t.Fatalf("allowlist = %#v", al)
+	}
+	_, err = prepareWebAllowlist(&Config{AllowlistPath: srv.URL + "/allowlist.yaml", AllowlistSHA256: strings.Repeat("ab", 32)})
+	if err == nil || !strings.Contains(err.Error(), "list --allowlist") || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+		t.Fatalf("err = %v", err)
+	}
 }
 
 func TestPrepareWebAllowlistMissing(t *testing.T) {

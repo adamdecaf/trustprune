@@ -75,11 +75,15 @@ type Config struct {
 	// SourcePath is the -file path when listing from a file (included in JSON).
 	SourcePath string
 
-	// AllowlistPath is an optional allowlist file for the web checklist
-	// (list --allowlist). When set, certificates that file would keep start
-	// checked. When empty, every certificate starts checked. The page is
-	// read-only.
+	// AllowlistPath is an optional allowlist for the web checklist
+	// (list --allowlist): a local YAML or JSON file, or an https URL.
+	// When set, certificates that allowlist would keep start checked.
+	// When empty, every certificate starts checked. The page is read-only.
 	AllowlistPath string
+
+	// AllowlistSHA256 is an optional SHA-256 of the allowlist bytes
+	// (list --sha256). Empty skips the check.
+	AllowlistSHA256 string
 }
 
 func ListCertificates(certs []*x509.Certificate, cfg *Config) error {

@@ -17,8 +17,10 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/allowlist/preset"
 	"github.com/adamdecaf/trustprune/pkg/cmd"
 	"github.com/adamdecaf/trustprune/pkg/store"
@@ -80,7 +82,7 @@ func allowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "allowlist",
 		Usage: "Remove trust from certificates which do not match the allowlist in <path>",
-		UsageText: `trustprune allowlist --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [-v]
+		UsageText: `trustprune allowlist --file <path> [--sha256 <hex>] [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [-v]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist --file allowlist.json
@@ -88,7 +90,14 @@ func allowlistCommand(st *runState) *cli.Command {
   Remove untrusted certificates in an app
     trustprune allowlist --file allowlist.json --app java
 
-  --file is the allowlist. --store overrides the java, certifi, or poppler store path.
+  --file is a local YAML or JSON allowlist, or an https URL. http:// and any other
+  scheme are rejected. --sha256 is the SHA-256 of those file bytes (64 hex digits)
+  and is checked before the allowlist is parsed.
+    trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
+    trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
+    trustprune allowlist --file allowlist.yaml --sha256 <64 hex>
+
+  --store overrides the java, certifi, or poppler store path.
     trustprune allowlist --file allowlist.yaml --app certifi --store /path/to/cacert.pem
     trustprune allowlist --file allowlist.yaml --app java --store /path/to/cacerts
     trustprune allowlist --file allowlist.yaml --app poppler --store /path/to/nssdb
@@ -111,7 +120,8 @@ func allowlistCommand(st *runState) *cli.Command {
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{
-			flagFile("allowlist file", true),
+			flagFile("local YAML/JSON allowlist or https URL", true),
+			flagAllowlistSHA256(),
 			flagApp(),
 			flagStore(),
 			flagBundle(),
@@ -126,6 +136,9 @@ APPS
 }
 
 func allowlistBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if err := checkAllowlistSource(c, "file"); err != nil {
+		return ctx, err
+	}
 	if err := checkBundleFlag(c); err != nil {
 		return ctx, err
 	}
@@ -141,20 +154,42 @@ func allowlistAction(_ context.Context, c *cli.Command) error {
 	store.SetForceRestore(c.Bool("force"))
 	store.SetAllowlistCountOnly(c.Bool("count"))
 	file := flagString(c, "file")
+	pin := flagString(c, "sha256")
 	app := flagString(c, "app")
 	bundle := flagString(c, "bundle")
 	path := storePath(c)
 	out := c.Root().Writer
 	if app == "" {
-		return cmd.AllowlistForPlatform(file, out)
+		return cmd.AllowlistForPlatform(file, pin, out)
 	}
 	if bundle != "" {
-		return cmd.AllowlistForBundle(app, file, bundle, out)
+		return cmd.AllowlistForBundle(app, file, bundle, pin, out)
 	}
 	if path != "" {
-		return cmd.AllowlistForAppWithStore(app, path, file, out)
+		return cmd.AllowlistForAppWithStore(app, path, file, pin, out)
 	}
-	return cmd.AllowlistForApp(app, file, out)
+	return cmd.AllowlistForApp(app, file, pin, out)
+}
+
+// checkAllowlistSource rejects a non-https allowlist URL, a bad --sha256,
+// and --sha256 with no allowlist path. flagName is "file" or "allowlist".
+func checkAllowlistSource(c *cli.Command, flagName string) error {
+	ref := flagString(c, flagName)
+	pin := flagString(c, "sha256")
+	if pin != "" && ref == "" {
+		return usageExit(c, fmt.Sprintf("--sha256 requires --%s", flagName))
+	}
+	if pin != "" {
+		if err := allowlist.ValidateSHA256Pin(pin); err != nil {
+			return usageExit(c, "invalid --sha256: want 64 hex digits")
+		}
+	}
+	if ref != "" {
+		if err := allowlist.ValidateRef(ref); err != nil {
+			return usageExit(c, err.Error())
+		}
+	}
+	return nil
 }
 
 func appsCommand(st *runState) *cli.Command {
@@ -463,14 +498,16 @@ func createCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "create",
 		Usage: "Write a PEM bundle or Java truststore of allowlisted certificates without changing the store",
-		UsageText: `trustprune create --file <path> [--app <name>] [--store <path>] [--bundle <pem>] [--format pem|jks|pkcs12] [--out <path>]
+		UsageText: `trustprune create --file <path> [--sha256 <hex>] [--app <name>] [--store <path>] [--bundle <pem>] [--format pem|jks|pkcs12] [--out <path>]
 
   Write trusted certificates that match an allowlist.
   pem (the default) is a PEM bundle. jks and pkcs12 are Java truststores.
   The store is only read. Nothing is removed, added, or backed up.
 
-  Platform store, PEM on stdout
+  Platform store, PEM on stdout. --file is a local YAML or JSON allowlist, or an
+  https URL. --sha256 is the SHA-256 of those file bytes (64 hex digits).
     trustprune create --file allowlist.yaml
+    trustprune create --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --out mozilla-roots.pem
 
   Write the bundle to a file (mode 0644). Stdout stays empty.
     trustprune create --file allowlist.yaml --out ca-bundle.pem
@@ -503,7 +540,8 @@ func createCommand(st *runState) *cli.Command {
 APPS
   Supported apps: ` + store.FormatAppsHelpLine(),
 		Flags: []cli.Flag{
-			flagFile("allowlist file", true),
+			flagFile("local YAML/JSON allowlist or https URL", true),
+			flagAllowlistSHA256(),
 			flagApp(),
 			flagStore(),
 			flagBundle(),
@@ -517,6 +555,9 @@ APPS
 }
 
 func createBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
+	if err := checkAllowlistSource(c, "file"); err != nil {
+		return ctx, err
+	}
 	format, err := cmd.NormalizeCreateFormat(c.String("format"))
 	if err != nil {
 		return ctx, usageExit(c, err.Error())
@@ -536,6 +577,7 @@ func createBefore(ctx context.Context, c *cli.Command) (context.Context, error) 
 func createAction(_ context.Context, c *cli.Command) error {
 	opts := cmd.CreateOptions{
 		AllowlistPath: flagString(c, "file"),
+		SHA256:        flagString(c, "sha256"),
 		Format:        c.String("format"),
 		Out:           flagString(c, "out"),
 		Stdout:        c.Root().Writer,
@@ -809,9 +851,12 @@ FORMATTING
     trustprune list --ui web
 
   That page has a checkbox per certificate (checked means keep) and a
-  Download allowlist button. --allowlist pre-checks certificates that file
-  would keep. The page leaves the trust store unchanged.
+  Download allowlist button. --allowlist pre-checks certificates that
+  allowlist would keep. It may be a local YAML or JSON file or an https URL.
+  --sha256 is the SHA-256 of those file bytes (64 hex digits). The page
+  leaves the trust store unchanged.
     trustprune list --ui web --allowlist allowlist.json
+    trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists/mozilla-included.yaml
 
   Write formatted output to a file instead of stdout (--out <path>, every --format and --count)
     trustprune list --format json --out certs.json
@@ -830,6 +875,7 @@ APPS
 			flagOut("write formatted output to a file instead of stdout (every --format and --count)", false),
 			flagUI(),
 			flagListAllowlist(),
+			flagAllowlistSHA256(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       listBefore,
@@ -850,6 +896,9 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java, certifi, or poppler path")
 	}
 	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi/poppler path, not both"); err != nil {
+		return ctx, err
+	}
+	if err := checkAllowlistSource(c, "allowlist"); err != nil {
 		return ctx, err
 	}
 	if flagString(c, "allowlist") != "" && !strings.EqualFold(flagString(c, "ui"), "web") {

@@ -25,27 +25,28 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-func AllowlistForApp(app, path string, stdout io.Writer) error {
+func AllowlistForApp(app, path, sha256 string, stdout io.Writer) error {
 	s, err := store.ForApp(app)
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, path, stdout)
+	return allowlistStore(s, app, path, sha256, stdout)
 }
 
 // AllowlistForAppWithStore applies the allowlist at path to app, using
 // storePath as the trust-store override (java keystore or certifi bundle).
-// path is the allowlist file. It is not the store path.
-func AllowlistForAppWithStore(app, storePath, path string, stdout io.Writer) error {
+// path is a local allowlist file or an https URL. It is not the store path.
+// sha256 is an optional SHA-256 of those bytes. Empty skips the check.
+func AllowlistForAppWithStore(app, storePath, path, sha256 string, stdout io.Writer) error {
 	s, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, path, stdout)
+	return allowlistStore(s, app, path, sha256, stdout)
 }
 
-func AllowlistForPlatform(path string, stdout io.Writer) error {
-	return allowlistStore(store.Platform(), "", path, stdout)
+func AllowlistForPlatform(path, sha256 string, stdout io.Writer) error {
+	return allowlistStore(store.Platform(), "", path, sha256, stdout)
 }
 
 // allowlistTarget is the store surface allowlist checks and edits.
@@ -58,10 +59,12 @@ type allowlistTarget interface {
 }
 
 // allowlistStore applies the allowlist at path to s. app is the -app name, or
-// "" for the platform store. With no backup it refuses before any write,
-// dry-run included.
-func allowlistStore(s allowlistTarget, app, path string, stdout io.Writer) error {
-	al, err := allowlist.FromFile(path)
+// "" for the platform store. path is a local file or an https URL. sha256 is
+// an optional SHA-256 of those bytes. With no backup it refuses before any
+// write, dry-run included. A pin mismatch or unreadable allowlist returns
+// before the store is checked.
+func allowlistStore(s allowlistTarget, app, path, sha256 string, stdout io.Writer) error {
+	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{SHA256: sha256})
 	if err != nil {
 		return err
 	}

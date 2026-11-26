@@ -174,24 +174,31 @@ func (a *Allowlist) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// FromFile reads an allowlist file and parses it into items
+// FromFile reads a local allowlist file and parses it into items.
+// JSON is tried first, then YAML.
 func FromFile(path string) (Allowlist, error) {
-	al := Allowlist{}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return al, err
+		return Allowlist{}, err
 	}
+	return FromBytes(b)
+}
+
+// FromBytes parses allowlist bytes with the same JSON-then-YAML rules as FromFile.
+func FromBytes(b []byte) (Allowlist, error) {
+	al := Allowlist{}
 
 	// try reading as json
-	if err = json.Unmarshal(b, &al); err == nil {
+	if err := json.Unmarshal(b, &al); err == nil {
 		return al, nil
 	}
 
-	// try reading as yaml
-	if err = yaml.Unmarshal(b, &al); err == nil {
-		return al, nil
+	// try reading as yaml. A failed JSON unmarshal may have filled al;
+	// yaml replaces the fields it reads, matching FromFile.
+	if err := yaml.Unmarshal(b, &al); err != nil {
+		return al, fmt.Errorf("unable to read allowlist: %w", err)
 	}
-	return al, fmt.Errorf("unable to read allowlist: %w", err)
+	return al, nil
 }
 
 // ToFile encodes an Allowlist and writes it to path. The format follows the
