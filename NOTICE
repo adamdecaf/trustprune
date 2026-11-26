@@ -40,6 +40,13 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+This product includes certificate SHA-256 fingerprints published by Apple
+in the "Blocked Certificates" table of:
+
+https://support.apple.com/en-us/103255
+
+HT204132 is the earlier Apple support article that described these lists.
+
 This product includes certificate fingerprints derived from the Common
 CA Database (CCADB) Mozilla Removed CA Certificate Report:
 

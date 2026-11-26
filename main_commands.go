@@ -258,7 +258,7 @@ positional argument with --file or --url. --url implies --remote. A positional
 URL still needs --remote to dial.
 
 The default table uses trusted, in-date certificates that are not on the
-offline Chromium or Mozilla blocklists. Columns match connect -v:
+offline Chromium, Mozilla, Apple, or CCADB removed-CA blocklists. Columns match connect -v:
 INDEX, SUBJECT, ISSUER, NOT-AFTER, SHA256, LABELS. SHA256 is a 16-character prefix.
 -v, --verbose prints the full 64-character SHA-256 in that table.
 JSON always uses the full fingerprint. SUBJECT is the display name only.
@@ -769,6 +769,7 @@ func listCommand(st *runState) *cli.Command {
     trustprune list --app acrobat
 
   List certificates from a file (no --app). --file here is not a store path.
+  A directory is a pulled Android cacerts folder of <hash>.0 PEM files.
     trustprune list --file <path>
 
   List certificates from a Java keystore, certifi bundle, or poppler NSS db (skips discovery).
@@ -821,7 +822,7 @@ APPS
 		Flags: []cli.Flag{
 			flagApp(),
 			flagStore(),
-			flagFile("PEM (or similar) file to list (without --app)", false),
+			flagFile("PEM (or similar) file, or a pulled Android cacerts directory, to list (without --app)", false),
 			flagBundle(),
 			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),
