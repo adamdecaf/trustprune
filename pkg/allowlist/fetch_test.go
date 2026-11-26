@@ -21,6 +21,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -321,16 +322,82 @@ func TestFromPathOrURL_InvalidBodyMatchesFile(t *testing.T) {
 	srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)
 	})
-	_, urlErr := FromPathOrURL(srv.URL+"/bad.yaml", FetchOptions{Client: srv.Client()})
+	src := srv.URL + "/bad.yaml"
+	_, urlErr := FromPathOrURL(src, FetchOptions{Client: srv.Client()})
 	if fileErr == nil || urlErr == nil {
 		t.Fatalf("file=%v url=%v", fileErr, urlErr)
-	}
-	if fileErr.Error() != urlErr.Error() {
-		t.Fatalf("file %q\nurl  %q", fileErr.Error(), urlErr.Error())
 	}
 	if !strings.Contains(fileErr.Error(), "unable to read allowlist") {
 		t.Fatalf("err = %v", fileErr)
 	}
+	if !strings.Contains(urlErr.Error(), fileErr.Error()) {
+		t.Fatalf("file %q\nurl  %q", fileErr.Error(), urlErr.Error())
+	}
+	if !strings.Contains(urlErr.Error(), src) {
+		t.Fatalf("url error missing source %q: %v", src, urlErr)
+	}
+}
+
+func TestFromPathOrURL_RedactsUserinfo(t *testing.T) {
+	const password = "s3cret"
+	var hits int
+	srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path == "/missing.yaml" {
+			http.Error(w, "nope", http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte("[\n"))
+	})
+	withUser := func(path string) string {
+		t.Helper()
+		u, err := url.Parse(srv.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		u.User = url.UserPassword("alice", password)
+		u.Path = path
+		return u.String()
+	}
+	opts := FetchOptions{Client: srv.Client()}
+
+	t.Run("status", func(t *testing.T) {
+		before := hits
+		_, err := FromPathOrURL(withUser("/missing.yaml"), opts)
+		if err == nil {
+			t.Fatal("expected status error")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, password) {
+			t.Fatalf("password leaked: %s", msg)
+		}
+		if !strings.Contains(msg, "xxxxx") {
+			t.Fatalf("not redacted: %s", msg)
+		}
+		if !strings.Contains(msg, "404") && !strings.Contains(strings.ToLower(msg), "not found") {
+			t.Fatalf("err = %v", err)
+		}
+		if hits == before {
+			t.Fatal("no request was made")
+		}
+	})
+
+	t.Run("parse", func(t *testing.T) {
+		_, err := FromPathOrURL(withUser("/bad.yaml"), opts)
+		if err == nil {
+			t.Fatal("expected parse error")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, password) {
+			t.Fatalf("password leaked: %s", msg)
+		}
+		if !strings.Contains(msg, "xxxxx") {
+			t.Fatalf("not redacted: %s", msg)
+		}
+		if !strings.Contains(msg, "unable to read allowlist") {
+			t.Fatalf("err = %v", err)
+		}
+	})
 }
 
 func TestFromPathOrURL_Redirect(t *testing.T) {

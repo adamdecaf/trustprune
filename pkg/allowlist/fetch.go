@@ -86,7 +86,11 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 	if err := matchSHA256(ref, body, pin); err != nil {
 		return Allowlist{}, err
 	}
-	return FromBytes(body)
+	al, err := FromBytes(body)
+	if err != nil && remote {
+		return Allowlist{}, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
+	}
+	return al, err
 }
 
 // ValidateRef reports whether ref is a local path or an https URL.
@@ -148,9 +152,19 @@ func matchSHA256(ref string, body []byte, pin string) error {
 		return fmt.Errorf("invalid allowlist SHA-256: want 64 hex digits")
 	}
 	if subtle.ConstantTimeCompare(sum[:], want) != 1 {
-		return fmt.Errorf("allowlist SHA-256 mismatch for %s: got %x", ref, sum[:])
+		return fmt.Errorf("allowlist SHA-256 mismatch for %s: got %x", diagnosticRef(ref), sum[:])
 	}
 	return nil
+}
+
+// diagnosticRef is ref for error text. Userinfo passwords are masked
+// with url.URL.Redacted. The original ref is still used to fetch.
+func diagnosticRef(ref string) string {
+	u, err := url.Parse(ref)
+	if err != nil || u.Scheme == "" {
+		return ref
+	}
+	return u.Redacted()
 }
 
 var errBodyTooLarge = errors.New("allowlist body exceeds size limit")
@@ -159,7 +173,7 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 	client := allowlistClient(opts.Client)
 	req, err := http.NewRequest(http.MethodGet, ref, nil)
 	if err != nil {
-		return nil, fmt.Errorf("allowlist %s: %w", ref, err)
+		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
 	}
 	req.Close = true
 
@@ -173,24 +187,24 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 		}()
 	}
 	if err != nil {
-		return nil, fmt.Errorf("allowlist %s: %w", ref, err)
+		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("allowlist %s: response status %s", ref, resp.Status)
+		return nil, fmt.Errorf("allowlist %s: response status %s", diagnosticRef(ref), resp.Status)
 	}
 	max := opts.MaxSize
 	if max <= 0 {
 		max = DefaultMaxBytes
 	}
 	if resp.ContentLength > max {
-		return nil, fmt.Errorf("allowlist %s exceeds %d byte limit (Content-Length %d)", ref, max, resp.ContentLength)
+		return nil, fmt.Errorf("allowlist %s exceeds %d byte limit (Content-Length %d)", diagnosticRef(ref), max, resp.ContentLength)
 	}
 	body, err = readLimited(resp.Body, max)
 	if err != nil {
 		if errors.Is(err, errBodyTooLarge) {
-			return nil, fmt.Errorf("allowlist %s exceeds %d byte limit", ref, max)
+			return nil, fmt.Errorf("allowlist %s exceeds %d byte limit", diagnosticRef(ref), max)
 		}
-		return nil, fmt.Errorf("allowlist %s: %w", ref, err)
+		return nil, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
 	}
 	return body, nil
 }
