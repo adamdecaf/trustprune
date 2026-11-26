@@ -268,6 +268,41 @@ func serverAuthTrusted(trusts []nssObject, der []byte) bool {
 	return trusted
 }
 
+// TrustedServerCert is one certificate ParseTrustedServerCerts selected.
+type TrustedServerCert struct {
+	Cert *x509.Certificate
+	// ServerDistrustAfter is CKA_NSS_SERVER_DISTRUST_AFTER when set; zero otherwise.
+	// A set date does not remove the root from this list (Mozilla still trusts the root).
+	ServerDistrustAfter time.Time
+}
+
+// ParseTrustedServerCerts reads a Mozilla certdata.txt document and returns
+// the certificates trusted for TLS server authentication.
+//
+// A certificate is included when a matching trust object sets
+// CKA_TRUST_SERVER_AUTH to CKT_NSS_TRUSTED_DELEGATOR. Explicit
+// CKT_NSS_NOT_TRUSTED, including a combined value that contains that flag,
+// leaves it out. CKA_NSS_SERVER_DISTRUST_AFTER is recorded on
+// ServerDistrustAfter when set. That date does not drop the root: Mozilla
+// still trusts it. Certificates that fail to parse are skipped.
+func ParseTrustedServerCerts(r io.Reader) ([]TrustedServerCert, error) {
+	entries, err := parseCertData(r)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	out := make([]TrustedServerCert, 0, len(entries))
+	for i := range entries {
+		out = append(out, TrustedServerCert{
+			Cert:                entries[i].cert,
+			ServerDistrustAfter: entries[i].serverDistrustAfter,
+		})
+	}
+	return out, nil
+}
+
 // DistrustedServerCert is one certificate ParseDistrustedServerCerts selected.
 type DistrustedServerCert struct {
 	Cert *x509.Certificate
