@@ -815,6 +815,13 @@ func listCommand(st *runState) *cli.Command {
   or .crt/.cer/.der exports of user-installed CAs.
     trustprune list --file <path>
 
+  Guide-only Android report: certificates in that directory that the
+  allowlist (and built-in denylist) would not keep, plus Settings and adb
+  steps. trustprune does not write to the device. --app android is not a
+  registered store; other commands still reject it. --allowlist is required
+  and does not need --ui web.
+    trustprune list --app android --file <dir> --allowlist <path>
+
   List certificates from a Java keystore, certifi bundle, or poppler NSS db (skips discovery).
   The chosen path is included in list output.
     trustprune list --app java --store <cacerts>
@@ -868,7 +875,7 @@ APPS
 		Flags: []cli.Flag{
 			flagApp(),
 			flagStore(),
-			flagFile("PEM or DER certificate file, or a pulled Android cacerts directory, to list (without --app)", false),
+			flagFile("PEM or DER certificate file, or a pulled Android cacerts directory (also with --app android)", false),
 			flagBundle(),
 			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),
@@ -893,7 +900,21 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 		return ctx, err
 	}
 	app := flagString(c, "app")
-	if app != "" && flagString(c, "file") != "" {
+	file := flagString(c, "file")
+	if isAndroidListApp(app) {
+		if file == "" {
+			return ctx, usageExit(c, "list --app android requires --file <dir> (a pulled Android cacerts directory)")
+		}
+		if flagString(c, "allowlist") == "" {
+			return ctx, usageExit(c, "list --app android requires --allowlist <path>")
+		}
+		if c.Bool("count") {
+			return ctx, usageExit(c, "list --app android does not support --count")
+		}
+		if !strings.EqualFold(format, ui.DefaultFormat()) {
+			return ctx, usageExit(c, "list --app android does not support --format")
+		}
+	} else if app != "" && file != "" {
 		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java, certifi, or poppler path")
 	}
 	if err := rejectStoreWithBundle(c, "list: pass --bundle for the openssl PEM, or --store for a java/certifi/poppler path, not both"); err != nil {
@@ -902,10 +923,14 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 	if err := checkAllowlistSource(c, "allowlist"); err != nil {
 		return ctx, err
 	}
-	if flagString(c, "allowlist") != "" && !strings.EqualFold(flagString(c, "ui"), "web") {
+	if flagString(c, "allowlist") != "" && !strings.EqualFold(flagString(c, "ui"), "web") && !isAndroidListApp(app) {
 		return ctx, usageExit(c, "--allowlist is only used with --ui web")
 	}
 	return ctx, rejectIncompatibleStore(c)
+}
+
+func isAndroidListApp(app string) bool {
+	return strings.EqualFold(app, "android")
 }
 
 func listAction(_ context.Context, c *cli.Command) error {
@@ -914,6 +939,9 @@ func listAction(_ context.Context, c *cli.Command) error {
 	bundle := flagString(c, "bundle")
 	path := storePath(c)
 	cfg := listConfig(c)
+	if isAndroidListApp(app) {
+		return cmd.ListAndroidGuide(file, cfg)
+	}
 	if app == "" {
 		if file != "" {
 			return cmd.ListCertsFromFile(file, cfg)
