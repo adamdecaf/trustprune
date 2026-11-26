@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 GOARCH ?= $(shell go env GOARCH)
 
-.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git generate allowlists
+.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git generate allowlists denylists
 
 linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) go build -trimpath -o bin/trustprune-linux-$(GOARCH) github.com/adamdecaf/trustprune
@@ -110,11 +110,17 @@ $(BETTERLEAKS_BIN):
 	cp "$$tmp/betterleaks" "$@"; \
 	chmod +x "$@"
 
-.PHONY: generate allowlists
+.PHONY: generate allowlists denylists
 generate:
 	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
+	$(MAKE) denylists
 	$(MAKE) allowlists
+
+# denylists writes CCADB Mozilla Removed CA Certificate Report fingerprints
+# from the checked-in CSV. It does not download.
+denylists:
+	CGO_ENABLED=0 go run pkg/allowlist/ccadb_removed_gen.go -file pkg/allowlist/testdata/ccadb-removed-ca-certificates.csv -out pkg/allowlist/ccadb_removed_blocklist.go
 
 # allowlists writes the Mozilla included-root baseline from testdata/certdata.txt.gz.
 # It does not download.

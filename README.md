@@ -70,7 +70,7 @@ Go programs can apply that allowlist without changing a store. `certpool.New` re
 | [apps](docs/usage.md#apps) | List supported application stores with detection status and paths |
 | [version](docs/usage.md#version) | Print the version (`trustprune version`, `trustprune --version`, or `trustprune -V`) |
 
-Allowlisting also applies Chromium's certificate blocklist, a Mozilla `certdata.txt` blocklist (server-auth distrust and roots whose distrust-after date has passed), and a built-in denylist of known-distrusted roots and their public keys (DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots, the compromised eMudhra G3 intermediates, DYMO Root CA (for localhost), and the Sennheiser HeadSetup roots), so those certificates are never kept. That behavior cannot be disabled today.
+Allowlisting also applies Chromium's certificate blocklist, a Mozilla `certdata.txt` blocklist (server-auth distrust and roots whose distrust-after date has passed), the [CCADB Mozilla Removed CA Certificate Report](https://ccadb.my.salesforce-sites.com/mozilla/RemovedCACertificateReportCSVFormat) (except removals that are only expiry or a voluntary / CA-requested withdrawal), and a built-in denylist of known-distrusted roots and their public keys (DigiNotar, CNNIC, WoSign, StartCom, Symantec legacy roots, the compromised eMudhra G3 intermediates, DYMO Root CA (for localhost), and the Sennheiser HeadSetup roots), so those certificates are never kept. That behavior cannot be disabled today.
 
 ## Platform and application support
 
