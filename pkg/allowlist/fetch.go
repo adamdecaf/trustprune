@@ -62,6 +62,9 @@ type FetchOptions struct {
 // and any other scheme is refused. A one-letter scheme is a Windows volume
 // path (C:\file or C:/file), which stays a local file. A value with no
 // scheme is a local file, read the same way as FromFile.
+// A value that looks like a URL (a scheme followed by "://") but fails
+// url.Parse is rejected without putting the raw value or the parse
+// error in the message.
 // When SHA256 is set, the bytes are checked before they are parsed.
 func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 	pin := strings.TrimSpace(opts.SHA256)
@@ -95,6 +98,8 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 
 // ValidateRef reports whether ref is a local path or an https URL.
 // An empty ref is not an error. A non-https scheme is an error.
+// A URL-looking value that fails to parse is an error whose message
+// does not include the raw value.
 func ValidateRef(ref string) error {
 	_, err := refIsURL(ref)
 	return err
@@ -110,9 +115,38 @@ func ValidateSHA256Pin(pin string) error {
 	return nil
 }
 
+// errInvalidAllowlistURL is returned when ref looks like a URL but
+// url.Parse fails. The message must not include the raw value or the
+// parse error, which can contain userinfo.
+var errInvalidAllowlistURL = errors.New("invalid allowlist URL: the address could not be parsed")
+
+func looksLikeURL(ref string) bool {
+	i := strings.Index(ref, "://")
+	if i < 1 {
+		return false
+	}
+	scheme := ref[:i]
+	for j := 0; j < len(scheme); j++ {
+		c := scheme[j]
+		switch {
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z':
+		case j > 0 && ((c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.'):
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func refIsURL(ref string) (bool, error) {
 	u, err := url.Parse(ref)
-	if err != nil || u.Scheme == "" {
+	if err != nil {
+		if looksLikeURL(ref) {
+			return false, errInvalidAllowlistURL
+		}
+		return false, nil
+	}
+	if u.Scheme == "" {
 		return false, nil
 	}
 	if u.Scheme == "https" {
@@ -161,7 +195,13 @@ func matchSHA256(ref string, body []byte, pin string) error {
 // with url.URL.Redacted. The original ref is still used to fetch.
 func diagnosticRef(ref string) string {
 	u, err := url.Parse(ref)
-	if err != nil || u.Scheme == "" {
+	if err != nil {
+		if looksLikeURL(ref) {
+			return "invalid allowlist URL"
+		}
+		return ref
+	}
+	if u.Scheme == "" {
 		return ref
 	}
 	return u.Redacted()

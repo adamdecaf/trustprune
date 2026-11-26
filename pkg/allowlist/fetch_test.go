@@ -400,6 +400,37 @@ func TestFromPathOrURL_RedactsUserinfo(t *testing.T) {
 	})
 }
 
+func TestFromPathOrURL_MalformedURLDoesNotLeakPassword(t *testing.T) {
+	const password = "s3cret"
+	assertSafe := func(t *testing.T, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		msg := err.Error()
+		if strings.Contains(msg, password) {
+			t.Fatalf("password leaked: %s", msg)
+		}
+		if strings.Contains(msg, "://") {
+			t.Fatalf("URL leaked: %s", msg)
+		}
+		if !errors.Is(err, errInvalidAllowlistURL) {
+			t.Fatalf("err = %v", err)
+		}
+		if strings.Contains(msg, "no such file") || strings.Contains(msg, "invalid URL escape") {
+			t.Fatalf("treated as a file or echoed the parse error: %s", msg)
+		}
+	}
+	for _, prefix := range []string{"https://", "HTTPS://", "http://", "HTTP://"} {
+		ref := prefix + "alice:" + password + "@example.com/%zz"
+		t.Run(prefix, func(t *testing.T) {
+			_, err := FromPathOrURL(ref, FetchOptions{})
+			assertSafe(t, err)
+			assertSafe(t, ValidateRef(ref))
+		})
+	}
+}
+
 func TestFromPathOrURL_Redirect(t *testing.T) {
 	body := []byte("countries:\n  - JP\n")
 	var httpHits int

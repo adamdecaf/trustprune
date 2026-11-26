@@ -88,6 +88,18 @@ func TestAllowlistURLUsageErrors(t *testing.T) {
 			assertUsageError(t, res, tc.want)
 		})
 	}
+
+	const password = "s3cret"
+	ref := "https://alice:" + password + "@example.com/%zz"
+	res := runCLI(t, bin, home, "allowlist", "--file", ref, "--dry-run")
+	assertUsageError(t, res, "invalid allowlist URL")
+	out := res.stdout + res.stderr
+	if strings.Contains(out, password) {
+		t.Fatalf("password leaked: stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	if strings.Contains(out, ref) || strings.Contains(out, "invalid URL escape") {
+		t.Fatalf("raw URL or parse error leaked: stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
 }
 
 func TestAllowlistURLHelp(t *testing.T) {
