@@ -3,7 +3,8 @@ Certificate
   SerialNumber: 112324828676200291871926431888494945866
   Subject: EE Certification Centre Root CA
   Issuer: EE Certification Centre Root CA
-  NotBefore: 2010-10-30T10:10:30Z | NotAfter: 2030-12-17T23:59:59Z
+  NotBefore: 2010-10-30T10:10:30Z
+  NotAfter: 2030-12-17T23:59:59Z
   KEY: RSA-2048
   DAYS: 1811
   IsCA: true
@@ -12,7 +13,8 @@ Certificate
   SerialNumber: 1164660820
   Subject: Entrust Root Certification Authority
   Issuer: Entrust Root Certification Authority
-  NotBefore: 2006-11-27T20:23:42Z | NotAfter: 2026-11-27T20:53:42Z
+  NotBefore: 2006-11-27T20:23:42Z
+  NotAfter: 2026-11-27T20:53:42Z
   KEY: RSA-2048
   DAYS: 330
   IsCA: true
@@ -21,7 +23,8 @@ Certificate
   SerialNumber: 51543124481930649114116133369
   Subject: Entrust Root Certification Authority - EC1
   Issuer: Entrust Root Certification Authority - EC1
-  NotBefore: 2012-12-18T15:25:36Z | NotAfter: 2037-12-18T15:55:36Z
+  NotBefore: 2012-12-18T15:25:36Z
+  NotAfter: 2037-12-18T15:55:36Z
   KEY: ECDSA-384
   DAYS: 4369
   IsCA: true
@@ -30,7 +33,8 @@ Certificate
   SerialNumber: 1246989352
   Subject: Entrust Root Certification Authority - G2
   Issuer: Entrust Root Certification Authority - G2
-  NotBefore: 2009-07-07T17:25:54Z | NotAfter: 2030-12-07T17:55:54Z
+  NotBefore: 2009-07-07T17:25:54Z
+  NotAfter: 2030-12-07T17:55:54Z
   KEY: RSA-2048
   DAYS: 1801
   IsCA: true
@@ -39,7 +43,8 @@ Certificate
   SerialNumber: 946069240
   Subject: Entrust.net Certification Authority (2048)
   Issuer: Entrust.net Certification Authority (2048)
-  NotBefore: 1999-12-24T17:50:51Z | NotAfter: 2029-07-24T14:15:12Z
+  NotBefore: 1999-12-24T17:50:51Z
+  NotAfter: 2029-07-24T14:15:12Z
   KEY: RSA-2048
   DAYS: 1300
   IsCA: true

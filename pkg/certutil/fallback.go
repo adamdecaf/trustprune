@@ -29,8 +29,9 @@ import (
 
 // ParseCertificate is crypto/x509.ParseCertificate with a cryptobyte fallback
 // only for certificates rejected because of a negative serial number. The
-// fallback fills Raw, SerialNumber, Issuer, Subject, NotBefore, and NotAfter
-// so list, allowlist, and fingerprinting treat the cert like any other. Other
+// fallback fills Raw, RawSubjectPublicKeyInfo, SerialNumber, Issuer, Subject,
+// NotBefore, and NotAfter so list, allowlist, denylist SPKI matching, and
+// fingerprinting treat the cert like any other. Other
 // parse failures still return the original x509 error. It does not set GODEBUG
 // and does not verify signatures.
 func ParseCertificate(der []byte) (*x509.Certificate, error) {
@@ -115,7 +116,10 @@ func parseCertificateFallback(der []byte) (*x509.Certificate, error) {
 
 	// Remaining required TBS fields and the outer signature must be present so a
 	// truncated negative-serial block is not treated as a rewriteable Certificate.
-	if !tbs.SkipASN1(cryptobyte_asn1.SEQUENCE) {
+	// Keep the SPKI bytes so denylist matching can hash the key, not only the
+	// certificate fingerprint.
+	var spkiSeq cryptobyte.String
+	if !tbs.ReadASN1Element(&spkiSeq, cryptobyte_asn1.SEQUENCE) {
 		return nil, errors.New("certutil: malformed subjectPublicKeyInfo")
 	}
 	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(1).ContextSpecific()) {
@@ -141,15 +145,16 @@ func parseCertificateFallback(der []byte) (*x509.Certificate, error) {
 	}
 
 	return &x509.Certificate{
-		Raw:               append([]byte(nil), raw...),
-		RawTBSCertificate: append([]byte(nil), rawTBS...),
-		RawIssuer:         append([]byte(nil), issuerSeq...),
-		RawSubject:        append([]byte(nil), subjectSeq...),
-		SerialNumber:      serial,
-		Issuer:            issuer,
-		Subject:           subject,
-		NotBefore:         notBefore,
-		NotAfter:          notAfter,
+		Raw:                     append([]byte(nil), raw...),
+		RawTBSCertificate:       append([]byte(nil), rawTBS...),
+		RawIssuer:               append([]byte(nil), issuerSeq...),
+		RawSubject:              append([]byte(nil), subjectSeq...),
+		RawSubjectPublicKeyInfo: append([]byte(nil), spkiSeq...),
+		SerialNumber:            serial,
+		Issuer:                  issuer,
+		Subject:                 subject,
+		NotBefore:               notBefore,
+		NotAfter:                notAfter,
 	}, nil
 }
 

@@ -95,9 +95,12 @@ func TestLongPrinterTimestampsRFC3339UTC(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	const want = "  NotBefore: 2011-05-05T09:37:37Z | NotAfter: 2030-12-31T09:37:37Z\n"
+	const want = "  NotBefore: 2011-05-05T09:37:37Z\n  NotAfter: 2030-12-31T09:37:37Z\n"
 	if !strings.Contains(out, want) {
-		t.Fatalf("long timestamps:\n%s\nwant line %s", out, want)
+		t.Fatalf("long timestamps:\n%s\nwant lines %s", out, want)
+	}
+	if strings.Contains(out, "NotBefore:") && strings.Contains(out, " | NotAfter:") {
+		t.Fatalf("NotBefore and NotAfter still share a line:\n%s", out)
 	}
 	if strings.Contains(out, "+0000") || strings.Contains(out, " UTC") || strings.Contains(out, "EAST") {
 		t.Fatalf("default time.Time string still present:\n%s", out)
@@ -355,12 +358,15 @@ func TestLongPrinterGolden(t *testing.T) {
 	if strings.Contains(out, "+0000 UTC") {
 		t.Fatalf("long format still uses time.Time.String():\n%s", out)
 	}
+	if strings.Contains(out, "NotBefore:") && strings.Contains(out, " | NotAfter:") {
+		t.Fatalf("NotBefore and NotAfter still share a line:\n%s", out)
+	}
 	for _, cert := range certs {
-		line := fmt.Sprintf("  NotBefore: %s | NotAfter: %s\n",
+		block := fmt.Sprintf("  NotBefore: %s\n  NotAfter: %s\n",
 			cert.NotBefore.UTC().Format(time.RFC3339),
 			cert.NotAfter.UTC().Format(time.RFC3339))
-		if !strings.Contains(out, line) {
-			t.Errorf("missing RFC3339 UTC validity line %q\n%s", strings.TrimRight(line, "\n"), out)
+		if !strings.Contains(out, block) {
+			t.Errorf("missing RFC3339 UTC validity lines %q\n%s", strings.TrimRight(block, "\n"), out)
 		}
 	}
 	withEmail, withIP, withPerm, withDNS, withCRL := 0, 0, 0, 0, 0
