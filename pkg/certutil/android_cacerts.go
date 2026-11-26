@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // androidCacertName matches Android system CA filenames: eight hex digits,
@@ -30,9 +31,10 @@ var androidCacertName = regexp.MustCompile(`(?i)^[0-9a-f]{8}\.[0-9]+$`)
 
 // FromAndroidDir reads a pulled Android system cacerts directory. It loads
 // regular files named <hash>.<n> (OpenSSL legacy subject hash and a collision
-// suffix). Each file is a PEM certificate, optionally followed by OpenSSL
-// text. The directory is not walked recursively. Files whose names do not
-// match, and empty matching files, are ignored.
+// suffix) and .crt, .cer, or .der exports of user-installed CAs. Each file is
+// a PEM certificate, optionally followed by OpenSSL text, or a single DER
+// certificate. The directory is not walked recursively. Files whose names do
+// not match, and empty matching files, are ignored.
 func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
 	st, err := os.Stat(dir)
 	if err != nil {
@@ -47,7 +49,7 @@ func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
 	}
 	var names []string
 	for _, ent := range ents {
-		if ent.IsDir() || !androidCacertName.MatchString(ent.Name()) {
+		if ent.IsDir() || !androidCacertFile(ent.Name()) {
 			continue
 		}
 		names = append(names, ent.Name())
@@ -64,17 +66,44 @@ func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
 		if len(bytes.TrimSpace(bs)) == 0 {
 			continue
 		}
-		got, err := ParsePEM(bs)
+		got, err := parseAndroidCacert(path, bs)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w", path, err)
-		}
-		if len(got) == 0 {
-			return nil, fmt.Errorf("%s is not a PEM certificate", path)
+			return nil, err
 		}
 		certs = append(certs, got...)
 	}
 	if len(certs) == 0 {
-		return nil, fmt.Errorf("no Android cacerts files in %s (expected <hash>.0 PEM entries)", dir)
+		return nil, fmt.Errorf("no Android cacerts files in %s (expected <hash>.0 PEM or DER entries, or .crt/.cer/.der files)", dir)
 	}
 	return certs, nil
+}
+
+func androidCacertFile(name string) bool {
+	if androidCacertName.MatchString(name) {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(name)) {
+	case ".crt", ".cer", ".der":
+		return true
+	default:
+		return false
+	}
+}
+
+// parseAndroidCacert reads one file as PEM (with optional OpenSSL text after
+// the certificate) and, if that yields no certificates, as a single DER
+// certificate.
+func parseAndroidCacert(path string, bs []byte) ([]*x509.Certificate, error) {
+	got, err := ParsePEM(bs)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", path, err)
+	}
+	if len(got) > 0 {
+		return got, nil
+	}
+	cert, err := ParseCertificate(bs)
+	if err != nil {
+		return nil, fmt.Errorf("%s is not a PEM or DER certificate", path)
+	}
+	return []*x509.Certificate{cert}, nil
 }
