@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"testing"
 	"time"
 
@@ -264,10 +265,12 @@ func TestBlocklisted(t *testing.T) {
 	origChrome := blocklistedFingerprints
 	origMozilla := mozillaBlocklistedFingerprints
 	origApple := appleBlocklistedFingerprints
+	origCCADB := ccadbRemovedBlocklistedFingerprints
 	t.Cleanup(func() {
 		blocklistedFingerprints = origChrome
 		mozillaBlocklistedFingerprints = origMozilla
 		appleBlocklistedFingerprints = origApple
+		ccadbRemovedBlocklistedFingerprints = origCCADB
 	})
 
 	blocklistedFingerprints = append([]string{fp}, blocklistedFingerprints...)
@@ -283,6 +286,11 @@ func TestBlocklisted(t *testing.T) {
 	appleBlocklistedFingerprints = append([]string{fp}, appleBlocklistedFingerprints...)
 	if !Blocklisted(certs[0]) {
 		t.Fatal("Apple blocklist should match the certificate SHA-256")
+	}
+	appleBlocklistedFingerprints = origApple
+	ccadbRemovedBlocklistedFingerprints = append([]string{fp}, ccadbRemovedBlocklistedFingerprints...)
+	if !Blocklisted(certs[0]) {
+		t.Fatal("ccadb removed CA blocklist should match the certificate SHA-256")
 	}
 }
 
@@ -392,6 +400,90 @@ func TestAllowlist_mozillaBlocklistRejectsMatch(t *testing.T) {
 	al := Allowlist{Fingerprints: []string{fp}, Countries: []string{"US"}}
 	if al.Matches(certs[0]) {
 		t.Fatal("mozilla blocklisted fingerprint should not match even if it is on the allowlist")
+	}
+}
+
+func TestAllowlist_ccadbRemovedBlocklistedFingerprintsLoad(t *testing.T) {
+	if len(ccadbRemovedBlocklistedFingerprints) == 0 {
+		t.Fatal("ccadbRemovedBlocklistedFingerprints is empty")
+	}
+	if len(ccadbRemovedBlocklistedFingerprints) != 105 {
+		t.Fatalf("ccadbRemovedBlocklistedFingerprints has %d entries, want 105", len(ccadbRemovedBlocklistedFingerprints))
+	}
+	if !sort.StringsAreSorted(ccadbRemovedBlocklistedFingerprints) {
+		t.Fatal("ccadbRemovedBlocklistedFingerprints is not sorted")
+	}
+	for _, fp := range ccadbRemovedBlocklistedFingerprints {
+		if len(fp) != 64 {
+			t.Fatalf("fingerprint %q is not 64 hex digits", fp)
+		}
+		for _, c := range fp {
+			if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+				t.Fatalf("fingerprint %q is not lowercase hex", fp)
+			}
+		}
+	}
+
+	src, err := os.ReadFile("ccadb_removed_blocklist.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sourceURL = "https://ccadb.my.salesforce-sites.com/mozilla/RemovedCACertificateReportCSVFormat"
+	if !bytes.Contains(src, []byte(sourceURL)) {
+		t.Fatal("generated file is missing the CCADB Removed CA Certificate Report URL")
+	}
+	for _, phrase := range []string{
+		"expir",
+		"voluntar",
+		"asking for the removal",
+		"requested (the )?removal",
+		"at the (ca|certificate authority).{0,40}request",
+		"Generated on ",
+	} {
+		if !bytes.Contains(src, []byte(phrase)) {
+			t.Errorf("generated file is missing %q", phrase)
+		}
+	}
+	if regexp.MustCompile(`Generated on [^\n]* by `).Match(src) {
+		t.Fatal("generated file must not include a username on the Generated on line")
+	}
+
+	f, err := os.Open(ccadbRemovedCSV)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	parsed, err := ParseCCADBRemovedRoots(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sort.Strings(parsed)
+	if !reflect.DeepEqual(ccadbRemovedBlocklistedFingerprints, parsed) {
+		t.Fatal("generated CCADB blocklist does not match ParseCCADBRemovedRoots of the checked-in CSV")
+	}
+}
+
+func TestAllowlist_ccadbRemovedBlocklistRejectsMatch(t *testing.T) {
+	certs, err := certutil.FromFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) == 0 || certs[0] == nil {
+		t.Fatal("expected example.crt")
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*certs[0])
+
+	orig := ccadbRemovedBlocklistedFingerprints
+	t.Cleanup(func() { ccadbRemovedBlocklistedFingerprints = orig })
+	ccadbRemovedBlocklistedFingerprints = append([]string{fp}, ccadbRemovedBlocklistedFingerprints...)
+
+	al := Allowlist{Fingerprints: []string{fp}, Countries: []string{"US"}}
+	if al.Matches(certs[0]) {
+		t.Fatal("ccadb removed CA fingerprint should not match even if it is on the allowlist")
 	}
 }
 
