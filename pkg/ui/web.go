@@ -1107,7 +1107,7 @@ func webCertFromX509(c *x509.Certificate, raw string) webCert {
 }
 
 // prepareWebAllowlist loads cfg.AllowlistPath. A nil allowlist means every
-// certificate starts checked. The file is not applied to a trust store.
+// certificate starts checked. The allowlist is not applied to a trust store.
 func prepareWebAllowlist(cfg *Config) (*allowlist.Allowlist, error) {
 	if cfg == nil {
 		return nil, nil
@@ -1116,7 +1116,7 @@ func prepareWebAllowlist(cfg *Config) (*allowlist.Allowlist, error) {
 	if path == "" {
 		return nil, nil
 	}
-	al, err := allowlist.FromFile(path)
+	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{SHA256: cfg.AllowlistSHA256})
 	if err != nil {
 		return nil, fmt.Errorf("list --allowlist: %w", err)
 	}

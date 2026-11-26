@@ -103,6 +103,7 @@ trustprune list --file /tmp/android-cacerts
 # Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
 trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
 trustprune list --ui web --allowlist allowlist.json
+trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists/mozilla-included.yaml
 ```
 
 | Flag | Meaning |
@@ -117,9 +118,10 @@ trustprune list --ui web --allowlist allowlist.json
 | `--out <path>` | Write the formatted output to `<path>` instead of stdout for every `--format` and for `--count`. Stdout stays empty |
 | `-v`, `--verbose` | On the default table, show the full fingerprint, serial, source or store path (`-` for URLs), and hyphenated `NOT-BEFORE` / `NOT-AFTER`. Columns fit the longest header or cell and are separated by two spaces. When every row has the same path, print `PATH: <path>` above the table and omit the PATH column; mixed paths keep the column. DAYS stays numeric (including negative when expired). Also accepted globally (`trustprune -v list …`) |
 | `--ui <type>` | Presentation: `cli` (default) or `web` (local page) |
-| `--allowlist <path>` | With `--ui web`: allowlist JSON or YAML, the same file `allowlist --file` reads. Certificates that file would keep start checked |
+| `--allowlist <path>` | With `--ui web`: local allowlist JSON or YAML, or an https URL, the same allowlist `allowlist --file` reads. Certificates that allowlist would keep start checked |
+| `--sha256 <hex>` | With `--allowlist`: SHA-256 of the allowlist file bytes (64 hex digits, any case). Checked before the allowlist is parsed |
 
-`list --ui web` shows each certificate on a local page with a keep switch. A checked switch means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist <path>`, a certificate starts checked when that allowlist would keep it. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
+`list --ui web` shows each certificate on a local page with a keep switch. A checked switch means keep. With no `--allowlist`, every certificate starts checked. With `--allowlist`, a certificate starts checked when that allowlist would keep it. `--allowlist` may be a local YAML or JSON file or an https URL. `--sha256` is the SHA-256 of those file bytes and is checked before the page is built. **Download allowlist** builds a JSON allowlist of the checked certificates in the browser. The page is read-only and leaves the trust store unchanged. Apply the downloaded file with `trustprune allowlist --file`.
 
 The header counts kept and dropped certificates. Search matches subject, issuer, or SHA256. Filters cover kept, dropped, expired, expiring within 90 days, and self-signed rows. Sort is by subject, NotAfter, or issuer. Select all and Select none change the keep switch for rows that are currently shown. Validity badges (Valid, Expiring soon, Expired, Not yet valid) are decided when the page is rendered.
 
@@ -317,10 +319,12 @@ trustprune allowlist --app okular --file allowlist.yaml --dry-run
 
 Distrust certificates that are **not** on the allowlist. Requires `--file` and a prior backup. With no backup, `allowlist` (and `allowlist --dry-run`) refuses before writing anything and exits 1, for example `ERROR: no backup for openssl in ~/.trustprune/openssl; run: trustprune backup --app openssl` (platform stores suggest `trustprune backup`). For firefox, poppler, okular, and Linux chrome, a newest backup recorded for a different NSS directory does not count as a backup of this directory. The error tells you to run `trustprune backup` for this store. `--force` allows the allowlist anyway. Always applies Chromium's certificate blocklist, Mozilla's `certdata.txt` blocklist, the CCADB Mozilla Removed CA Certificate Report (except removals that are only expiry or a voluntary / CA-requested withdrawal), and a built-in denylist of known-distrusted roots and their public keys, including the compromised eMudhra G3 intermediates, so those CAs are never kept (cannot be disabled). `gen-allowlist` skips denylisted CAs and prints a `NOTE:` for each one.
 
-Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2).
+Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `countries` (ISO 3166-1 alpha-2). `--file` may be a local path or an https URL. `http://` and any other scheme are rejected. The download is capped at 1 MiB and uses a 30 second timeout. Redirects are followed only when they stay on https. `--sha256` is optional and is the SHA-256 of the allowlist file bytes (64 hex digits, any case). A mismatch is an error and the allowlist is not parsed.
 
 ```bash
 trustprune allowlist --file allowlist.yaml
+trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
+trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
 trustprune allowlist --file allowlist.json --app java
 trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
 trustprune allowlist --file allowlist.yaml --app openssl --bundle /path/to/ca-bundle.pem
@@ -361,7 +365,8 @@ Unmatched allowlist entries:
 
 | Flag | Meaning |
 |------|---------|
-| `--file <path>` | **Required.** Path to the allowlist |
+| `--file <path>` | **Required.** Local allowlist YAML or JSON, or an https URL |
+| `--sha256 <hex>` | SHA-256 of the allowlist file bytes (64 hex digits, any case). Checked before the allowlist is parsed. Requires `--file` |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: operate on that keystore, `cacert.pem`, or NSS directory. Independent of `--file` |
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
@@ -416,7 +421,7 @@ Without `--out`, `gen-allowlist` prints `ERROR: required flag --out not set` and
 
 Write the trusted certificates that match an allowlist. The platform store is the default. `--app` selects an application store. `--store` overrides java, certifi, and poppler. `--bundle` with `--app openssl` reads that PEM. The command only reads that store: it does not add, remove, back up, or restore. Guide-only apps return their existing guide error and write nothing.
 
-`--file` is the allowlist (YAML or JSON), the same file `allowlist` and `gen-allowlist` use. Matching uses that file's fingerprints and countries, including the built-in denylist and the Chromium, Mozilla, Apple, and CCADB removed-CA blocklists, so a denied certificate is left out even when the file names it. `--format` accepts `pem` (the default), `jks`, or `pkcs12`. Any other value is a usage error (exit 2) that names those formats. Omit `--out` with `pem` to write the bundle to stdout. With `--out`, stdout stays empty and the file mode is `0644`. `jks` and `pkcs12` require `--out` (exit 2 if it is omitted). They write a Java truststore that contains exactly the matching certificates. `keytool` creates it (`JAVA_HOME/bin`, then `PATH`, then `~/.local/bin`). A missing `keytool` is an error (exit 1) and no file is written. Each alias is `sha256-` plus the certificate's SHA-256 fingerprint, so aliases are stable and unique. The truststore is written to a temp file in the destination directory and renamed into place. The source store is not modified.
+`--file` is the allowlist (YAML or JSON), a local path or an https URL, the same allowlist `allowlist --file` reads. `--sha256` is optional and is the SHA-256 of those file bytes (64 hex digits). It is checked before the allowlist is parsed. Matching uses that file's fingerprints and countries, including the built-in denylist and the Chromium, Mozilla, Apple, and CCADB removed-CA blocklists, so a denied certificate is left out even when the file names it. `--format` accepts `pem` (the default), `jks`, or `pkcs12`. Any other value is a usage error (exit 2) that names those formats. Omit `--out` with `pem` to write the bundle to stdout. With `--out`, stdout stays empty and the file mode is `0644`. `jks` and `pkcs12` require `--out` (exit 2 if it is omitted). They write a Java truststore that contains exactly the matching certificates. `keytool` creates it (`JAVA_HOME/bin`, then `PATH`, then `~/.local/bin`). A missing `keytool` is an error (exit 1) and no file is written. Each alias is `sha256-` plus the certificate's SHA-256 fingerprint, so aliases are stable and unique. The truststore is written to a temp file in the destination directory and renamed into place. The source store is not modified.
 
 The truststore password defaults to Java's `changeit`. Set `TRUSTPRUNE_JAVA_STOREPASS` to override it (trimmed; whitespace-only falls back to `changeit`). A custom password is passed to `keytool` with `-storepass:env`, not argv, and it is not logged. There is no password flag. `keytool` is non-interactive (`-noprompt`, no stdin) and each call has a timeout.
 
@@ -424,6 +429,7 @@ An allowlist that matches no trusted certificate fails with exit 1 (`no certific
 
 ```bash
 trustprune create --file allowlist.yaml
+trustprune create --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --out mozilla-roots.pem
 trustprune create --file allowlist.yaml --out ca-bundle.pem
 trustprune create --file allowlist.yaml --format pem --out ca-bundle.pem
 trustprune create --file allowlist.yaml --format jks --out trusted.jks
@@ -436,7 +442,8 @@ trustprune create --app openssl --file allowlist.yaml --bundle /path/to/ca-bundl
 
 | Flag | Meaning |
 |------|---------|
-| `--file <path>` | **Required.** Allowlist file (YAML or JSON) |
+| `--file <path>` | **Required.** Local allowlist YAML or JSON, or an https URL |
+| `--sha256 <hex>` | SHA-256 of the allowlist file bytes (64 hex digits, any case). Checked before the allowlist is parsed. Requires `--file` |
 | `--app <name>` | Read an application store. Omit it to read the platform store |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory |
 | `--bundle <path>` | With `--app openssl`: read that PEM CA bundle. The file is left unchanged |

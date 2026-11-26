@@ -197,7 +197,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err := os.WriteFile(alPath, []byte(fmt.Sprintf("{\"Fingerprints\":[%q]}\n", fp)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	err = AllowlistForBundle("openssl", alPath, unbacked, nil)
+	err = AllowlistForBundle("openssl", alPath, unbacked, "", nil)
 	if err == nil || !strings.Contains(err.Error(), "no backup for openssl") {
 		t.Fatalf("allowlist without backup: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	var plan bytes.Buffer
 	store.SetDryRunOutput(&plan)
 	store.SetDryRun(true)
-	if err := AllowlistForBundle("openssl", alPath, bundle, nil); err != nil {
+	if err := AllowlistForBundle("openssl", alPath, bundle, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	store.SetDryRun(false)
@@ -233,7 +233,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 		t.Fatalf("missing dry-run plan: %q", plan.String())
 	}
 
-	if err := AllowlistForBundle("openssl", alPath, bundle, nil); err != nil {
+	if err := AllowlistForBundle("openssl", alPath, bundle, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	kept, err := certutil.FromFile(bundle)
@@ -258,7 +258,7 @@ func TestOpenSSLBundleCmd_ListBackupRestoreAllowlist(t *testing.T) {
 	if err := BackupForBundle(dir); err == nil || !strings.Contains(err.Error(), "is a directory") {
 		t.Fatalf("directory -bundle: %v", err)
 	}
-	if err := AllowlistForBundle("firefox", alPath, bundle, nil); err == nil || !strings.Contains(err.Error(), "requires --app openssl") {
+	if err := AllowlistForBundle("firefox", alPath, bundle, "", nil); err == nil || !strings.Contains(err.Error(), "requires --app openssl") {
 		t.Fatalf("firefox -bundle: %v", err)
 	}
 }

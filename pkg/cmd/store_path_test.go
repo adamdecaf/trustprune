@@ -187,7 +187,7 @@ func TestAllowlistForAppWithStoreJavaDryRun(t *testing.T) {
 		store.SetDryRunOutput(nil)
 	})
 
-	if err := AllowlistForAppWithStore("java", ks, al, nil); err != nil {
+	if err := AllowlistForAppWithStore("java", ks, al, "", nil); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(plan.String(), ks) || !strings.Contains(plan.String(), "java") {
@@ -230,7 +230,7 @@ func TestAllowlistForAppWithStoreCertifiDryRun(t *testing.T) {
 	})
 
 	stdout := captureStdout(t, func() error {
-		return AllowlistForAppWithStore("certifi", bundle, al, nil)
+		return AllowlistForAppWithStore("certifi", bundle, al, "", nil)
 	})
 	if stdout != "" {
 		t.Fatalf("allowlist dry-run printed outside the plan: %q", stdout)

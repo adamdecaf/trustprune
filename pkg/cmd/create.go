@@ -51,8 +51,12 @@ var ErrNoMatchingCerts = errors.New("no certificates matched the allowlist; refu
 
 // CreateOptions is the input to the create command.
 type CreateOptions struct {
-	// AllowlistPath is the allowlist file (--file). Required.
+	// AllowlistPath is the allowlist (--file): a local YAML or JSON file,
+	// or an https URL. Required.
 	AllowlistPath string
+	// SHA256 is an optional SHA-256 of the allowlist bytes (--sha256).
+	// Empty skips the check. 64 hex digits, case-insensitive.
+	SHA256 string
 	// Format is pem (the default), jks, or pkcs12. Empty means pem.
 	// Matching is case-insensitive.
 	Format string
@@ -167,7 +171,7 @@ func CreateFromStore(st createSource, opts CreateOptions) error {
 	if CreateFormatRequiresOut(format) && out == "" {
 		return CreateOutRequiredError(format)
 	}
-	al, err := allowlist.FromFile(opts.AllowlistPath)
+	al, err := allowlist.FromPathOrURL(opts.AllowlistPath, allowlist.FetchOptions{SHA256: opts.SHA256})
 	if err != nil {
 		return err
 	}

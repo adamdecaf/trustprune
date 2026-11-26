@@ -153,15 +153,27 @@ func flagUI() *cli.StringFlag {
 	}
 }
 
-// flagListAllowlist is the allowlist file for the list --ui web checklist.
+// flagListAllowlist is the allowlist for the list --ui web checklist.
 // list already uses --file for a certificate PEM, so this is a separate flag.
-// The file is the JSON or YAML that `allowlist --file` reads.
+// The value is a local JSON or YAML file, or an https URL, the same allowlist
+// `allowlist --file` reads.
 func flagListAllowlist() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:      "allowlist",
-		Usage:     "with --ui web, allowlist file (JSON or YAML, same as allowlist --file) whose matches start checked",
+		Usage:     "with --ui web, local YAML/JSON allowlist or https URL (same as allowlist --file) whose matches start checked",
 		TakesFile: true,
 		Local:     true,
+	}
+}
+
+// flagAllowlistSHA256 is the optional SHA-256 of the allowlist file bytes.
+// It is checked before the allowlist is parsed. allowlist and create pin
+// --file. list pins --allowlist.
+func flagAllowlistSHA256() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:  "sha256",
+		Usage: "SHA-256 of the allowlist file bytes (64 hex digits); checked before the allowlist is parsed",
+		Local: true,
 	}
 }
 
