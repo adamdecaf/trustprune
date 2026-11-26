@@ -408,7 +408,10 @@ func (p longPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 		}
 		notBefore := certs[i].NotBefore.UTC().Format(time.RFC3339)
 		notAfter := certs[i].NotAfter.UTC().Format(time.RFC3339)
-		if err := writef("  NotBefore: %s | NotAfter: %s\n", notBefore, notAfter); err != nil {
+		if err := writef("  NotBefore: %s\n", notBefore); err != nil {
+			return err
+		}
+		if err := writef("  NotAfter: %s\n", notAfter); err != nil {
 			return err
 		}
 		if err := writef("  KEY: %s\n", certutil.FormatKeyLabel(certs[i])); err != nil {

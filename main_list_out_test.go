@@ -448,9 +448,12 @@ func TestListFormatDefaultAndUnknown(t *testing.T) {
 		if strings.Contains(res.stdout, "SHA256-FINGERPRINT") {
 			t.Fatalf("long format included the table header:\n%s", res.stdout)
 		}
-		const validity = "  NotBefore: 1999-12-24T17:50:51Z | NotAfter: 2029-07-24T14:15:12Z\n"
+		const validity = "  NotBefore: 1999-12-24T17:50:51Z\n  NotAfter: 2029-07-24T14:15:12Z\n"
 		if !strings.Contains(res.stdout, validity) {
-			t.Fatalf("long format timestamps are not RFC3339 UTC:\n%s", res.stdout)
+			t.Fatalf("long format timestamps are not RFC3339 UTC on separate lines:\n%s", res.stdout)
+		}
+		if strings.Contains(res.stdout, "NotBefore:") && strings.Contains(res.stdout, " | NotAfter:") {
+			t.Fatalf("NotBefore and NotAfter still share a line:\n%s", res.stdout)
 		}
 		if strings.Contains(res.stdout, "+0000 UTC") {
 			t.Fatalf("long format still uses time.Time.String():\n%s", res.stdout)
