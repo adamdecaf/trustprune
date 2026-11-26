@@ -75,6 +75,27 @@ $ trustprune create --file wh.json --format jks --out trusted.jks
 $ trustprune create --file wh.json --app java --out java-cas.pem
 ```
 
+## Baseline allowlists
+
+Mozilla's [certdata.txt](https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt) trusts a set of roots for TLS server authentication. That set is a baseline allowlist: those roots, as SHA-256 fingerprints.
+
+This is a starting baseline. It is not a top-1-million list or a Censys observed list.
+
+Download it from the docs site: <https://trustprune.com/downloads/allowlists/mozilla-included.yaml>
+
+The same file is in the repo at `docs/downloads/allowlists/mozilla-included.yaml`.
+
+```
+$ curl -fsSL https://trustprune.com/downloads/allowlists/mozilla-included.yaml -o mozilla-included.yaml
+$ trustprune allowlist --file mozilla-included.yaml --dry-run
+$ trustprune allowlist --file mozilla-included.yaml
+$ trustprune create --file mozilla-included.yaml --out mozilla-roots.pem
+```
+
+`allowlist` still requires a prior backup. Applying the file still skips denylisted and blocklisted certificates. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
+
+Regenerate the checked-in file with `make allowlists` (uses `testdata/certdata.txt.gz`).
+
 ## Generating allowlists
 
 `trustprune` generates allowlists by dialing HTTPS hosts and recording the CAs that signed them. Sources can be a few hostnames (`--hosts`), named platform presets (`--presets`), browser history (`--from`), and/or a URL list file (`--file`).

@@ -354,6 +354,89 @@ func TestDecodeNSS_historicalFixture(t *testing.T) {
 	if got := hex.EncodeToString(sum.Sum(nil)); got != want {
 		t.Fatalf("fixture digest %s", got)
 	}
+
+	trusted, err := ParseTrustedServerCerts(bytes.NewReader(bs))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trusted) != len(entries) {
+		t.Fatalf("ParseTrustedServerCerts returned %d certs, parseCertData returned %d", len(trusted), len(entries))
+	}
+	for i := range entries {
+		if trusted[i].Cert == nil {
+			t.Fatalf("cert %d is nil", i)
+		}
+		if trusted[i].Cert.Subject.CommonName != entries[i].cert.Subject.CommonName {
+			t.Fatalf("cert %d CN %q, want %q", i, trusted[i].Cert.Subject.CommonName, entries[i].cert.Subject.CommonName)
+		}
+		if !bytes.Equal(trusted[i].Cert.Raw, entries[i].cert.Raw) {
+			t.Fatalf("cert %d DER differs from parseCertData", i)
+		}
+		if !trusted[i].ServerDistrustAfter.Equal(entries[i].serverDistrustAfter) {
+			t.Fatalf("cert %d ServerDistrustAfter=%s, want %s", i, trusted[i].ServerDistrustAfter, entries[i].serverDistrustAfter)
+		}
+	}
+}
+
+func TestParseTrustedServerCerts(t *testing.T) {
+	t.Parallel()
+	der := testSelfSignedDER(t, "Distrust After Root")
+	doc := certDataDocument(t, der, "CKT_NSS_TRUSTED_DELEGATOR", mozillaDistrustOctal)
+	got, err := ParseTrustedServerCerts(strings.NewReader(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d certs", len(got))
+	}
+	if !bytes.Equal(got[0].Cert.Raw, der) {
+		t.Fatal("parsed certificate DER does not match the fixture")
+	}
+	want := time.Date(2024, time.November, 30, 23, 59, 59, 0, time.UTC)
+	if !got[0].ServerDistrustAfter.Equal(want) {
+		t.Fatalf("ServerDistrustAfter = %s, want %s", got[0].ServerDistrustAfter.Format(time.RFC3339), want.Format(time.RFC3339))
+	}
+
+	future := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	futureDoc := certDataDocument(t, der, "CKT_NSS_TRUSTED_DELEGATOR", nssDistrustOctal(future))
+	got, err = ParseTrustedServerCerts(strings.NewReader(futureDoc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("future distrust-after: got %d certs", len(got))
+	}
+	if !got[0].ServerDistrustAfter.Equal(future) {
+		t.Fatalf("future ServerDistrustAfter = %s, want %s", got[0].ServerDistrustAfter.Format(time.RFC3339), future.Format(time.RFC3339))
+	}
+
+	absent := certDataDocument(t, der, "CKT_NSS_TRUSTED_DELEGATOR", "")
+	got, err = ParseTrustedServerCerts(strings.NewReader(absent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || !got[0].ServerDistrustAfter.IsZero() {
+		t.Fatalf("absent date: %+v", got)
+	}
+
+	for _, trust := range []string{
+		"CKT_NSS_NOT_TRUSTED",
+		"(CKT_NSS_MUST_VERIFY_TRUST|CKT_NSS_NOT_TRUSTED)",
+		"CKT_NSS_MUST_VERIFY_TRUST",
+	} {
+		rejected := certDataDocument(t, der, trust, "")
+		got, err := ParseTrustedServerCerts(strings.NewReader(rejected))
+		if err != nil {
+			t.Fatalf("%s: %v", trust, err)
+		}
+		if len(got) != 0 {
+			t.Fatalf("%s: got %d certs, want 0", trust, len(got))
+		}
+	}
+
+	if _, err := ParseTrustedServerCerts(strings.NewReader("not certdata\n")); err == nil {
+		t.Fatal("expected missing BEGINDATA to fail")
+	}
 }
 
 func testSelfSignedDER(t *testing.T, commonName string) []byte {

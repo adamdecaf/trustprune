@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 GOARCH ?= $(shell go env GOARCH)
 
-.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git
+.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git generate allowlists
 
 linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) go build -trimpath -o bin/trustprune-linux-$(GOARCH) github.com/adamdecaf/trustprune
@@ -110,11 +110,17 @@ $(BETTERLEAKS_BIN):
 	cp "$$tmp/betterleaks" "$@"; \
 	chmod +x "$@"
 
-.PHONY: generate
+.PHONY: generate allowlists
 generate:
 	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/apple_blocklist_gen.go -file pkg/allowlist/testdata/apple-blocked-certificates.html
+	$(MAKE) allowlists
+
+# allowlists writes the Mozilla included-root baseline from testdata/certdata.txt.gz.
+# It does not download.
+allowlists:
+	CGO_ENABLED=0 go run pkg/allowlist/mozilla_allowlist_gen.go -file testdata/certdata.txt.gz -out docs/downloads/allowlists/mozilla-included.yaml
 
 test: check
 	$(MAKE) linux

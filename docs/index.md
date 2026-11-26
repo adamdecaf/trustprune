@@ -47,7 +47,7 @@ trustprune restore --app java
 | [Platforms](platforms.md) | Platforms and apps, store paths, support status |
 | [Backup and restore](backup-restore.md) | Where backups live, NSS file sets, safe swap/rollback |
 | [Basics](basics.md) | Command walkthrough (list, add, backup/restore, connect) |
-| [Allowlists](allowlists.md) | Allowlist format, generating from browser history, and a Go `x509.CertPool` helper |
+| [Allowlists](allowlists.md) | Allowlist format, generating from browser history, the Mozilla included-root baseline, and a Go `x509.CertPool` helper |
 | [Why this matters](why.md) | Research and CA incidents that motivate the tool |
 | [Blog](blog.md) | Posts |
 | [Papers](papers/) | Related research PDFs |

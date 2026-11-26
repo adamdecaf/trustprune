@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -177,11 +178,16 @@ func TestListCertsFromURLNotBundle(t *testing.T) {
 					t.Fatal("expected error")
 				}
 				msg := err.Error()
-				if !strings.Contains(msg, "did not return a PEM or DER certificate bundle") {
+				if !strings.Contains(msg, "no PEM/DER certificates at "+ts.URL) {
 					t.Fatalf("error = %q", msg)
 				}
-				if !strings.Contains(msg, "trustprune chain <host> --remote") {
-					t.Fatalf("error = %q", msg)
+				u, perr := url.Parse(ts.URL)
+				if perr != nil {
+					t.Fatal(perr)
+				}
+				wantHint := "trustprune chain " + u.Hostname() + " --remote"
+				if !strings.Contains(msg, wantHint) {
+					t.Fatalf("error = %q, want %q", msg, wantHint)
 				}
 				if strings.Contains(msg, "no certificates to display") {
 					t.Fatalf("fell through to empty list: %q", msg)
@@ -200,8 +206,38 @@ func TestListCertsFromURLReturnsError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected dial error, got nil")
 	}
-	if strings.Contains(err.Error(), "did not return a PEM or DER certificate bundle") {
+	if strings.Contains(err.Error(), "no PEM/DER certificates at") {
 		t.Fatalf("dial failure reported as an empty bundle: %v", err)
+	}
+}
+
+func TestListURLNoCertsError(t *testing.T) {
+	t.Parallel()
+	err := listURLNoCertsError("https://example.com/bundle.pem")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "no PEM/DER certificates at https://example.com/bundle.pem") {
+		t.Fatalf("error = %q", msg)
+	}
+	if !strings.Contains(msg, "trustprune chain example.com --remote") {
+		t.Fatalf("error = %q", msg)
+	}
+	if strings.Contains(msg, "no certificates to display") {
+		t.Fatalf("error = %q", msg)
+	}
+
+	err = listURLNoCertsError(":")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	msg = err.Error()
+	if !strings.Contains(msg, "no PEM/DER certificates at :") {
+		t.Fatalf("error = %q", msg)
+	}
+	if !strings.Contains(msg, "trustprune chain <host> --remote") {
+		t.Fatalf("unparseable URL should keep the placeholder: %q", msg)
 	}
 }
 
