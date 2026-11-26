@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -293,10 +294,14 @@ func TestListURLBundleCLI(t *testing.T) {
 		if !strings.HasPrefix(res.stdout, "ERROR: ") {
 			t.Fatalf("stdout=%q", res.stdout)
 		}
-		if !strings.Contains(res.stdout, ts.URL+" did not return a PEM or DER certificate bundle") {
+		if !strings.Contains(res.stdout, "no PEM/DER certificates at "+ts.URL) {
 			t.Fatalf("stdout=%q", res.stdout)
 		}
-		if !strings.Contains(res.stdout, "trustprune chain <host> --remote") {
+		u, err := url.Parse(ts.URL)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(res.stdout, "trustprune chain "+u.Hostname()+" --remote") {
 			t.Fatalf("stdout=%q", res.stdout)
 		}
 		if strings.Contains(res.stdout, "no certificates to display") {
@@ -313,7 +318,10 @@ func TestListURLBundleCLI(t *testing.T) {
 		if strings.TrimSpace(count.stdout) == "0" || strings.Contains(count.stdout, "no certificates to display") {
 			t.Fatalf("stdout=%q", count.stdout)
 		}
-		if !strings.Contains(count.stdout, "did not return a PEM or DER certificate bundle") {
+		if !strings.Contains(count.stdout, "no PEM/DER certificates at "+ts.URL) {
+			t.Fatalf("stdout=%q", count.stdout)
+		}
+		if !strings.Contains(count.stdout, "trustprune chain "+u.Hostname()+" --remote") {
 			t.Fatalf("stdout=%q", count.stdout)
 		}
 	})
