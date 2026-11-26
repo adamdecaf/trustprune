@@ -35,7 +35,8 @@ var (
 
 // ListCertsFromFile finds certificates at the given filepath
 // and lists them according to the ui/format options. A directory is
-// treated as a pulled Android cacerts folder of <hash>.0 PEM files.
+// treated as a pulled Android cacerts folder of <hash>.0 PEM or DER
+// files, including .crt, .cer, or .der exports of user-installed CAs.
 func ListCertsFromFile(where string, cfg *ui.Config) error {
 	st, err := os.Stat(where)
 	if err != nil {

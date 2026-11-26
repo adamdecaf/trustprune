@@ -122,13 +122,13 @@ trustprune list --file /tmp/android-cacerts
 trustprune list --file /tmp/android-cacerts --count
 ```
 
-`list --file` on that directory reads each `<hash>.<n>` PEM file and skips the OpenSSL text after the certificate. `--format` and allowlist/denylist marking work the same as for other `list` sources. A single `.0` file, or a concatenated PEM bundle, can still be passed as a regular file.
+`list --file` on that directory reads each `<hash>.<n>` PEM or DER file and skips the OpenSSL text after a PEM certificate. It also reads `.crt`, `.cer`, and `.der` exports of user-installed CAs. `--format` and allowlist/denylist marking work the same as for other `list` sources. A single `.0` file, or a concatenated PEM bundle, can still be passed as a regular file.
 
 `trustprune list --app openssl --bundle` still requires a regular PEM file. A directory is rejected. Without `--bundle`, `--app openssl` discovers the computer's own OpenSSL store. When that store is a directory, only `*.pem` and `*.crt` are read, not `<hash>.0`.
 
 `allowlist --file` is an allowlist document, not this bundle. After a listing, an allowlist or a report of fingerprints to disable by hand is something a later command could print; today the user compares the listing with an allowlist file themselves.
 
-The result is the system set as shipped on the device. `cacerts-added` and `cacerts-removed` are not in it. With a root shell those directories can be pulled too, but their files are DER, so concatenating them as-is does not produce a PEM bundle (`list` reports `no certificates to display`, and `--count` prints zero). Convert each non-empty file to PEM first:
+The result is the system set as shipped on the device. `cacerts-added` and `cacerts-removed` are not in it. With a root shell those directories can be pulled too. `list --file` on the pulled directory reads the DER `<hash>.<n>` files directly. Concatenating them as-is still does not produce a PEM bundle (`list` on that file reports `no certificates to display`, and `--count` prints zero). To build a PEM bundle, convert each non-empty file first:
 
 ```bash
 #!/bin/sh
@@ -181,7 +181,7 @@ On a managed device, a device-owner or profile-owner app can install a user CA w
 
 ## Proposed follow-up
 
-`trustprune list --file <dir>` lists a pulled Android system cacerts directory of `<hash>.0` PEM files. That is offline analysis of a copy the user already pulled; it does not talk to the device.
+`trustprune list --file <dir>` lists a pulled Android system cacerts directory of `<hash>.0` PEM or DER files, and `.crt`/`.cer`/`.der` exports of user-installed CAs. That is offline analysis of a copy the user already pulled; it does not talk to the device.
 
 1. **Guide only.** A command such as `trustprune list --app android` would print the Settings path and the `adb pull` lines above, and could print an allowlist or a disable report the user applies by hand in Settings. `add`, `allowlist`, `backup`, and `restore` would print the same guide and exit non-zero. No device I/O. `--app android` is not a supported app today.
 2. **Longer term.** A companion that ranks which system CAs to disable first, then walks the user through the Settings toggle (or asks an MDM admin to install or remove a user CA). It still cannot write the system store on a stock device.

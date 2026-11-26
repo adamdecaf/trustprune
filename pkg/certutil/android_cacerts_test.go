@@ -67,6 +67,41 @@ func TestFromAndroidDir(t *testing.T) {
 	}
 }
 
+func TestFromAndroidDir_DER(t *testing.T) {
+	dir := t.TempDir()
+	pemCert := mintAndroidCA(t, "Android Test Root PEM", 1)
+	derHash := mintAndroidCA(t, "Android Test Root DER hash", 2)
+	derCrt := mintAndroidCA(t, "Android Test Root DER crt", 3)
+	derCer := mintAndroidCA(t, "Android Test Root DER cer", 4)
+	derExt := mintAndroidCA(t, "Android Test Root DER der", 5)
+	writeAndroidPEM(t, dir, "aaaaaaaa.0", pemCert)
+	writeAndroidDER(t, dir, "bbbbbbbb.0", derHash)
+	writeAndroidDER(t, dir, "user-ca.crt", derCrt)
+	writeAndroidDER(t, dir, "user-ca.CER", derCer)
+	writeAndroidDER(t, dir, "user-ca.der", derExt)
+	if err := os.WriteFile(filepath.Join(dir, "README"), []byte("not a cert\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	certs, err := FromAndroidDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) != 5 {
+		t.Fatalf("got %d certs, want 5", len(certs))
+	}
+	got := make(map[string]struct{}, len(certs))
+	for i := range certs {
+		got[GetHexSHA256Fingerprint(*certs[i])] = struct{}{}
+	}
+	for _, cert := range []*x509.Certificate{pemCert, derHash, derCrt, derCer, derExt} {
+		fp := GetHexSHA256Fingerprint(*cert)
+		if _, ok := got[fp]; !ok {
+			t.Fatalf("missing fingerprint %s in %v", fp, got)
+		}
+	}
+}
+
 func TestFromAndroidDir_empty(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := FromAndroidDir(dir); err == nil {
@@ -134,6 +169,13 @@ func pemBytes(t *testing.T, cert *x509.Certificate) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+func writeAndroidDER(t *testing.T, dir, name string, cert *x509.Certificate) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), cert.Raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writeAndroidPEM(t *testing.T, dir, name string, cert *x509.Certificate) {
