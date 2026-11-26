@@ -325,7 +325,7 @@ func flagChainAll() *cli.BoolFlag {
 func flagChainRemote() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "remote",
-		Usage:       "look up the TLS chain when no local chain is found (30s timeout)",
+		Usage:       "look up the TLS chain when no local chain is found (30s timeout; implied by --url)",
 		HideDefault: true,
 		Local:       true,
 	}

@@ -128,7 +128,7 @@ type chainInput struct {
 
 type chainRow struct {
 	issuer   string
-	notAfter string
+	notAfter time.Time
 	sha      string
 	sha256   string
 	name     string
@@ -485,7 +485,7 @@ func makeChainRow(cert *x509.Certificate, isLeaf bool, trusted, presented map[st
 	labels := chainLabels(isLeaf, inStore, validity, isBlocked, chainInStore(cert, presented))
 	return chainRow{
 		issuer:   connectName(cert.Issuer),
-		notAfter: cert.NotAfter.UTC().Format(connectDateLayout),
+		notAfter: cert.NotAfter,
 		sha:      sum[:16],
 		sha256:   sum,
 		name:     name,
@@ -549,7 +549,7 @@ func formatChain(rows []chainRow, note string, verbose bool) string {
 		if verbose {
 			sha = row.sha256
 		}
-		body[i] = []string{strconv.Itoa(i), row.name, row.issuer, row.notAfter, sha, formatLabelsCell(row.labels)}
+		body[i] = []string{strconv.Itoa(i), row.name, row.issuer, row.notAfter.UTC().Format(connectDateLayout), sha, formatLabelsCell(row.labels)}
 	}
 	out := alignTable(headers, body)
 	if note != "" {
@@ -587,8 +587,8 @@ type chainJSONCert struct {
 // Cycle and too-long walks omit it. stopped_at is the display name of
 // the last certificate included. It is set whenever complete is false
 // and omitted when the chain is complete. The human hint is not included.
-// sha256 is the full hex fingerprint. not_after is the UTC date
-// (YYYY-MM-DD). The result ends with a newline.
+// sha256 is the full hex fingerprint. not_after is UTC RFC 3339.
+// Text tables still use YYYY-MM-DD. The result ends with a newline.
 func formatChainJSON(rows []chainRow, note chainNote) (string, error) {
 	entries := make([]chainJSONCert, len(rows))
 	for i, row := range rows {
@@ -600,7 +600,7 @@ func formatChainJSON(rows []chainRow, note chainNote) (string, error) {
 			Index:    i,
 			Subject:  row.name,
 			Issuer:   row.issuer,
-			NotAfter: row.notAfter,
+			NotAfter: jsonTimeUTC(row.notAfter),
 			SHA256:   row.sha256,
 			Labels:   labels,
 		}
