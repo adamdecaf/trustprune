@@ -43,8 +43,9 @@ type Allowlist struct {
 //
 // A denylisted certificate never matches, even when this allowlist names
 // its fingerprint or country. The denylist matches the certificate SHA-256
-// and the SubjectPublicKeyInfo SHA-256. Chromium, Mozilla, and Apple
-// blocklist fingerprints never match either.
+// and the SubjectPublicKeyInfo SHA-256. Chromium, Mozilla, Apple, and
+// CCADB Removed CA Certificate Report blocklist fingerprints never match
+// either.
 func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	if inc == nil {
 		return false
@@ -58,7 +59,8 @@ func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	// is the certificate explicitly distrusted?
 	if fingerprintBlocked(blocklistedFingerprints, fp) ||
 		fingerprintBlocked(mozillaBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(appleBlocklistedFingerprints, fp) {
+		fingerprintBlocked(appleBlocklistedFingerprints, fp) ||
+		fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp) {
 		return false
 	}
 
@@ -93,8 +95,9 @@ func fingerprintBlocked(list []string, fp string) bool {
 	return false
 }
 
-// Blocklisted reports whether cert is on the embedded Chromium blocklist
-// or the embedded Mozilla certdata.txt blocklist. The match is the
+// Blocklisted reports whether cert is on the embedded Chromium blocklist,
+// the embedded Mozilla certdata.txt blocklist, or the embedded CCADB
+// Mozilla Removed CA Certificate Report list. The match is the
 // certificate SHA-256, the same comparison Matches uses. It does not use
 // OCSP, CRLs, or the network.
 func Blocklisted(cert *x509.Certificate) bool {
@@ -104,7 +107,8 @@ func Blocklisted(cert *x509.Certificate) bool {
 	fp := certutil.GetHexSHA256Fingerprint(*cert)
 	return fingerprintBlocked(blocklistedFingerprints, fp) ||
 		fingerprintBlocked(mozillaBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(appleBlocklistedFingerprints, fp)
+		fingerprintBlocked(appleBlocklistedFingerprints, fp) ||
+		fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp)
 }
 
 // MatchesAll checks if a given list of certificates all match against an allowlist

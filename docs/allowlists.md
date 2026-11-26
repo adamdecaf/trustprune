@@ -203,7 +203,11 @@ $ trustprune gen-allowlist --out allowlist.yaml --from firefox
 
 It also includes a Mozilla blocklist generated from [certdata.txt](https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt). That list matches the same way. It contains certificates marked `CKT_NSS_NOT_TRUSTED` for server authentication, and roots whose `CKA_NSS_SERVER_DISTRUST_AFTER` date has passed. The date is recorded on those entries. A root whose distrust-after date is still in the future is omitted until `make generate` runs again after that date.
 
-It also includes an Apple blocklist generated from the [Blocked Certificates](https://support.apple.com/en-us/103255) table on Apple's "CA certificates with additional constraints" page. That list matches certificate SHA-256 fingerprints. Certificates Apple only constrains, rather than blocks, are left out. HT204132 is the earlier Apple support article that described these lists. `make generate` refreshes the Chromium, Mozilla, and Apple lists from their documented sources; the Apple target uses the checked-in HTML excerpt and does not download.
+It also includes an Apple blocklist generated from the [Blocked Certificates](https://support.apple.com/en-us/103255) table on Apple's "CA certificates with additional constraints" page. That list matches certificate SHA-256 fingerprints. Certificates Apple only constrains, rather than blocks, are left out. HT204132 is the earlier Apple support article that described these lists.
+
+It also includes fingerprints from the [CCADB Mozilla Removed CA Certificate Report](https://ccadb.my.salesforce-sites.com/mozilla/RemovedCACertificateReportCSVFormat) (listed from [CA/Removed Certificates](https://wiki.mozilla.org/CA/Removed_Certificates)). That list matches the report's SHA-256 Fingerprint column. The report has no structured removal-reason column. Every row is included except those whose Comments indicate the removal is only expiry or a voluntary / CA-requested withdrawal. Empty comments are kept. `make denylists` refreshes this list from the checked-in CSV.
+
+`make generate` refreshes the Chromium, Mozilla, and Apple lists from their documented sources, and the CCADB removed-CA list from the checked-in CSV. The Apple target uses the checked-in HTML excerpt and does not download.
 
 There is currently no way to disable this behavior.
 
@@ -259,7 +263,7 @@ GeoTrust Inc.                   ff856a2d251dcd88    1      google.com
 
 `github.com/adamdecaf/trustprune/pkg/certpool` returns an `*x509.CertPool` with an allowlist applied.
 
-`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads a PEM bundle from a path and skips blocks that are not `CERTIFICATE`. An unreadable file, a `CERTIFICATE` block that fails to parse, or a file with no certificates returns an error. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in Chromium, Mozilla, and Apple blocklists and denylist. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
+`New` starts from the trusted certificates in the system store, the same platform store `trustprune list` reads. `FromFile` reads a PEM bundle from a path and skips blocks that are not `CERTIFICATE`. An unreadable file, a `CERTIFICATE` block that fails to parse, or a file with no certificates returns an error. `FromCertificates` starts from a `[]*x509.Certificate` the caller already has. A certificate is kept only when `Allowlist.Matches` accepts it: SHA-256 fingerprint, country code, and the built-in Chromium, Mozilla, Apple, and CCADB removed-CA blocklists and denylist. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
 
 The system store is only read. `New` lists certificates and returns a new pool. `FromFile` reads only the path you pass. An allowlist that matches nothing yields an empty pool. Set that pool as `tls.Config.RootCAs` so verification uses the kept certificates.
 
