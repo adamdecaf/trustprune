@@ -16,7 +16,9 @@ package certutil
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/pem"
 	"os"
 	"strings"
@@ -66,6 +68,17 @@ func TestParseCertificate_fallbackNegativeSerial(t *testing.T) {
 	}
 	if len(cert.Raw) == 0 || len(cert.Raw) != len(block.Bytes) {
 		t.Fatalf("Raw len=%d, want %d", len(cert.Raw), len(block.Bytes))
+	}
+	if len(cert.RawSubjectPublicKeyInfo) == 0 {
+		t.Fatal("fallback must set RawSubjectPublicKeyInfo")
+	}
+	if _, err := x509.ParsePKIXPublicKey(cert.RawSubjectPublicKeyInfo); err != nil {
+		t.Fatalf("RawSubjectPublicKeyInfo: %v", err)
+	}
+	wantSPKI := "831c9ea2889669bc046116adc8c92a6a49e952c233e327138f7baa461c5b038a"
+	sum := sha256.Sum256(cert.RawSubjectPublicKeyInfo)
+	if got := hex.EncodeToString(sum[:]); got != wantSPKI {
+		t.Fatalf("SPKI sha256=%s, want %s", got, wantSPKI)
 	}
 }
 

@@ -30,6 +30,8 @@ import (
 	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
+	"golang.org/x/crypto/cryptobyte"
+	cryptobyte_asn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 func TestDenylist_committedEntries(t *testing.T) {
@@ -436,10 +438,255 @@ func TestDenied_SennheiserHeadSetupRoots(t *testing.T) {
 	}
 }
 
+func TestDenied_SuperfishAndEDellRoot(t *testing.T) {
+	cases := []struct {
+		file     string
+		wantFP   string
+		wantSPKI string
+		wantName string
+	}{
+		{
+			file:     "superfish.pem",
+			wantFP:   "b6fe9151402bad1c06d7e66db67a26aa7356f2e6c644dbcf9f98968ff632e1b7",
+			wantSPKI: "4bb8f35ba1e126f8dde1b0c420625ed86dce61a7bddadbdea9aba578ff13145e",
+			wantName: "Superfish",
+		},
+		{
+			file:     "edellroot.pem",
+			wantFP:   "ec30c9c3065a06bb07dc5b1c6b497f370c1ca65c0f30c08e042ba6bcecc78f2c",
+			wantSPKI: "cdee9f3305572a677e1a6c82dc1e02a35b11cae6a684338c9f37fe1ac8daec23",
+			wantName: "eDellRoot",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.wantName, func(t *testing.T) {
+			// #nosec G304 -- testdata fixture, not user input
+			raw, err := os.ReadFile(filepath.Join("testdata", tc.file))
+			if err != nil {
+				t.Fatal(err)
+			}
+			block, _ := pem.Decode(raw)
+			if block == nil || block.Type != "CERTIFICATE" {
+				t.Fatal("testdata PEM has no CERTIFICATE block")
+			}
+			cert, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := certutil.GetHexSHA256Fingerprint(*cert); got != tc.wantFP {
+				t.Fatalf("fixture fingerprint %s, want %s", got, tc.wantFP)
+			}
+			if got := spkiSHA256(cert); got != tc.wantSPKI {
+				t.Fatalf("fixture SPKI %s, want %s", got, tc.wantSPKI)
+			}
+			if denied, name := Denied(cert); !denied || name != tc.wantName {
+				t.Fatalf("Denied(fixture)=%v %q", denied, name)
+			}
+
+			parentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parent := &x509.Certificate{
+				SerialNumber: big.NewInt(1),
+				Subject: pkix.Name{
+					CommonName: "Test Parent",
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+			}
+			tmpl := &x509.Certificate{
+				SerialNumber: big.NewInt(2),
+				Subject: pkix.Name{
+					CommonName: "Reissued " + tc.wantName,
+					Country:    []string{"US"},
+				},
+				NotBefore:             time.Now().Add(-time.Hour),
+				NotAfter:              time.Now().Add(24 * time.Hour),
+				KeyUsage:              x509.KeyUsageCertSign,
+				IsCA:                  true,
+				BasicConstraintsValid: true,
+				PublicKey:             cert.PublicKey,
+			}
+			der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, tmpl.PublicKey, parentKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reissued, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if certutil.GetHexSHA256Fingerprint(*reissued) == tc.wantFP {
+				t.Fatal("reissued certificate must not keep the denylisted certificate fingerprint")
+			}
+			if spkiSHA256(reissued) != tc.wantSPKI {
+				t.Fatalf("reissued SPKI %s, want %s", spkiSHA256(reissued), tc.wantSPKI)
+			}
+			if denied, name := Denied(reissued); !denied || name != tc.wantName {
+				t.Fatalf("Denied(reissued)=%v %q", denied, name)
+			}
+		})
+	}
+}
+
+func TestDenied_DSDTestProvider(t *testing.T) {
+	const (
+		wantFP   = "0f912fd7be760be25afbc56bdc09cd9e5dcc9c6f6a55a778aefcb6aa30e31554"
+		wantSPKI = "130ad4e0633521290531b6651f5759b0bc7bc656709ff8f365c2143b0389b6f6"
+		wantName = "DSDTestProvider"
+	)
+	// #nosec G304 -- testdata fixture, not user input
+	raw, err := os.ReadFile(filepath.Join("testdata", "dsdtestprovider.pem"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, _ := pem.Decode(raw)
+	if block == nil || block.Type != "CERTIFICATE" {
+		t.Fatal("testdata PEM has no CERTIFICATE block")
+	}
+	// Negative serial: crypto/x509 rejects this certificate. The cryptobyte
+	// fallback fills Raw and RawSubjectPublicKeyInfo so Denied can match
+	// both the certificate fingerprint and a reissue of the same key.
+	if _, err := x509.ParseCertificate(block.Bytes); err == nil {
+		t.Fatal("crypto/x509.ParseCertificate must reject DSDTestProvider")
+	} else if !strings.Contains(err.Error(), "negative serial") {
+		t.Fatalf("expected negative serial parse error, got %v", err)
+	}
+	cert, err := certutil.ParseCertificate(block.Bytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := certutil.GetHexSHA256Fingerprint(*cert); got != wantFP {
+		t.Fatalf("fixture fingerprint %s, want %s", got, wantFP)
+	}
+	if got := spkiSHA256(cert); got != wantSPKI {
+		t.Fatalf("fixture SPKI %s, want %s", got, wantSPKI)
+	}
+	if denied, name := Denied(cert); !denied || name != wantName {
+		t.Fatalf("Denied(fixture)=%v %q", denied, name)
+	}
+
+	pub, err := x509.ParsePKIXPublicKey(cert.RawSubjectPublicKeyInfo)
+	if err != nil {
+		t.Fatalf("ParsePKIXPublicKey: %v", err)
+	}
+	parentKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "Test Parent"},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(2),
+		Subject:               pkix.Name{CommonName: "Reissued DSDTestProvider", Country: []string{"US"}},
+		NotBefore:             time.Now().Add(-time.Hour),
+		NotAfter:              time.Now().Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign,
+		IsCA:                  true,
+		BasicConstraintsValid: true,
+		PublicKey:             pub,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, parent, pub, parentKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reissued, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if certutil.GetHexSHA256Fingerprint(*reissued) == wantFP {
+		t.Fatal("reissued certificate must not keep the denylisted certificate fingerprint")
+	}
+	if spkiSHA256(reissued) != wantSPKI {
+		t.Fatalf("reissued SPKI %s, want %s", spkiSHA256(reissued), wantSPKI)
+	}
+	if denied, name := Denied(reissued); !denied || name != wantName {
+		t.Fatalf("Denied(reissued)=%v %q", denied, name)
+	}
+}
+
+func TestDenied_negativeSerialSPKI(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	positive := mustDeniedTestCert(t, key, "positive.example", "US", 1)
+	t.Cleanup(AddDeniedForTest("test negative serial key", "", spkiSHA256(positive)))
+
+	der := negativeSerialDER(t, positive.Raw)
+	if _, err := x509.ParseCertificate(der); err == nil {
+		t.Skip("crypto/x509 accepted a negative serial; cannot exercise fallback on this toolchain")
+	} else if !strings.Contains(err.Error(), "negative serial") {
+		t.Fatalf("expected negative serial parse error, got %v", err)
+	}
+	cert, err := certutil.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cert.SerialNumber == nil || cert.SerialNumber.Sign() >= 0 {
+		t.Fatalf("serial=%v, want negative", cert.SerialNumber)
+	}
+	if got := spkiSHA256(cert); got != spkiSHA256(positive) {
+		t.Fatalf("fallback SPKI %s, want %s", got, spkiSHA256(positive))
+	}
+	if denied, name := Denied(cert); !denied || name != "test negative serial key" {
+		t.Fatalf("Denied(negative serial)=%v %q", denied, name)
+	}
+}
+
+func TestDenied_missingSPKI(t *testing.T) {
+	cert := &x509.Certificate{SerialNumber: big.NewInt(1)}
+	if denied, name := Denied(cert); !denied || name != "missing SPKI" {
+		t.Fatalf("Denied(empty SPKI)=%v %q", denied, name)
+	}
+}
+
 func TestDenied_nil(t *testing.T) {
 	if denied, name := Denied(nil); denied || name != "" {
 		t.Fatalf("Denied(nil)=%v %q", denied, name)
 	}
+}
+
+// negativeSerialDER copies der and sets the serial INTEGER's high bit so
+// crypto/x509 rejects it and ParseCertificate uses the fallback. The SPKI
+// bytes are left unchanged. CreateCertificate cannot emit a negative serial.
+func negativeSerialDER(t *testing.T, der []byte) []byte {
+	t.Helper()
+	out := append([]byte(nil), der...)
+	rest := cryptobyte.String(out)
+	var certSeq cryptobyte.String
+	if !rest.ReadASN1(&certSeq, cryptobyte_asn1.SEQUENCE) || !rest.Empty() {
+		t.Fatal("expected one certificate SEQUENCE")
+	}
+	var tbs cryptobyte.String
+	if !certSeq.ReadASN1(&tbs, cryptobyte_asn1.SEQUENCE) {
+		t.Fatal("unwrap tbs")
+	}
+	if !tbs.SkipOptionalASN1(cryptobyte_asn1.Tag(0).Constructed().ContextSpecific()) {
+		t.Fatal("version")
+	}
+	var serial cryptobyte.String
+	if !tbs.ReadASN1Element(&serial, cryptobyte_asn1.INTEGER) {
+		t.Fatal("serial")
+	}
+	if len(serial) < 3 || serial[0] != byte(cryptobyte_asn1.INTEGER) || serial[1]&0x80 != 0 {
+		t.Fatalf("serial encoding = %x", serial)
+	}
+	if serial[2]&0x80 != 0 {
+		t.Fatal("serial already negative")
+	}
+	serial[2] |= 0x80
+	return out
 }
 
 func mustDeniedTestCert(t *testing.T, key *ecdsa.PrivateKey, cn, country string, serial int64) *x509.Certificate {
