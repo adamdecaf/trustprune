@@ -42,6 +42,9 @@ var (
 	fingerprintPreviewLength = 16
 )
 
+// FingerprintPreviewLength is the SHA-256 prefix width in non-verbose tables.
+const FingerprintPreviewLength = 16
+
 // DefaultFormat returns the standard output format
 func DefaultFormat() string {
 	return defaultFormat
@@ -112,6 +115,14 @@ func formatTableDays(days int) string {
 	return fmt.Sprintf("%d", days)
 }
 
+// FormatTableDays formats the DAYS cell for non-verbose table output.
+// Expired certificates show "expired"; certificates with fewer than 90 days
+// left show the day count with a trailing "!" (for example "42!"); otherwise
+// the plain integer.
+func FormatTableDays(days int) string {
+	return formatTableDays(days)
+}
+
 // truncateColumn shortens s to at most n runes, ending with an ellipsis when cut.
 func truncateColumn(s string, n int) string {
 	r := []rune(s)
@@ -119,6 +130,12 @@ func truncateColumn(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// TruncateTableColumn caps a table cell at the list SUBJECT/ISSUER width
+// and ends with "…" when cut.
+func TruncateTableColumn(s string) string {
+	return truncateColumn(s, tableColumnWidth)
 }
 
 // tablePrinter outputs a table of the certificates. Each column is as wide as
@@ -341,6 +358,14 @@ func alignTable(headers []string, rows [][]string) string {
 		writeRow(row)
 	}
 	return b.String()
+}
+
+// AlignTable left-aligns cells and separates columns with two spaces, the
+// same layout as list table output. Each column is as wide as its longest
+// header or cell. Each row, including the last, ends with a newline. There
+// are no trailing spaces.
+func AlignTable(headers []string, rows [][]string) string {
+	return alignTable(headers, rows)
 }
 
 type opensslPrinter struct {

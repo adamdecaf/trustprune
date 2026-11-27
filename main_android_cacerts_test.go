@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -112,23 +113,44 @@ func TestListAppAndroidGuide(t *testing.T) {
 		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
 	}
 	out := res.stdout
-	if strings.Contains(out, keepFP) {
+	if strings.Contains(out, keepFP) || strings.Contains(out, keepFP[:16]) {
 		t.Fatalf("kept fingerprint was listed as disabled:\n%s", out)
 	}
-	if !strings.Contains(out, dropFP) {
-		t.Fatalf("disabled fingerprint missing:\n%s", out)
+	if !strings.Contains(out, dropFP[:16]) {
+		t.Fatalf("disabled fingerprint preview missing:\n%s", out)
+	}
+	if strings.Contains(out, dropFP) {
+		t.Fatalf("full fingerprint in default table:\n%s", out)
 	}
 	if !strings.Contains(out, "Android Disable Root") {
 		t.Fatalf("disabled subject missing:\n%s", out)
 	}
-	if !strings.Contains(out, "Settings > Security > Encryption & credentials > Trusted credentials") {
-		t.Fatalf("Settings steps missing:\n%s", out)
+	if !strings.Contains(out, "SUBJECT") || !strings.Contains(out, "REASON") || !strings.Contains(out, "LABELS") {
+		t.Fatalf("missing table headers:\n%s", out)
 	}
-	if !strings.Contains(out, "adb pull") || !strings.Contains(out, "rooted") {
-		t.Fatalf("adb steps missing:\n%s", out)
+	if !strings.Contains(out, "1 to disable of 2") {
+		t.Fatalf("missing footer:\n%s", out)
 	}
-	if !strings.Contains(out, "cannot change an Android device") {
-		t.Fatalf("guide-only notice missing:\n%s", out)
+	if strings.Contains(out, "Settings > Security") || strings.Contains(out, "adb pull") || strings.Contains(out, "cannot change an Android device") {
+		t.Fatalf("guide text printed without -v:\n%s", out)
+	}
+
+	verbose := runCLI(t, bin, home, "list", "--app", "android", "--file", dir, "--allowlist", alPath, "-v")
+	if verbose.code != 0 {
+		t.Fatalf("verbose code=%d\nstdout=%s\nstderr=%s", verbose.code, verbose.stdout, verbose.stderr)
+	}
+	vout := verbose.stdout
+	if !strings.Contains(vout, dropFP) {
+		t.Fatalf("verbose missing full fingerprint:\n%s", vout)
+	}
+	if !strings.Contains(vout, "Settings > Security > Encryption & credentials > Trusted credentials") {
+		t.Fatalf("Settings steps missing:\n%s", vout)
+	}
+	if !strings.Contains(vout, "adb pull") || !strings.Contains(vout, "rooted") {
+		t.Fatalf("adb steps missing:\n%s", vout)
+	}
+	if !strings.Contains(vout, "cannot change an Android device") {
+		t.Fatalf("guide-only notice missing:\n%s", vout)
 	}
 
 	// #nosec G304 -- temp cacerts file under t.TempDir
@@ -163,14 +185,19 @@ func TestListAppAndroidOutputFlags(t *testing.T) {
 	base := []string{"list", "--app", "android", "--file", dir, "--allowlist", alPath}
 
 	tests := []struct {
-		name      string
-		extra     []string
-		wantUsage string
-		outFile   bool
+		name          string
+		extra         []string
+		wantUsage     string
+		outFile       bool
+		wantCount     string
+		wantCountJSON int
+		wantJSON      bool
 	}{
 		{name: "out", extra: []string{"--out", filepath.Join(t.TempDir(), "report.txt")}, outFile: true},
-		{name: "count", extra: []string{"--count"}, wantUsage: "list --app android does not support --count"},
-		{name: "format", extra: []string{"--format", "json"}, wantUsage: "list --app android does not support --format"},
+		{name: "count", extra: []string{"--count"}, wantCount: "1\n"},
+		{name: "json-count", extra: []string{"--count", "--format", "json"}, wantCountJSON: 1},
+		{name: "json", extra: []string{"--format", "json"}, wantJSON: true},
+		{name: "format-long", extra: []string{"--format", "long"}, wantUsage: "list --app android --format supports table and json"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -182,6 +209,39 @@ func TestListAppAndroidOutputFlags(t *testing.T) {
 			}
 			if res.code != 0 {
 				t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
+			}
+			if tc.wantCount != "" {
+				if res.stdout != tc.wantCount {
+					t.Fatalf("count stdout=%q want %q", res.stdout, tc.wantCount)
+				}
+				return
+			}
+			if tc.wantCountJSON != 0 || (tc.name == "json-count") {
+				var doc struct {
+					Count int `json:"count"`
+				}
+				if err := json.Unmarshal([]byte(res.stdout), &doc); err != nil {
+					t.Fatalf("count json: %v\n%s", err, res.stdout)
+				}
+				if doc.Count != 1 {
+					t.Fatalf("count json=%d", doc.Count)
+				}
+				return
+			}
+			if tc.wantJSON {
+				if !strings.Contains(res.stdout, `"to_disable"`) || !strings.Contains(res.stdout, `"total"`) {
+					t.Fatalf("json missing counts:\n%s", res.stdout)
+				}
+				if !strings.Contains(res.stdout, dropFP) {
+					t.Fatalf("json missing disabled fingerprint:\n%s", res.stdout)
+				}
+				if strings.Contains(res.stdout, keepFP) {
+					t.Fatalf("json listed kept fingerprint:\n%s", res.stdout)
+				}
+				if strings.Contains(res.stdout, "Settings > Security") {
+					t.Fatalf("json included guide text:\n%s", res.stdout)
+				}
+				return
 			}
 			if !tc.outFile {
 				return
@@ -196,14 +256,17 @@ func TestListAppAndroidOutputFlags(t *testing.T) {
 				t.Fatal(err)
 			}
 			got := string(body)
-			if strings.Contains(got, keepFP) {
+			if strings.Contains(got, keepFP) || strings.Contains(got, keepFP[:16]) {
 				t.Fatalf("kept fingerprint was listed as disabled:\n%s", got)
 			}
-			if !strings.Contains(got, dropFP) {
+			if !strings.Contains(got, dropFP[:16]) {
 				t.Fatalf("disabled fingerprint missing:\n%s", got)
 			}
-			if !strings.Contains(got, "Settings > Security > Encryption & credentials > Trusted credentials") {
-				t.Fatalf("Settings steps missing:\n%s", got)
+			if !strings.Contains(got, "1 to disable of 2") {
+				t.Fatalf("footer missing:\n%s", got)
+			}
+			if strings.Contains(got, "Settings > Security") {
+				t.Fatalf("guide text written to --out without -v:\n%s", got)
 			}
 		})
 	}
@@ -365,23 +428,26 @@ func TestListAppAndroidGuideRanking(t *testing.T) {
 	if strings.Contains(out, keepFP) {
 		t.Fatalf("kept fingerprint was listed as disabled:\n%s", out)
 	}
-	userAt := strings.Index(out, userFP)
-	expiredAt := strings.Index(out, expiredFP)
-	laterAt := strings.Index(out, laterFP)
+	userAt := strings.Index(out, userFP[:16])
+	expiredAt := strings.Index(out, expiredFP[:16])
+	laterAt := strings.Index(out, laterFP[:16])
 	if userAt < 0 || expiredAt < 0 || laterAt < 0 {
 		t.Fatalf("missing fingerprints:\n%s", out)
 	}
 	if userAt >= expiredAt || expiredAt >= laterAt {
 		t.Fatalf("order user=%d expired=%d later=%d\n%s", userAt, expiredAt, laterAt, out)
 	}
-	if !strings.Contains(out, "most important first") {
-		t.Fatalf("missing ranking header:\n%s", out)
-	}
-	if !strings.Contains(out, "Reason: not in the allowlist (user CA)") {
+	if !strings.Contains(out, "not in the allowlist (user CA)") {
 		t.Fatalf("missing user CA reason:\n%s", out)
 	}
-	if !strings.Contains(out, "Reason: not in the allowlist (expired)") {
+	if !strings.Contains(out, "not in the allowlist (expired)") {
 		t.Fatalf("missing expired reason:\n%s", out)
+	}
+	if !strings.Contains(out, "3 to disable of 4") {
+		t.Fatalf("missing footer:\n%s", out)
+	}
+	if strings.Contains(out, "Settings > Security") {
+		t.Fatalf("guide text printed without -v:\n%s", out)
 	}
 }
 

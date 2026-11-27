@@ -867,12 +867,16 @@ func listCommand(st *runState) *cli.Command {
   with --count.
     trustprune list --file <path>
 
-  Guide-only Android report: certificates in that directory that the
-  allowlist (and built-in denylist) would not keep, plus Settings and adb
-  steps. trustprune does not write to the device. --app android is not a
-  registered store; other commands still reject it. --allowlist is required
-  and does not need --ui web.
+  Guide-only Android report: a compact ranked table of certificates in
+  that directory that the allowlist (and built-in denylist) would not
+  keep (SUBJECT, REASON, DAYS, SHA-256 preview, LABELS, and a footer
+  "N to disable of M"). REASON includes a recorded Mozilla distrust-after
+  date when one exists. Settings and adb steps print only with -v.
+  --format json and --count are supported. trustprune does not write to
+  the device. --allowlist is required and does not need --ui web.
     trustprune list --app android --file <dir> --allowlist <path>
+    trustprune list --app android --file <dir> --allowlist <path> --format json
+    trustprune list --app android --file <dir> --allowlist <path> --count
 
   List certificates from a Java keystore, certifi bundle, or poppler NSS db (skips discovery).
   The chosen path is included in list output.
@@ -972,11 +976,8 @@ func listBefore(ctx context.Context, c *cli.Command) (context.Context, error) {
 		if flagString(c, "allowlist") == "" {
 			return ctx, usageExit(c, "list --app android requires --allowlist <path>")
 		}
-		if c.Bool("count") {
-			return ctx, usageExit(c, "list --app android does not support --count")
-		}
-		if !strings.EqualFold(format, ui.DefaultFormat()) {
-			return ctx, usageExit(c, "list --app android does not support --format")
+		if !strings.EqualFold(format, ui.DefaultFormat()) && !strings.EqualFold(format, "json") {
+			return ctx, usageExit(c, "list --app android --format supports table and json")
 		}
 	} else if app != "" && file != "" {
 		return ctx, usageExit(c, "--file lists a PEM file and cannot be combined with --app; use --store to override a java, certifi, or poppler path")

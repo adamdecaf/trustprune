@@ -21,13 +21,18 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"math/big"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
+	"github.com/adamdecaf/trustprune/pkg/ui"
 )
 
 func TestRankAndroidDisableOrder(t *testing.T) {
@@ -142,22 +147,139 @@ func TestWriteAndroidGuideIncludesReasons(t *testing.T) {
 	cert := mintAndroidGuideCA(t, "Disable Root", 1, now.Add(24*time.Hour))
 	row := rankAndroidDisable(certutil.AndroidFile{Cert: cert, Path: "/tmp/cacerts/aaaaaaaa.0"}, now)
 	var buf bytes.Buffer
-	if err := writeAndroidGuide(&buf, []androidDisable{row}); err != nil {
+	if err := writeAndroidGuide(&buf, []androidDisable{row}, 1, now, false); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "most important first") {
-		t.Fatalf("missing ranking header:\n%s", out)
+	if !strings.Contains(out, "SUBJECT") || !strings.Contains(out, "REASON") || !strings.Contains(out, "DAYS") || !strings.Contains(out, "SHA256-FINGERPRINT") || !strings.Contains(out, "LABELS") {
+		t.Fatalf("missing table headers:\n%s", out)
 	}
-	if !strings.Contains(out, "SHA-256: "+certutil.GetHexSHA256Fingerprint(*cert)) {
-		t.Fatalf("missing fingerprint:\n%s", out)
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
+	if !strings.Contains(out, fp[:16]) {
+		t.Fatalf("missing fingerprint preview:\n%s", out)
 	}
-	if !strings.Contains(out, "Reason: not in the allowlist") {
+	if strings.Contains(out, fp) {
+		t.Fatalf("full fingerprint in non-verbose table:\n%s", out)
+	}
+	if !strings.Contains(out, "not in the allowlist") {
 		t.Fatalf("missing reason:\n%s", out)
 	}
-	if !strings.Contains(out, "Settings > Security > Encryption & credentials > Trusted credentials") {
-		t.Fatalf("missing steps:\n%s", out)
+	if !strings.Contains(out, "1 to disable of 1") {
+		t.Fatalf("missing footer:\n%s", out)
 	}
+	if strings.Contains(out, "Settings > Security") || strings.Contains(out, "adb pull") {
+		t.Fatalf("guide text printed without -v:\n%s", out)
+	}
+
+	buf.Reset()
+	if err := writeAndroidGuide(&buf, []androidDisable{row}, 1, now, true); err != nil {
+		t.Fatal(err)
+	}
+	verbose := buf.String()
+	if !strings.Contains(verbose, fp) {
+		t.Fatalf("verbose missing full fingerprint:\n%s", verbose)
+	}
+	if !strings.Contains(verbose, "Settings > Security > Encryption & credentials > Trusted credentials") {
+		t.Fatalf("verbose missing steps:\n%s", verbose)
+	}
+	if !strings.Contains(verbose, "PATH") {
+		t.Fatalf("verbose missing PATH:\n%s", verbose)
+	}
+}
+
+func TestWriteAndroidGuideEmptyFooter(t *testing.T) {
+	var buf bytes.Buffer
+	now := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	if err := writeAndroidGuide(&buf, nil, 5, now, false); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "SUBJECT") || !strings.Contains(out, "REASON") {
+		t.Fatalf("missing headers:\n%s", out)
+	}
+	if !strings.Contains(out, "0 to disable of 5") {
+		t.Fatalf("missing empty footer:\n%s", out)
+	}
+	if strings.Contains(out, "adb pull") {
+		t.Fatalf("guide text without -v:\n%s", out)
+	}
+}
+
+func TestAndroidGuideReasonIncludesMozillaDistrustAfter(t *testing.T) {
+	now := time.Date(2026, 11, 27, 18, 0, 0, 0, time.UTC)
+	certs := loadLotsCerts(t)
+	var entrust *x509.Certificate
+	for _, c := range certs {
+		fp := certutil.GetHexSHA256Fingerprint(*c)
+		if strings.HasPrefix(fp, "02ed0eb28c14da45") {
+			entrust = c
+			break
+		}
+	}
+	if entrust == nil {
+		t.Fatal("lots.crt missing Entrust Root CA EC1")
+	}
+	row := rankAndroidDisable(certutil.AndroidFile{Cert: entrust, Path: "/tmp/cacerts/02ed0eb2.0"}, now)
+	if !strings.Contains(row.reason, allowlist.BlocklistMozilla) {
+		t.Fatalf("reason=%q, want Mozilla blocklist", row.reason)
+	}
+	if !strings.Contains(row.reason, "distrust after 2024-11-30T23:59:59Z") {
+		t.Fatalf("reason=%q, want recorded distrust-after", row.reason)
+	}
+	var buf bytes.Buffer
+	if err := writeAndroidGuide(&buf, []androidDisable{row}, 1, now, false); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "distrusted,blocklist:mozilla") {
+		t.Fatalf("missing LABELS:\n%s", out)
+	}
+	if !strings.Contains(out, "distrust after 2024-11-30T23:59:59Z") {
+		t.Fatalf("missing distrust after in REASON:\n%s", out)
+	}
+
+	outFile := filepath.Join(t.TempDir(), "android.json")
+	if err := writeAndroidGuideJSON(&ui.Config{Format: "json", Outfile: outFile}, []androidDisable{row}, 1, now); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(outFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc androidGuideJSON
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatalf("json: %v\n%s", err, body)
+	}
+	if doc.ToDisable != 1 || doc.Total != 1 || len(doc.Certificates) != 1 {
+		t.Fatalf("json counts: %+v", doc)
+	}
+	got := doc.Certificates[0]
+	if got.DistrustAfter != "2024-11-30T23:59:59Z" {
+		t.Errorf("distrust_after=%q", got.DistrustAfter)
+	}
+	if len(got.Blocklists) != 1 || got.Blocklists[0] != "mozilla" {
+		t.Errorf("blocklists=%v", got.Blocklists)
+	}
+	wantLabels := []string{allowlist.ListLabelDistrusted, allowlist.ListBlocklistPrefix + "mozilla"}
+	if !slices.Equal(got.Labels, wantLabels) {
+		t.Errorf("labels=%v want %v", got.Labels, wantLabels)
+	}
+}
+
+func loadLotsCerts(t *testing.T) []*x509.Certificate {
+	t.Helper()
+	bs, err := os.ReadFile(filepath.Join("..", "..", "testdata", "lots.crt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	certs, err := certutil.Decode(bs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(certs) == 0 {
+		t.Fatal("no certs in lots.crt")
+	}
+	return certs
 }
 
 func mintAndroidGuideCA(t *testing.T, cn string, serial int64, notAfter time.Time) *x509.Certificate {

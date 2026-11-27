@@ -96,6 +96,25 @@ type Config struct {
 	AllowlistPubKey string
 }
 
+// WriteOutput writes to stdout, or stages the write to cfg.Outfile the
+// same way as other list output. A set Outfile leaves stdout empty.
+func WriteOutput(cfg *Config, write func(io.Writer) error) error {
+	return writeToConfiguredOutput(cfg, write)
+}
+
+// WriteCount writes the same --count output as list: "N\n", or a
+// pretty-printed {"count": N} object when cfg.Format is json
+// (case-insensitive). An unknown format keeps the plain line.
+func WriteCount(cfg *Config, n int) error {
+	return writeToConfiguredOutput(cfg, func(w io.Writer) error {
+		if cfg != nil && strings.EqualFold(cfg.Format, jsonFormat) {
+			return writeCountJSON(w, n)
+		}
+		_, err := fmt.Fprintf(w, "%d\n", n)
+		return err
+	})
+}
+
 func ListCertificates(certs []*x509.Certificate, cfg *Config) error {
 	return ListCertificatesWithMeta(Meta{}, certs, cfg)
 }
@@ -124,13 +143,7 @@ func ListCertificatesWithMeta(meta Meta, certs []*x509.Certificate, cfg *Config)
 	// object. Either is written to cfg.Outfile when set so stdout stays empty,
 	// the same as other list formats. An unknown format keeps the plain line.
 	if cfg.Count {
-		return writeToConfiguredOutput(cfg, func(w io.Writer) error {
-			if strings.EqualFold(cfg.Format, jsonFormat) {
-				return writeCountJSON(w, len(certs))
-			}
-			_, err := fmt.Fprintf(w, "%d\n", len(certs))
-			return err
-		})
+		return WriteCount(cfg, len(certs))
 	}
 
 	// Show something meaningful if there's nothing otherwise

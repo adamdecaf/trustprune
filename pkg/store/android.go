@@ -29,7 +29,8 @@ var ErrAndroidGuideOnly = errors.New(androidGuideMessage)
 
 // androidGuideMessage is the pruning guide printed for --app android
 // mutating commands. list --app android --file --allowlist keeps its
-// own disable report and prints the same Settings and adb steps.
+// own ranked table (json and --count supported); Settings and adb
+// steps print only with -v on that list report.
 const androidGuideMessage = `android is guide only: trustprune cannot change an Android device's certificate store. add, allowlist, backup, restore, and create do not write to the device.
 
 To disable a system CA, open Settings > Security > Encryption & credentials > Trusted credentials, tap the certificate, and choose Disable. To uninstall a user CA, use the User tab and Uninstall.
