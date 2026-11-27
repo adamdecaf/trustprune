@@ -19,6 +19,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/store"
 	"github.com/adamdecaf/trustprune/pkg/ui"
 )
@@ -71,8 +72,8 @@ func BackupForBundle(bundle string) error {
 
 // AllowlistForBundle applies an allowlist to an explicit openssl PEM CA bundle.
 // allowlistPath is the allowlist (--file): a local file or an https URL.
-// sha256 is an optional SHA-256 of those bytes. bundle is the PEM (--bundle).
-func AllowlistForBundle(app, allowlistPath, bundle, sha256 string, stdout io.Writer) error {
+// opts may pin a SHA-256 and verify a detached minisign signature. bundle is the PEM (--bundle).
+func AllowlistForBundle(app, allowlistPath, bundle string, opts allowlist.FetchOptions, stdout io.Writer) error {
 	if strings.ToLower(strings.TrimSpace(app)) != "openssl" {
 		return fmt.Errorf("--bundle requires --app openssl")
 	}
@@ -80,5 +81,5 @@ func AllowlistForBundle(app, allowlistPath, bundle, sha256 string, stdout io.Wri
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, allowlistPath, sha256, stdout)
+	return allowlistStore(s, app, allowlistPath, opts, stdout)
 }

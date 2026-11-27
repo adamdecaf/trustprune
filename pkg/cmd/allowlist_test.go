@@ -144,7 +144,7 @@ func TestAllowlist_NoBackupRefusesBeforeWrite(t *testing.T) {
 					inner, _ = store.ForApp(app)
 				}
 				g := &noWriteStore{Store: inner}
-				err := allowlistStore(g, app, alPath, "", nil)
+				err := allowlistStore(g, app, alPath, allowlist.FetchOptions{}, nil)
 				if g.removed {
 					t.Fatal("Remove was called with no backup")
 				}
@@ -241,7 +241,7 @@ func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 				var plan bytes.Buffer
 				store.SetDryRunOutput(&plan)
 				g := &noWriteStore{Store: store.NssStore("poppler", "0", b)}
-				err := allowlistStore(g, "poppler", alPath, "", nil)
+				err := allowlistStore(g, "poppler", alPath, allowlist.FetchOptions{}, nil)
 				if g.removed {
 					t.Fatal("Remove was called for a backup recorded from another directory")
 				}
@@ -272,7 +272,7 @@ func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 		store.SetForceRestore(true)
 		store.SetDryRun(true)
 		g := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
-		if err := allowlistStore(g, "poppler", alPath, "", nil); err != nil {
+		if err := allowlistStore(g, "poppler", alPath, allowlist.FetchOptions{}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !g.removed {
@@ -293,7 +293,7 @@ func TestAllowlist_NSSBackupSourceMustMatchStore(t *testing.T) {
 		}
 		store.SetDryRun(true)
 		g := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
-		if err := allowlistStore(g, "poppler", alPath, "", nil); err != nil {
+		if err := allowlistStore(g, "poppler", alPath, allowlist.FetchOptions{}, nil); err != nil {
 			t.Fatal(err)
 		}
 		if !g.removed {
@@ -346,7 +346,7 @@ func TestAllowlist_NSSSourceLessBackupRequiresForce(t *testing.T) {
 	var plan bytes.Buffer
 	store.SetDryRunOutput(&plan)
 	g := &noWriteStore{Store: store.NssStore("poppler", "0", b)}
-	err = allowlistStore(g, "poppler", alPath, "", nil)
+	err = allowlistStore(g, "poppler", alPath, allowlist.FetchOptions{}, nil)
 	if g.removed {
 		t.Fatal("Remove was called for a source-less backup")
 	}
@@ -359,7 +359,7 @@ func TestAllowlist_NSSSourceLessBackupRequiresForce(t *testing.T) {
 
 	store.SetForceRestore(true)
 	g2 := &allowlistRecorder{Store: store.NssStore("poppler", "0", b)}
-	if err := allowlistStore(g2, "poppler", alPath, "", nil); err != nil {
+	if err := allowlistStore(g2, "poppler", alPath, allowlist.FetchOptions{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if !g2.removed {
@@ -462,7 +462,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		var plan bytes.Buffer
 		store.SetDryRunOutput(&plan)
 		stdout := captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != "" {
 			t.Fatalf("dry-run wrote stdout %q", stdout)
@@ -489,7 +489,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetAllowlistCountOnly(true)
 		plan.Reset()
 		stdout = captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != fmt.Sprintf("%d\n", removedN) {
 			t.Fatalf("dry-run --count stdout %q", stdout)
@@ -510,7 +510,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetDryRunOutput(nil)
 		want := "Allowlist completed successfully\n" + unmatched + fmt.Sprintf("%d removed, %d kept\n", removedN, keptN)
 		stdout = captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != want {
 			t.Fatalf("stdout:\n%s\nwant:\n%s", stdout, want)
@@ -541,7 +541,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		var plan bytes.Buffer
 		store.SetDryRunOutput(&plan)
 		stdout := captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != fmt.Sprintf("%d\n", removedN) || plan.Len() != 0 {
 			t.Fatalf("count stdout %q plan %q", stdout, plan.String())
@@ -552,7 +552,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetDryRunOutput(nil)
 		want := fmt.Sprintf("Allowlist completed successfully\n%d removed, %d kept\n", removedN, keptN)
 		stdout = captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != want {
 			t.Fatalf("stdout:\n%s\nwant:\n%s", stdout, want)
@@ -590,7 +590,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetDryRun(false)
 		store.SetAllowlistCountOnly(true)
 		stdout := captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", nil)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != fmt.Sprintf("%d\n", removedN) {
 			t.Fatalf("count stdout %q", stdout)
@@ -635,7 +635,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetAllowlistCountOnly(true)
 		var buf bytes.Buffer
 		stdout := captureStdout(t, func() error {
-			return AllowlistForAppWithStore("certifi", bundle, alPath, "", &buf)
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, &buf)
 		})
 		if stdout != "" {
 			t.Fatalf("count wrote os.Stdout %q", stdout)

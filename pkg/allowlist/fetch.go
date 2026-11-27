@@ -52,12 +52,21 @@ var HTTPClient *http.Client
 // FetchOptions controls FromPathOrURL.
 // A nil Client uses HTTPClient, then httputil.New.
 // MaxSize is the URL body cap in bytes. Zero uses DefaultMaxBytes.
-// The cap applies to https responses, not to local files.
+// The cap applies to https responses, not to local allowlist files.
 // SHA256 is an optional hex SHA-256 of the file bytes. Empty skips the check.
+// Signature is an optional detached minisign signature, as a local path or
+// an https URL. PubKey is the matching minisign public key: a local file
+// or the key itself (the base64 line or a full minisign .pub file).
+// A public key is never fetched from a URL. Signature and PubKey must
+// both be set or both be empty. The signature is checked against the
+// allowlist bytes before they are parsed. Signature downloads use the
+// same https rules, timeout, redaction, and size cap as the allowlist.
 type FetchOptions struct {
-	Client  *http.Client
-	MaxSize int64
-	SHA256  string
+	Client    *http.Client
+	MaxSize   int64
+	SHA256    string
+	Signature string
+	PubKey    string
 }
 
 // FromPathOrURL loads ref and parses it with FromBytes.
@@ -69,20 +78,20 @@ type FetchOptions struct {
 // url.Parse is rejected without putting the raw value or the parse
 // error in the message.
 // When SHA256 is set, the bytes are checked before they are parsed.
+// When Signature and PubKey are set, the minisign signature is verified
+// against those same bytes before they are parsed.
 func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
-	pin := strings.TrimSpace(opts.SHA256)
-	if pin != "" {
-		if err := ValidateSHA256Pin(pin); err != nil {
-			return Allowlist{}, err
-		}
+	if err := validateFetchOptions(opts); err != nil {
+		return Allowlist{}, err
 	}
+	pin := strings.TrimSpace(opts.SHA256)
 	remote, err := refIsURL(ref)
 	if err != nil {
 		return Allowlist{}, err
 	}
 	var body []byte
 	if remote {
-		body, err = fetchAllowlist(ref, opts)
+		body, err = fetchURL(ref, "allowlist", opts)
 	} else {
 		body, err = os.ReadFile(ref)
 	}
@@ -92,11 +101,166 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 	if err := matchSHA256(ref, body, pin); err != nil {
 		return Allowlist{}, err
 	}
+	if err := verifyAllowlistSignature(body, opts); err != nil {
+		return Allowlist{}, err
+	}
 	al, err := FromBytes(body)
 	if err != nil && remote {
 		return Allowlist{}, fmt.Errorf("allowlist %s: %w", diagnosticRef(ref), err)
 	}
 	return al, err
+}
+
+func validateFetchOptions(opts FetchOptions) error {
+	pin := strings.TrimSpace(opts.SHA256)
+	if pin != "" {
+		if err := ValidateSHA256Pin(pin); err != nil {
+			return err
+		}
+	}
+	sig := strings.TrimSpace(opts.Signature)
+	pub := strings.TrimSpace(opts.PubKey)
+	if sig == "" && pub == "" {
+		return nil
+	}
+	if sig == "" {
+		return errors.New("allowlist public key is set, but no signature was provided")
+	}
+	if pub == "" {
+		return errors.New("allowlist signature is set, but no public key was provided")
+	}
+	if err := ValidateSignatureRef(sig); err != nil {
+		return err
+	}
+	return ValidatePubKeyRef(pub)
+}
+
+// ValidateSignatureRef reports whether ref is a local path or an https URL
+// for a detached minisign signature. An empty ref is not an error.
+func ValidateSignatureRef(ref string) error {
+	_, err := refKindIsURL(ref, "signature")
+	return err
+}
+
+func isDriveLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
+// ValidatePubKeyRef reports whether ref is a local minisign public key
+// file or a minisign public key. A URL is refused. An empty ref is not
+// an error.
+func ValidatePubKeyRef(ref string) error {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	if looksLikeURL(ref) {
+		return errMinisignPubKeyURL
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		return nil
+	}
+	if u.Scheme != "" && (len(u.Scheme) != 1 || !isDriveLetter(u.Scheme[0])) {
+		return errMinisignPubKeyURL
+	}
+	return nil
+}
+
+func verifyAllowlistSignature(body []byte, opts FetchOptions) error {
+	sigRef := strings.TrimSpace(opts.Signature)
+	pubRef := strings.TrimSpace(opts.PubKey)
+	if sigRef == "" && pubRef == "" {
+		return nil
+	}
+	pkData, err := readPubKey(pubRef, opts)
+	if err != nil {
+		return err
+	}
+	pk, err := parseMinisignPublicKey(pkData)
+	if err != nil {
+		return err
+	}
+	sigData, err := readSignature(sigRef, opts)
+	if err != nil {
+		return err
+	}
+	sig, err := parseMinisignSignature(sigData)
+	if err != nil {
+		return err
+	}
+	if err := verifyMinisign(body, sig, pk); err != nil {
+		return fmt.Errorf("%w for %s", err, diagnosticRef(sigRef))
+	}
+	return nil
+}
+
+func readPubKey(ref string, opts FetchOptions) ([]byte, error) {
+	if looksLikeURL(ref) {
+		return nil, errMinisignPubKeyURL
+	}
+	// A full minisign .pub file pasted on the command line has a comment
+	// line and a base64 line. The base64 often contains '/', so this is
+	// not treated as a path.
+	trimmed := strings.TrimSpace(ref)
+	if strings.Contains(ref, "\n") || strings.HasPrefix(trimmed, minisignCommentPrefix) {
+		return []byte(ref), nil
+	}
+	if st, err := os.Stat(ref); err == nil && !st.IsDir() {
+		return readLocalLimited(ref, "public key", maxBytes(opts))
+	}
+	if looksLikePubKeyPath(ref) {
+		return readLocalLimited(ref, "public key", maxBytes(opts))
+	}
+	// Literal minisign key (the base64 line).
+	return []byte(ref), nil
+}
+
+func looksLikePubKeyPath(ref string) bool {
+	if strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "./") || strings.HasPrefix(ref, "../") {
+		return true
+	}
+	if strings.HasPrefix(ref, `.\`) || strings.HasPrefix(ref, `..\`) {
+		return true
+	}
+	if len(ref) >= 3 && ref[1] == ':' && (ref[2] == '\\' || ref[2] == '/') {
+		return true
+	}
+	return strings.HasSuffix(strings.ToLower(ref), ".pub") && !strings.ContainsAny(ref, " \t")
+}
+
+func readSignature(ref string, opts FetchOptions) ([]byte, error) {
+	remote, err := refKindIsURL(ref, "signature")
+	if err != nil {
+		return nil, err
+	}
+	if remote {
+		return fetchURL(ref, "signature", opts)
+	}
+	return readLocalLimited(ref, "signature", maxBytes(opts))
+}
+
+func maxBytes(opts FetchOptions) int64 {
+	if opts.MaxSize > 0 {
+		return opts.MaxSize
+	}
+	return DefaultMaxBytes
+}
+
+func readLocalLimited(path, kind string, max int64) ([]byte, error) {
+	f, err := os.Open(path) // #nosec G304 -- caller-selected allowlist signature or public key path
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", kind, path, err)
+	}
+	defer func() { _ = f.Close() }()
+	body, err := readLimited(f, max)
+	if err != nil {
+		if errors.Is(err, errBodyTooLarge) {
+			return nil, fmt.Errorf("%s %s exceeds %d byte limit", kind, path, max)
+		}
+		return nil, fmt.Errorf("%s %s: %w", kind, path, err)
+	}
+	return body, nil
 }
 
 // ValidateRef reports whether ref is a local path or an https URL.
@@ -142,9 +306,16 @@ func looksLikeURL(ref string) bool {
 }
 
 func refIsURL(ref string) (bool, error) {
+	return refKindIsURL(ref, "allowlist")
+}
+
+func refKindIsURL(ref, kind string) (bool, error) {
 	u, err := url.Parse(ref)
 	if err != nil {
 		if looksLikeURL(ref) {
+			if kind == "signature" {
+				return false, errInvalidSignatureURL
+			}
 			return false, errInvalidAllowlistURL
 		}
 		return false, nil
@@ -159,7 +330,7 @@ func refIsURL(ref string) (bool, error) {
 	if len(u.Scheme) == 1 && u.Scheme[0] >= 'a' && u.Scheme[0] <= 'z' {
 		return false, nil
 	}
-	return false, fmt.Errorf("allowlist URLs must be https, not %q", u.Scheme)
+	return false, fmt.Errorf("%s URLs must be https, not %q", kind, u.Scheme)
 }
 
 func sha256Hex(s string) bool {
@@ -212,11 +383,11 @@ func diagnosticRef(ref string) string {
 
 var errBodyTooLarge = errors.New("allowlist body exceeds size limit")
 
-func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
+func fetchURL(ref, kind string, opts FetchOptions) (body []byte, err error) {
 	client := allowlistClient(opts.Client)
 	req, err := http.NewRequest(http.MethodGet, ref, nil)
 	if err != nil {
-		return nil, fmt.Errorf("allowlist %s: invalid request", diagnosticRef(ref))
+		return nil, fmt.Errorf("%s %s: invalid request", kind, diagnosticRef(ref))
 	}
 	req.Close = true
 
@@ -225,29 +396,26 @@ func fetchAllowlist(ref string, opts FetchOptions) (body []byte, err error) {
 		defer func() {
 			cerr := resp.Body.Close()
 			if err == nil && cerr != nil {
-				err = sanitizeFetchError(ref, cerr)
+				err = sanitizeFetchErrorKind(kind, ref, cerr)
 			}
 		}()
 	}
 	if err != nil {
-		return nil, sanitizeFetchError(ref, err)
+		return nil, sanitizeFetchErrorKind(kind, ref, err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("allowlist %s: response status %s", diagnosticRef(ref), resp.Status)
+		return nil, fmt.Errorf("%s %s: response status %s", kind, diagnosticRef(ref), resp.Status)
 	}
-	max := opts.MaxSize
-	if max <= 0 {
-		max = DefaultMaxBytes
-	}
+	max := maxBytes(opts)
 	if resp.ContentLength > max {
-		return nil, fmt.Errorf("allowlist %s exceeds %d byte limit (Content-Length %d)", diagnosticRef(ref), max, resp.ContentLength)
+		return nil, fmt.Errorf("%s %s exceeds %d byte limit (Content-Length %d)", kind, diagnosticRef(ref), max, resp.ContentLength)
 	}
 	body, err = readLimited(resp.Body, max)
 	if err != nil {
 		if errors.Is(err, errBodyTooLarge) {
-			return nil, fmt.Errorf("allowlist %s exceeds %d byte limit", diagnosticRef(ref), max)
+			return nil, fmt.Errorf("%s %s exceeds %d byte limit", kind, diagnosticRef(ref), max)
 		}
-		return nil, sanitizeFetchError(ref, err)
+		return nil, sanitizeFetchErrorKind(kind, ref, err)
 	}
 	return body, nil
 }
@@ -309,11 +477,11 @@ func (e *fetchTimeoutError) Error() string { return e.msg }
 func (e *fetchTimeoutError) Unwrap() error { return e.err }
 func (e *fetchTimeoutError) Timeout() bool { return true }
 
-// sanitizeFetchError turns a net/http client or I/O error into a message
-// that uses the redacted original request URL and a safe description.
-// The raw *url.Error, Location header, and client error text are never
-// included in the returned Error string.
-func sanitizeFetchError(ref string, err error) error {
+// sanitizeFetchErrorKind turns a net/http client or I/O error into a
+// message that uses the redacted original request URL and a safe
+// description. The raw *url.Error, Location header, and client error
+// text are never included in the returned Error string.
+func sanitizeFetchErrorKind(kind, ref string, err error) error {
 	if err == nil {
 		return nil
 	}
@@ -321,7 +489,7 @@ func sanitizeFetchError(ref string, err error) error {
 	if errors.As(err, &te) {
 		return err
 	}
-	msg := fmt.Sprintf("allowlist %s: %s", diagnosticRef(ref), fetchErrorDescription(err))
+	msg := fmt.Sprintf("%s %s: %s", kind, diagnosticRef(ref), fetchErrorDescription(err))
 	if isTimeout(err) {
 		return &fetchTimeoutError{msg: msg, err: err}
 	}

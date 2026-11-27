@@ -25,28 +25,28 @@ import (
 	"github.com/adamdecaf/trustprune/pkg/store"
 )
 
-func AllowlistForApp(app, path, sha256 string, stdout io.Writer) error {
+func AllowlistForApp(app, path string, opts allowlist.FetchOptions, stdout io.Writer) error {
 	s, err := store.ForApp(app)
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, path, sha256, stdout)
+	return allowlistStore(s, app, path, opts, stdout)
 }
 
 // AllowlistForAppWithStore applies the allowlist at path to app, using
 // storePath as the trust-store override (java keystore or certifi bundle).
 // path is a local allowlist file or an https URL. It is not the store path.
 // sha256 is an optional SHA-256 of those bytes. Empty skips the check.
-func AllowlistForAppWithStore(app, storePath, path, sha256 string, stdout io.Writer) error {
+func AllowlistForAppWithStore(app, storePath, path string, opts allowlist.FetchOptions, stdout io.Writer) error {
 	s, err := store.ForAppWithStore(app, storePath)
 	if err != nil {
 		return err
 	}
-	return allowlistStore(s, app, path, sha256, stdout)
+	return allowlistStore(s, app, path, opts, stdout)
 }
 
-func AllowlistForPlatform(path, sha256 string, stdout io.Writer) error {
-	return allowlistStore(store.Platform(), "", path, sha256, stdout)
+func AllowlistForPlatform(path string, opts allowlist.FetchOptions, stdout io.Writer) error {
+	return allowlistStore(store.Platform(), "", path, opts, stdout)
 }
 
 // allowlistTarget is the store surface allowlist checks and edits.
@@ -59,12 +59,12 @@ type allowlistTarget interface {
 }
 
 // allowlistStore applies the allowlist at path to s. app is the -app name, or
-// "" for the platform store. path is a local file or an https URL. sha256 is
-// an optional SHA-256 of those bytes. With no backup it refuses before any
-// write, dry-run included. A pin mismatch or unreadable allowlist returns
-// before the store is checked.
-func allowlistStore(s allowlistTarget, app, path, sha256 string, stdout io.Writer) error {
-	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{SHA256: sha256})
+// "" for the platform store. path is a local file or an https URL. opts may
+// pin a SHA-256 and verify a detached minisign signature. With no backup it
+// refuses before any write, dry-run included. A pin mismatch, a signature
+// failure, or an unreadable allowlist returns before the store is checked.
+func allowlistStore(s allowlistTarget, app, path string, opts allowlist.FetchOptions, stdout io.Writer) error {
+	al, err := allowlist.FromPathOrURL(path, opts)
 	if err != nil {
 		return err
 	}

@@ -104,7 +104,7 @@ func TestAllowlistStorePinMismatchDoesNotApply(t *testing.T) {
 	t.Cleanup(func() { allowlist.HTTPClient = prev })
 
 	g := &noWriteStore{}
-	err := allowlistStore(g, "", srv.URL+"/bad.yaml", strings.Repeat("cd", 32), nil)
+	err := allowlistStore(g, "", srv.URL+"/bad.yaml", allowlist.FetchOptions{SHA256: strings.Repeat("cd", 32)}, nil)
 	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
 		t.Fatalf("err = %v", err)
 	}

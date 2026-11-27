@@ -82,7 +82,7 @@ func allowlistCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "allowlist",
 		Usage: "Remove trust from certificates which do not match the allowlist in <path>",
-		UsageText: `trustprune allowlist --file <path> [--sha256 <hex>] [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [-v]
+		UsageText: `trustprune allowlist --file <path> [--sha256 <hex>] [--signature <url|path>] [--pubkey <path|key>] [--app <name>] [--store <path>] [--bundle <pem>] [--dry-run] [--force] [--count] [-v]
 
   Remove untrusted certificates from a store for the platform
     trustprune allowlist --file allowlist.json
@@ -92,10 +92,15 @@ func allowlistCommand(st *runState) *cli.Command {
 
   --file is a local YAML or JSON allowlist, or an https URL. http:// and any other
   scheme are rejected. --sha256 is the SHA-256 of those file bytes (64 hex digits)
-  and is checked before the allowlist is parsed.
+  and is checked before the allowlist is parsed. --signature is a detached minisign
+  signature of those same bytes (a local path or https URL) and requires --pubkey,
+  a local minisign public key file or the key itself (not a URL). The signature is
+  verified before the allowlist is parsed. Signature downloads use the same https
+  rules, timeout, redaction, and 1 MiB cap as --file.
     trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
     trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
     trustprune allowlist --file allowlist.yaml --sha256 <64 hex>
+    trustprune allowlist --file allowlist.yaml --signature allowlist.yaml.minisig --pubkey minisign.pub
 
   --store overrides the java, certifi, or poppler store path.
     trustprune allowlist --file allowlist.yaml --app certifi --store /path/to/cacert.pem
@@ -122,6 +127,8 @@ APPS
 		Flags: []cli.Flag{
 			flagFile("local YAML/JSON allowlist or https URL", true),
 			flagAllowlistSHA256(),
+			flagAllowlistSignature(),
+			flagAllowlistPubKey(),
 			flagApp(),
 			flagStore(),
 			flagBundle(),
@@ -154,25 +161,26 @@ func allowlistAction(_ context.Context, c *cli.Command) error {
 	store.SetForceRestore(c.Bool("force"))
 	store.SetAllowlistCountOnly(c.Bool("count"))
 	file := flagString(c, "file")
-	pin := flagString(c, "sha256")
+	opts := allowlistFetchOpts(c)
 	app := flagString(c, "app")
 	bundle := flagString(c, "bundle")
 	path := storePath(c)
 	out := c.Root().Writer
 	if app == "" {
-		return cmd.AllowlistForPlatform(file, pin, out)
+		return cmd.AllowlistForPlatform(file, opts, out)
 	}
 	if bundle != "" {
-		return cmd.AllowlistForBundle(app, file, bundle, pin, out)
+		return cmd.AllowlistForBundle(app, file, bundle, opts, out)
 	}
 	if path != "" {
-		return cmd.AllowlistForAppWithStore(app, path, file, pin, out)
+		return cmd.AllowlistForAppWithStore(app, path, file, opts, out)
 	}
-	return cmd.AllowlistForApp(app, file, pin, out)
+	return cmd.AllowlistForApp(app, file, opts, out)
 }
 
 // checkAllowlistSource rejects a non-https allowlist URL, a bad --sha256,
-// and --sha256 with no allowlist path. flagName is "file" or "allowlist".
+// --sha256 with no allowlist path, and an incomplete --signature/--pubkey
+// pair. flagName is "file" or "allowlist".
 func checkAllowlistSource(c *cli.Command, flagName string) error {
 	ref := flagString(c, flagName)
 	pin := flagString(c, "sha256")
@@ -184,12 +192,41 @@ func checkAllowlistSource(c *cli.Command, flagName string) error {
 			return usageExit(c, "invalid --sha256: want 64 hex digits")
 		}
 	}
+	sig := flagString(c, "signature")
+	pub := flagString(c, "pubkey")
+	if sig != "" && pub == "" {
+		return usageExit(c, "--signature requires --pubkey")
+	}
+	if pub != "" && sig == "" {
+		return usageExit(c, "--pubkey requires --signature")
+	}
+	if sig != "" && ref == "" {
+		return usageExit(c, fmt.Sprintf("--signature requires --%s", flagName))
+	}
+	if sig != "" {
+		if err := allowlist.ValidateSignatureRef(sig); err != nil {
+			return usageExit(c, err.Error())
+		}
+	}
+	if pub != "" {
+		if err := allowlist.ValidatePubKeyRef(pub); err != nil {
+			return usageExit(c, err.Error())
+		}
+	}
 	if ref != "" {
 		if err := allowlist.ValidateRef(ref); err != nil {
 			return usageExit(c, err.Error())
 		}
 	}
 	return nil
+}
+
+func allowlistFetchOpts(c *cli.Command) allowlist.FetchOptions {
+	return allowlist.FetchOptions{
+		SHA256:    flagString(c, "sha256"),
+		Signature: flagString(c, "signature"),
+		PubKey:    flagString(c, "pubkey"),
+	}
 }
 
 func appsCommand(st *runState) *cli.Command {
@@ -498,7 +535,7 @@ func createCommand(st *runState) *cli.Command {
 	return &cli.Command{
 		Name:  "create",
 		Usage: "Write a PEM bundle or Java truststore of allowlisted certificates without changing the store",
-		UsageText: `trustprune create --file <path> [--sha256 <hex>] [--app <name>] [--store <path>] [--bundle <pem>] [--format pem|jks|pkcs12] [--out <path>]
+		UsageText: `trustprune create --file <path> [--sha256 <hex>] [--signature <url|path>] [--pubkey <path|key>] [--app <name>] [--store <path>] [--bundle <pem>] [--format pem|jks|pkcs12] [--out <path>]
 
   Write trusted certificates that match an allowlist.
   pem (the default) is a PEM bundle. jks and pkcs12 are Java truststores.
@@ -506,6 +543,9 @@ func createCommand(st *runState) *cli.Command {
 
   Platform store, PEM on stdout. --file is a local YAML or JSON allowlist, or an
   https URL. --sha256 is the SHA-256 of those file bytes (64 hex digits).
+  --signature is a detached minisign signature of those bytes (local path or
+  https URL) and requires --pubkey (a local minisign public key file or the key
+  itself, not a URL). Both are checked before the allowlist is parsed.
     trustprune create --file allowlist.yaml
     trustprune create --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --out mozilla-roots.pem
 
@@ -542,6 +582,8 @@ APPS
 		Flags: []cli.Flag{
 			flagFile("local YAML/JSON allowlist or https URL", true),
 			flagAllowlistSHA256(),
+			flagAllowlistSignature(),
+			flagAllowlistPubKey(),
 			flagApp(),
 			flagStore(),
 			flagBundle(),
@@ -578,6 +620,8 @@ func createAction(_ context.Context, c *cli.Command) error {
 	opts := cmd.CreateOptions{
 		AllowlistPath: flagString(c, "file"),
 		SHA256:        flagString(c, "sha256"),
+		Signature:     flagString(c, "signature"),
+		PubKey:        flagString(c, "pubkey"),
 		Format:        c.String("format"),
 		Out:           flagString(c, "out"),
 		Stdout:        c.Root().Writer,
@@ -861,10 +905,13 @@ FORMATTING
   That page has a checkbox per certificate (checked means keep) and a
   Download allowlist button. --allowlist pre-checks certificates that
   allowlist would keep. It may be a local YAML or JSON file or an https URL.
-  --sha256 is the SHA-256 of those file bytes (64 hex digits). The page
-  leaves the trust store unchanged.
+  --sha256 is the SHA-256 of those file bytes (64 hex digits). --signature
+  is a detached minisign signature of those bytes (local path or https URL)
+  and requires --pubkey (a local minisign public key file or the key itself,
+  not a URL). The page leaves the trust store unchanged.
     trustprune list --ui web --allowlist allowlist.json
     trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists/mozilla-included.yaml
+    trustprune list --ui web --allowlist allowlist.json --signature allowlist.json.minisig --pubkey minisign.pub
 
   Write formatted output to a file instead of stdout (--out <path>, every --format and --count)
     trustprune list --format json --out certs.json
@@ -884,6 +931,8 @@ APPS
 			flagUI(),
 			flagListAllowlist(),
 			flagAllowlistSHA256(),
+			flagAllowlistSignature(),
+			flagAllowlistPubKey(),
 		},
 		ArgValidator: rejectPositionalArgs,
 		Before:       listBefore,

@@ -177,6 +177,29 @@ func flagAllowlistSHA256() *cli.StringFlag {
 	}
 }
 
+// flagAllowlistSignature is a detached minisign signature of the allowlist
+// file bytes (--signature). It is checked with --pubkey before the
+// allowlist is parsed.
+func flagAllowlistSignature() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:      "signature",
+		Usage:     "detached minisign signature of the allowlist file bytes (local path or https URL); requires --pubkey; checked before the allowlist is parsed",
+		TakesFile: true,
+		Local:     true,
+	}
+}
+
+// flagAllowlistPubKey is the minisign public key used with --signature.
+// It is a local file or the key itself, never a URL.
+func flagAllowlistPubKey() *cli.StringFlag {
+	return &cli.StringFlag{
+		Name:      "pubkey",
+		Usage:     "minisign public key for --signature (local file or the key itself; not a URL)",
+		TakesFile: true,
+		Local:     true,
+	}
+}
+
 func flagCount() *cli.BoolFlag {
 	return &cli.BoolFlag{
 		Name:        "count",

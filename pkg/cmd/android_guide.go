@@ -68,12 +68,15 @@ func ListAndroidGuide(dir string, cfg *ui.Config) error {
 	if err != nil {
 		return err
 	}
-	var path, pin string
+	var path string
+	opts := allowlist.FetchOptions{}
 	if cfg != nil {
 		path = strings.TrimSpace(cfg.AllowlistPath)
-		pin = strings.TrimSpace(cfg.AllowlistSHA256)
+		opts.SHA256 = strings.TrimSpace(cfg.AllowlistSHA256)
+		opts.Signature = strings.TrimSpace(cfg.AllowlistSignature)
+		opts.PubKey = strings.TrimSpace(cfg.AllowlistPubKey)
 	}
-	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{SHA256: pin})
+	al, err := allowlist.FromPathOrURL(path, opts)
 	if err != nil {
 		return err
 	}

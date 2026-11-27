@@ -81,6 +81,41 @@ func TestAllowlistURLUsageErrors(t *testing.T) {
 			args: []string{"create", "--file", "   ", "--sha256", goodPin},
 			want: "--sha256 requires --file",
 		},
+		{
+			name: "allowlist signature without pubkey",
+			args: []string{"allowlist", "--file", "allowlist.yaml", "--signature", "allowlist.yaml.minisig"},
+			want: "--signature requires --pubkey",
+		},
+		{
+			name: "allowlist pubkey without signature",
+			args: []string{"allowlist", "--file", "allowlist.yaml", "--pubkey", "minisign.pub"},
+			want: "--pubkey requires --signature",
+		},
+		{
+			name: "list signature without allowlist",
+			args: []string{"list", "--ui", "web", "--signature", "al.minisig", "--pubkey", "minisign.pub"},
+			want: "--signature requires --allowlist",
+		},
+		{
+			name: "create signature without pubkey",
+			args: []string{"create", "--file", "allowlist.yaml", "--signature", "al.minisig"},
+			want: "--signature requires --pubkey",
+		},
+		{
+			name: "allowlist signature http",
+			args: []string{"allowlist", "--file", "allowlist.yaml", "--signature", "http://127.0.0.1:1/al.minisig", "--pubkey", "minisign.pub"},
+			want: "signature URLs must be https",
+		},
+		{
+			name: "allowlist pubkey url",
+			args: []string{"allowlist", "--file", "allowlist.yaml", "--signature", "al.minisig", "--pubkey", "https://example.com/key.pub"},
+			want: "not a URL",
+		},
+		{
+			name: "create signature without file",
+			args: []string{"create", "--signature", "al.minisig", "--pubkey", "minisign.pub"},
+			want: "--signature requires --file",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,6 +135,17 @@ func TestAllowlistURLUsageErrors(t *testing.T) {
 	if strings.Contains(out, ref) || strings.Contains(out, "invalid URL escape") {
 		t.Fatalf("raw URL or parse error leaked: stdout=%q stderr=%q", res.stdout, res.stderr)
 	}
+
+	sigRef := "https://alice:" + password + "@example.com/%zz"
+	res = runCLI(t, bin, home, "allowlist", "--file", "allowlist.yaml", "--signature", sigRef, "--pubkey", "minisign.pub", "--dry-run")
+	assertUsageError(t, res, "invalid signature URL")
+	out = res.stdout + res.stderr
+	if strings.Contains(out, password) {
+		t.Fatalf("signature password leaked: stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
+	if strings.Contains(out, sigRef) || strings.Contains(out, "invalid URL escape") {
+		t.Fatalf("raw signature URL or parse error leaked: stdout=%q stderr=%q", res.stdout, res.stderr)
+	}
 }
 
 func TestAllowlistURLHelp(t *testing.T) {
@@ -110,8 +156,8 @@ func TestAllowlistURLHelp(t *testing.T) {
 		if res.code != 0 {
 			t.Fatalf("%s help code=%d stderr=%s", cmd, res.code, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "https URL") || !strings.Contains(res.stdout, "--sha256") {
-			t.Fatalf("%s help missing https URL or --sha256:\n%s", cmd, res.stdout)
+		if !strings.Contains(res.stdout, "https URL") || !strings.Contains(res.stdout, "--sha256") || !strings.Contains(res.stdout, "--signature") || !strings.Contains(res.stdout, "--pubkey") {
+			t.Fatalf("%s help missing https URL, --sha256, or signature flags:\n%s", cmd, res.stdout)
 		}
 	}
 }
