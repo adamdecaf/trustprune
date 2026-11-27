@@ -196,7 +196,7 @@ $ trustprune list --app certifi --store /path/to/venv/.../cacert.pem
 $ trustprune list --app java --store /path/to/cacerts
 ```
 
-Without `--app`, `--file` lists certificates from a PEM file (`trustprune list --file lots.crt`). `--file` cannot be combined with `--app`; use `--store` to override a java or certifi path.
+Without `--app`, `--file` lists certificates from a PEM, DER, Mozilla `certdata.txt`, or gzip-compressed file (`trustprune list --file lots.crt`). A file that cannot be parsed is an error that names the path, including with `--count`. `--file` cannot be combined with `--app`; use `--store` to override a java or certifi path.
 
 If openssl is installed you can output certificates in that format (via `--format openssl`).
 

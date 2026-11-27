@@ -15,6 +15,8 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"crypto/x509"
 	"fmt"
 	"io"
@@ -37,6 +39,10 @@ var (
 // and lists them according to the ui/format options. A directory is
 // treated as a pulled Android cacerts folder of <hash>.0 PEM or DER
 // files, including .crt, .cer, or .der exports of user-installed CAs.
+// A regular file may be PEM, DER, Mozilla certdata.txt, or gzip
+// compressed (a .gz suffix or a gzip magic header). A file that
+// cannot be parsed is an error that names the path, including when
+// --count is set.
 func ListCertsFromFile(where string, cfg *ui.Config) error {
 	st, err := os.Stat(where)
 	if err != nil {
@@ -45,16 +51,26 @@ func ListCertsFromFile(where string, cfg *ui.Config) error {
 	var certs []*x509.Certificate
 	if st.IsDir() {
 		certs, err = certutil.FromAndroidDir(where)
+		if err != nil {
+			return err
+		}
 	} else {
 		var bs []byte
 		bs, err = os.ReadFile(where)
 		if err != nil {
 			return err
 		}
+		bs, err = gunzipIfNeeded(where, bs)
+		if err != nil {
+			return err
+		}
 		certs, err = certutil.Decode(bs)
-	}
-	if err != nil {
-		return err
+		if err != nil {
+			return fmt.Errorf("read %s: %w", where, err)
+		}
+		if len(certs) == 0 {
+			return listFileNoCertsError(where)
+		}
 	}
 	if cfg != nil {
 		c := *cfg
@@ -62,6 +78,40 @@ func ListCertsFromFile(where string, cfg *ui.Config) error {
 		cfg = &c
 	}
 	return ui.ListCertificatesWithMeta(ui.Meta{Name: "file"}, certs, cfg)
+}
+
+// listFileNoCertsError is used when --file was a regular file with no
+// parseable certificates. The message names that path. It is returned
+// even when --count is set, so scripts do not treat a parse failure as
+// a successful empty list.
+func listFileNoCertsError(where string) error {
+	return fmt.Errorf("no certificates in %s", where)
+}
+
+// gunzipIfNeeded decompresses body when path ends in .gz or the bytes
+// start with a gzip magic header. Other files are returned unchanged.
+func gunzipIfNeeded(path string, body []byte) ([]byte, error) {
+	gzipName := strings.HasSuffix(strings.ToLower(path), ".gz")
+	gzipMagic := len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b
+	if !gzipName && !gzipMagic {
+		return body, nil
+	}
+	r, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("gzip %s: %w", path, err)
+	}
+	out, err := io.ReadAll(r)
+	cerr := r.Close()
+	if err != nil {
+		return nil, fmt.Errorf("gzip %s: %w", path, err)
+	}
+	if cerr != nil {
+		return nil, fmt.Errorf("gzip %s: %w", path, cerr)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("gzip %s is empty", path)
+	}
+	return out, nil
 }
 
 // ListCertsFromURL downloads a PEM or DER certificate bundle and lists the

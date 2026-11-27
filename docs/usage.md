@@ -107,6 +107,7 @@ trustprune list --app poppler --store /path/to/nssdb
 trustprune list --app okular
 trustprune list --app openssl --bundle /path/to/ca-bundle.pem
 trustprune list --file example.crt
+trustprune list --file testdata/certdata.txt.gz
 trustprune list --file /tmp/android-cacerts
 trustprune list --app android --file /tmp/android-cacerts --allowlist allowlist.yaml
 # Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
@@ -119,7 +120,7 @@ trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists
 |------|---------|
 | `--app <name>` | List from an application store |
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: read that keystore, `cacert.pem`, or NSS directory instead of discovery. `list` output shows the chosen path |
-| `--file <path>` | Without `--app`: list certificates from a local file (PEM or similar), or from a pulled Android cacerts directory of `<hash>.0` PEM or DER files, including `.crt`/`.cer`/`.der` exports of user-installed CAs. Cannot be combined with `--app`, except `list --app android --file <dir> --allowlist <path>`. Use `--store` to override a java, certifi, or poppler path |
+| `--file <path>` | Without `--app`: list certificates from a local file (PEM, DER, Mozilla `certdata.txt`, or a gzip-compressed `.gz` of those; a gzip magic header is also accepted), or from a pulled Android cacerts directory of `<hash>.0` PEM or DER files, including `.crt`/`.cer`/`.der` exports of user-installed CAs. A file that cannot be parsed is an error that names the path (exit 1), including with `--count`, and does not print `0`. Cannot be combined with `--app`, except `list --app android --file <dir> --allowlist <path>`. Use `--store` to override a java, certifi, or poppler path |
 | `--bundle <path>` | With `--app openssl`: list that PEM CA bundle instead of discovery |
 | `--url <endpoint>` | Download a PEM or DER certificate bundle and list it (not a TLS site lookup). Mozilla `certdata.txt` is also accepted. JSON sets `store` to `url` and `path` to that URL, with userinfo redacted. To see a site's certificate chain, run `trustprune chain <host> --remote` |
 | `--count` | Print only the number of certificates |

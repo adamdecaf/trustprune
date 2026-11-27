@@ -47,6 +47,132 @@ func TestCmdList__file(t *testing.T) {
 	}
 }
 
+func TestListCertsFromFileParseErrors(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	garbage := filepath.Join(dir, "garbage.txt")
+	if err := os.WriteFile(garbage, []byte("not a certificate"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	empty := filepath.Join(dir, "empty.pem")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{garbage, empty} {
+		for _, count := range []bool{false, true} {
+			out := filepath.Join(t.TempDir(), "out.txt")
+			err := ListCertsFromFile(path, &ui.Config{Count: count, Outfile: out})
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			msg := err.Error()
+			want := "no certificates in " + path
+			if !strings.Contains(msg, want) {
+				t.Fatalf("error = %q, want %q", msg, want)
+			}
+			if strings.Contains(msg, "no certificates to display") {
+				t.Fatalf("fell through to empty list: %q", msg)
+			}
+			if _, statErr := os.Stat(out); !os.IsNotExist(statErr) {
+				t.Fatalf("list wrote output for a parse failure (count=%v): %v", count, statErr)
+			}
+		}
+	}
+}
+
+func TestListCertsFromFileGzip(t *testing.T) {
+	t.Parallel()
+
+	pem, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	gzPath := filepath.Join(dir, "example.crt.gz")
+	writeGzipFile(t, gzPath, pem)
+
+	out := filepath.Join(t.TempDir(), "out.txt")
+	if err := ListCertsFromFile(gzPath, &ui.Config{Count: true, Outfile: out}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1\n" {
+		t.Fatalf("count = %q", got)
+	}
+
+	// gzip magic without a .gz suffix
+	magicPath := filepath.Join(dir, "example.crt.gzipped")
+	writeGzipFile(t, magicPath, pem)
+	out2 := filepath.Join(t.TempDir(), "out.txt")
+	if err := ListCertsFromFile(magicPath, &ui.Config{Count: true, Outfile: out2}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(out2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "1\n" {
+		t.Fatalf("count = %q", got)
+	}
+
+	// pinned Mozilla certdata.txt.gz
+	out3 := filepath.Join(t.TempDir(), "out.txt")
+	if err := ListCertsFromFile("../../testdata/certdata.txt.gz", &ui.Config{Count: true, Outfile: out3}); err != nil {
+		t.Fatal(err)
+	}
+	got, err = os.ReadFile(out3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(got)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n <= 0 {
+		t.Fatalf("certdata.txt.gz count = %d", n)
+	}
+
+	bad := filepath.Join(dir, "bad.gz")
+	if err := os.WriteFile(bad, []byte("not gzip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out4 := filepath.Join(t.TempDir(), "out.txt")
+	err = ListCertsFromFile(bad, &ui.Config{Count: true, Outfile: out4})
+	if err == nil {
+		t.Fatal("expected gzip error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "gzip") || !strings.Contains(msg, bad) {
+		t.Fatalf("error = %q", msg)
+	}
+	if _, statErr := os.Stat(out4); !os.IsNotExist(statErr) {
+		t.Fatalf("list wrote output for a gzip failure: %v", statErr)
+	}
+}
+
+func writeGzipFile(t *testing.T, path string, body []byte) {
+	t.Helper()
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := gzip.NewWriter(f)
+	if _, err := zw.Write(body); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCmdList__url(t *testing.T) {
 	t.Parallel()
 
