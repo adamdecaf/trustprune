@@ -1,0 +1,5 @@
+# TEST FIXTURE ONLY. Signatures were produced with throwaway minisign
+# test keys. Do not reuse these keys.
+fingerprints: []
+countries:
+  - US
