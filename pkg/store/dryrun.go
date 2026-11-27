@@ -145,13 +145,28 @@ func recordAllowlistStats(kept, removed int, unmatched []string) {
 }
 
 // AllowlistSummaryLine is the final line of a real allowlist run.
-func AllowlistSummaryLine(removed, kept int) string {
-	return fmt.Sprintf("%d removed, %d kept", removed, kept)
+// When unmatched is greater than zero, the count is appended so a
+// non-verbose run still reports fingerprints that matched nothing.
+func AllowlistSummaryLine(removed, kept, unmatched int) string {
+	s := fmt.Sprintf("%d removed, %d kept", removed, kept)
+	if unmatched > 0 {
+		s += fmt.Sprintf(", %d unmatched", unmatched)
+	}
+	return s
+}
+
+// allowlistDryRunSummaryLine is the final line of an allowlist dry-run plan.
+func allowlistDryRunSummaryLine(kept, removed, unmatched int) string {
+	s := fmt.Sprintf("dry-run: %d kept, %d removed", kept, removed)
+	if unmatched > 0 {
+		s += fmt.Sprintf(", %d unmatched", unmatched)
+	}
+	return s
 }
 
 // WriteUnmatchedAllowlist lists fingerprints that matched no certificate.
 // It writes nothing when unmatched is empty, so a fully matching allowlist
-// does not gain a section.
+// does not gain a section. Callers print this only with -v / --verbose.
 func WriteUnmatchedAllowlist(w io.Writer, unmatched []string) {
 	if w == nil || len(unmatched) == 0 {
 		return
@@ -266,9 +281,11 @@ func reportDryRunCerts(prefix string, certs []*x509.Certificate) []string {
 // ("unparsable PEM block (N bytes)", plus "in <path>" when a path is known)
 // and are not counted. extras are operational lines and are always printed.
 // details are per-certificate lines and are printed only when verbose is on.
-// unmatched fingerprints are listed after those details and before the
-// closing lines, and are omitted when empty so the summary stays last.
-// Kept is omitted when there is nothing to list.
+// unmatched fingerprints are listed only when verbose is on, after those
+// details and before the closing lines, and are omitted when empty so
+// the summary stays last. The unmatched count is always in the summary
+// when it is greater than zero. Kept is omitted when there is nothing
+// to list.
 func reportAllowlistDryRun(storeName, path string, kept, removed []*x509.Certificate, rawKeep, extras, details, unmatched []string) {
 	w := dryRunWriter()
 	if path != "" {
@@ -292,10 +309,10 @@ func reportAllowlistDryRun(storeName, path string, kept, removed []*x509.Certifi
 		for _, line := range details {
 			fmt.Fprintf(w, "  %s\n", line)
 		}
+		WriteUnmatchedAllowlist(w, unmatched)
 	}
-	WriteUnmatchedAllowlist(w, unmatched)
 	fmt.Fprintln(w, "dry-run: no changes made")
-	fmt.Fprintf(w, "dry-run: %d kept, %d removed\n", len(kept), len(removed))
+	fmt.Fprintln(w, allowlistDryRunSummaryLine(len(kept), len(removed), len(unmatched)))
 }
 
 func reportKeptRawPEM(entries []certutil.PEMEntry) []string {

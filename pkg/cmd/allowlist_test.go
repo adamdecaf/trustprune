@@ -456,7 +456,7 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 			t.Fatal(err)
 		}
 		unmatched := "Unmatched allowlist entries:\n  " + stale1 + "\n  " + stale2 + "\n"
-		closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed\n", keptN, removedN)
+		closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed, 2 unmatched\n", keptN, removedN)
 
 		store.SetDryRun(true)
 		var plan bytes.Buffer
@@ -468,16 +468,33 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 			t.Fatalf("dry-run wrote stdout %q", stdout)
 		}
 		planText := plan.String()
-		if strings.Count(planText, unmatched) != 1 {
-			t.Fatalf("unmatched section count=%d\n%s", strings.Count(planText, unmatched), planText)
+		if strings.Contains(planText, "Unmatched allowlist entries:") {
+			t.Fatalf("default dry-run listed unmatched fingerprints:\n%s", planText)
 		}
-		closeAt := strings.Index(planText, "dry-run: no changes made\n")
-		if closeAt < 0 || !strings.Contains(planText[:closeAt], unmatched) || !strings.HasSuffix(planText, closing) {
+		if !strings.HasSuffix(planText, closing) {
 			t.Fatalf("dry-run plan:\n%s", planText)
 		}
 		if strings.Contains(planText, "Allowlist completed successfully") || strings.Contains(planText, "\n  ZZ\n") {
 			t.Fatalf("dry-run plan:\n%s", planText)
 		}
+
+		store.SetDryRunVerbose(true)
+		plan.Reset()
+		stdout = captureStdout(t, func() error {
+			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
+		})
+		if stdout != "" {
+			t.Fatalf("verbose dry-run wrote stdout %q", stdout)
+		}
+		planText = plan.String()
+		if strings.Count(planText, unmatched) != 1 {
+			t.Fatalf("verbose unmatched section count=%d\n%s", strings.Count(planText, unmatched), planText)
+		}
+		closeAt := strings.Index(planText, "dry-run: no changes made\n")
+		if closeAt < 0 || !strings.Contains(planText[:closeAt], unmatched) || !strings.HasSuffix(planText, closing) {
+			t.Fatalf("verbose dry-run plan:\n%s", planText)
+		}
+		store.SetDryRunVerbose(false)
 		after, err := os.ReadFile(bundle)
 		if err != nil {
 			t.Fatal(err)
@@ -508,12 +525,15 @@ func TestAllowlist_SummaryUnmatchedAndCount(t *testing.T) {
 		store.SetAllowlistCountOnly(false)
 		store.SetDryRun(false)
 		store.SetDryRunOutput(nil)
-		want := "Allowlist completed successfully\n" + unmatched + fmt.Sprintf("%d removed, %d kept\n", removedN, keptN)
+		want := "Allowlist completed successfully\n" + fmt.Sprintf("%d removed, %d kept, 2 unmatched\n", removedN, keptN)
 		stdout = captureStdout(t, func() error {
 			return AllowlistForAppWithStore("certifi", bundle, alPath, allowlist.FetchOptions{}, nil)
 		})
 		if stdout != want {
 			t.Fatalf("stdout:\n%s\nwant:\n%s", stdout, want)
+		}
+		if strings.Contains(stdout, "Unmatched allowlist entries:") {
+			t.Fatalf("real run listed unmatched fingerprints without -v:\n%s", stdout)
 		}
 		left, err := store.CertifiStoreAt(bundle).List(nil)
 		if err != nil {

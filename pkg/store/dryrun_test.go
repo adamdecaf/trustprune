@@ -70,17 +70,36 @@ func TestReportAllowlistDryRun_Format(t *testing.T) {
 	buf.Reset()
 	SetDryRunVerbose(false)
 	reportAllowlistDryRun("certifi", "/b", nil, nil, nil, nil, []string{"remove hidden"}, []string{"aa", "bb"})
-	want = "dry-run: would remove certificates from certifi at /b\nUnmatched allowlist entries:\n  aa\n  bb\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	want = "dry-run: would remove certificates from certifi at /b\ndry-run: no changes made\ndry-run: 0 kept, 0 removed, 2 unmatched\n"
 	if buf.String() != want {
 		t.Fatalf("unmatched plan:\n%q", buf.String())
+	}
+	if strings.Contains(buf.String(), "Unmatched allowlist entries:") {
+		t.Fatalf("default plan listed unmatched fingerprints:\n%q", buf.String())
 	}
 
 	buf.Reset()
 	SetDryRunVerbose(true)
 	reportAllowlistDryRun("certifi", "/b", nil, nil, nil, nil, []string{"remove CN=Nope"}, []string{"aa"})
-	want = "dry-run: would remove certificates from certifi at /b\n  remove CN=Nope\nUnmatched allowlist entries:\n  aa\ndry-run: no changes made\ndry-run: 0 kept, 0 removed\n"
+	want = "dry-run: would remove certificates from certifi at /b\n  remove CN=Nope\nUnmatched allowlist entries:\n  aa\ndry-run: no changes made\ndry-run: 0 kept, 0 removed, 1 unmatched\n"
 	if buf.String() != want {
 		t.Fatalf("verbose plan:\n%q", buf.String())
+	}
+}
+
+func TestAllowlistSummaryLine(t *testing.T) {
+	t.Parallel()
+	if got := AllowlistSummaryLine(3, 2, 0); got != "3 removed, 2 kept" {
+		t.Fatalf("got %q", got)
+	}
+	if got := AllowlistSummaryLine(3, 2, 1); got != "3 removed, 2 kept, 1 unmatched" {
+		t.Fatalf("got %q", got)
+	}
+	if got := allowlistDryRunSummaryLine(2, 3, 0); got != "dry-run: 2 kept, 3 removed" {
+		t.Fatalf("got %q", got)
+	}
+	if got := allowlistDryRunSummaryLine(2, 3, 52); got != "dry-run: 2 kept, 3 removed, 52 unmatched" {
+		t.Fatalf("got %q", got)
 	}
 }
 

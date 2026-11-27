@@ -14,7 +14,7 @@ nav_order: 4
 {:toc}
 </details>
 
-Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept and removed counts; `-v` adds per-certificate remove and keep details. A real allowlist ends with `N removed, M kept`. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument). `--url` implies a TLS lookup; a positional URL still needs `--remote`. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
+Flags are per-command except `-v`/`--verbose`, which is accepted on every command and before the subcommand (`trustprune -v list …`). Root `-V` is an alias of `--version` (as is `-version`); `-v` is not a version alias. Only other flags a command actually uses are accepted (`trustprune apps --store x` is an unknown-flag usage error). Add `--dry-run` to `add`, `backup`, `restore`, or `allowlist` to print the planned changes without writing to any store. `add`, `backup`, and `restore` list files and certificates. `allowlist --dry-run` lists kept certificates and ends with kept, removed, and unmatched counts; `-v` adds per-certificate remove and keep details and lists unmatched fingerprints. A real allowlist ends with `N removed, M kept`, plus `, K unmatched` when fingerprints in the file matched nothing. `--count` prints only how many certificates were removed or untrusted. `create` reads a store, applies an allowlist, and writes a PEM bundle or a Java truststore. It leaves the store unchanged and has no `--dry-run` flag. `chain` prints a certificate chain from a local file or a URL (`--file`, `--url`, or one positional argument). `--url` implies a TLS lookup; a positional URL still needs `--remote`. It is read-only and has no `--dry-run` flag. `-v` on `chain` prints the full SHA-256 in the text table.
 
 Both `-flag` and `--flag` work. These docs use `--flag`.
 
@@ -349,9 +349,9 @@ trustprune allowlist --file allowlist.yaml --count
 trustprune allowlist --file allowlist.yaml --dry-run --count
 ```
 
-`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. `-v` / `--verbose` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store). Those detail lines are omitted by default. Every command accepts `-v`/`--verbose`; among dry-run commands, only `allowlist` uses it for extra details. `add`, `backup`, and `restore` keep their existing dry-run output.
+`--dry-run` prints the plan and does not change the store. Kept certificates are listed by subject and SHA-256. Unparsable PEM blocks that would be kept are listed too, as `unparsable PEM block (N bytes)`, and are not included in the counts. The output ends with `dry-run: no changes made` and `dry-run: N kept, M removed`, plus `, K unmatched` when fingerprints in the allowlist equal no certificate in the store. `-v` / `--verbose` adds per-certificate remove and keep lines after that list (`remove`, `distrust`, `remove … from <path>`, and `remove … (alias …)`, depending on the store) and lists those unmatched fingerprints under `Unmatched allowlist entries:`, in file order, once each. Those detail lines and the unmatched list are omitted by default. Every command accepts `-v`/`--verbose`; among dry-run commands, only `allowlist` uses it for extra details. `add`, `backup`, and `restore` keep their existing dry-run output.
 
-Fingerprints in the allowlist that equal no certificate in the store are listed under `Unmatched allowlist entries:`, in file order, once each. The list is omitted when every fingerprint matches. On a dry-run it is printed above the closing lines, so `dry-run: N kept, M removed` stays last. A real run prints `Allowlist completed successfully`, then that list, then a final line `N removed, M kept`. `N` is how many certificates were removed or distrusted. `M` is how many were kept. Unparsable PEM blocks are in neither number.
+Fingerprints in the allowlist that equal no certificate in the store are counted in that summary as `, K unmatched`. The count is omitted when every fingerprint matches. `-v` / `--verbose` also lists them under `Unmatched allowlist entries:`, in file order, once each. On a dry-run the list is printed above the closing lines, so the summary stays last. A real run prints `Allowlist completed successfully`, then that list when `-v` is set, then a final line `N removed, M kept` or `N removed, M kept, K unmatched`. `N` is how many certificates were removed or distrusted. `M` is how many were kept. Unparsable PEM blocks are in neither number.
 
 `--count` prints only `N`, one integer on stdout. It does not print the plan, the unmatched list, or the success line. The allowlist is still applied unless `--dry-run` is set. Exit codes are unchanged. There is no `--format json` for `allowlist`.
 
@@ -361,17 +361,13 @@ Kept:
   CN=Keep Me (SHA256 abcd...)
   CN=Also Keep (SHA256 efgh...)
   unparsable PEM block (12 bytes)
-Unmatched allowlist entries:
-  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 dry-run: no changes made
-dry-run: 2 kept, 3 removed
+dry-run: 2 kept, 3 removed, 1 unmatched
 ```
 
 ```text
 Allowlist completed successfully
-Unmatched allowlist entries:
-  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-3 removed, 2 kept
+3 removed, 2 kept, 1 unmatched
 ```
 
 ```text
@@ -387,10 +383,10 @@ Unmatched allowlist entries:
 | `--store <path>` | With `--app java`, `--app certifi`, or `--app poppler`: operate on that keystore, `cacert.pem`, or NSS directory. Independent of `--file` |
 | `--app <name>` | Apply against an application store |
 | `--bundle <path>` | With `--app openssl`: PEM CA bundle to edit instead of discovery. Requires a backup recorded for that file |
-| `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed`. Unmatched fingerprints are listed above those lines |
+| `--dry-run` | Print the plan without writing. Lists kept certificates, then ends with `dry-run: no changes made` and `dry-run: N kept, M removed`, plus `, K unmatched` when fingerprints in the file matched nothing |
 | `--count` | Print only the number of certificates removed or untrusted |
 | `--force` | Allow an NSS allowlist when the latest backup was taken from a different directory and this directory has no backup of its own |
-| `-v`, `--verbose` | With `--dry-run`, also print per-certificate remove and keep details. No effect with `--count` |
+| `-v`, `--verbose` | With `--dry-run`, also print per-certificate remove and keep details and list unmatched fingerprints under `Unmatched allowlist entries:`. A real run lists unmatched fingerprints the same way. No effect with `--count` |
 
 Example YAML:
 

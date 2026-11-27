@@ -137,6 +137,9 @@ func TestCLIAllowlistDryRunDefaultAndVerbose(t *testing.T) {
 	if !strings.Contains(helpBody, "--verbose") || !strings.Contains(helpBody, "per-certificate remove and keep details") {
 		t.Fatalf("allowlist help missing -v/--verbose dry-run usage:\n%s", helpBody)
 	}
+	if !strings.Contains(helpBody, "unmatched") {
+		t.Fatalf("allowlist help missing unmatched dry-run usage:\n%s", helpBody)
+	}
 
 	bundle := filepath.Join(t.TempDir(), "cacert.pem")
 	src, err := os.ReadFile(filepath.Join("testdata", "lots.crt"))
@@ -306,16 +309,28 @@ func TestCLIAllowlistCountAndSummary(t *testing.T) {
 		t.Fatalf("dry-run code=%d stdout=%s stderr=%s", dry.code, dry.stdout, dry.stderr)
 	}
 	unmatched := "Unmatched allowlist entries:\n  " + stale1 + "\n  " + stale2 + "\n"
-	closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed\n", keptN, removedN)
-	if strings.Count(dry.stdout, unmatched) != 1 || !strings.HasSuffix(dry.stdout, closing) || strings.Contains(dry.stdout, "Allowlist completed successfully") {
+	closing := fmt.Sprintf("dry-run: no changes made\ndry-run: %d kept, %d removed, 2 unmatched\n", keptN, removedN)
+	if strings.Contains(dry.stdout, "Unmatched allowlist entries:") || !strings.HasSuffix(dry.stdout, closing) || strings.Contains(dry.stdout, "Allowlist completed successfully") {
 		t.Fatalf("dry-run stdout:\n%s", dry.stdout)
 	}
 	assertSameBytes(t, bundle, before)
 
+	verb := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath, "--dry-run", "-v")
+	if verb.code != 0 {
+		t.Fatalf("verbose dry-run code=%d stdout=%s stderr=%s", verb.code, verb.stdout, verb.stderr)
+	}
+	if strings.Count(verb.stdout, unmatched) != 1 || !strings.HasSuffix(verb.stdout, closing) {
+		t.Fatalf("verbose dry-run stdout:\n%s", verb.stdout)
+	}
+	assertSameBytes(t, bundle, before)
+
 	real := runCLI(t, bin, home, "allowlist", "-app", "certifi", "-store", bundle, "-file", alPath)
-	want := "Allowlist completed successfully\n" + unmatched + fmt.Sprintf("%d removed, %d kept\n", removedN, keptN)
+	want := "Allowlist completed successfully\n" + fmt.Sprintf("%d removed, %d kept, 2 unmatched\n", removedN, keptN)
 	if real.code != 0 || real.stdout != want {
 		t.Fatalf("real code=%d stdout:\n%s\nwant:\n%s\nstderr=%s", real.code, real.stdout, want, real.stderr)
+	}
+	if strings.Contains(real.stdout, "Unmatched allowlist entries:") {
+		t.Fatalf("real run listed unmatched fingerprints without -v:\n%s", real.stdout)
 	}
 
 	countHome := t.TempDir()

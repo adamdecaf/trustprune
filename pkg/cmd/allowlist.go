@@ -100,8 +100,9 @@ func allowlistStore(s allowlistTarget, app, path string, opts allowlist.FetchOpt
 }
 
 // printAllowlistOutcome prints the real-run summary, or only the removed
-// count when --count is set. Dry-run plans, including unmatched fingerprints
-// and the kept/removed line, are printed by the store so that line stays last.
+// count when --count is set. Dry-run plans, including the kept/removed
+// (and unmatched) summary, are printed by the store so that line stays last.
+// Unmatched fingerprints are listed only when -v / --verbose is set.
 func printAllowlistOutcome(stdout io.Writer) error {
 	if stdout == nil {
 		stdout = os.Stdout
@@ -122,7 +123,9 @@ func printAllowlistOutcome(stdout io.Writer) error {
 	if !ok {
 		return nil
 	}
-	store.WriteUnmatchedAllowlist(stdout, stats.Unmatched)
-	fmt.Fprintln(stdout, store.AllowlistSummaryLine(stats.Removed, stats.Kept))
+	if store.DryRunVerbose() {
+		store.WriteUnmatchedAllowlist(stdout, stats.Unmatched)
+	}
+	fmt.Fprintln(stdout, store.AllowlistSummaryLine(stats.Removed, stats.Kept, len(stats.Unmatched)))
 	return nil
 }
