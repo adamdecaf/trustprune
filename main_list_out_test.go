@@ -130,7 +130,10 @@ func TestListOutCLI(t *testing.T) {
 		if res.code == 0 {
 			t.Fatalf("expected failure, stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
-		if !strings.Contains(res.stdout, "no certificates to display") {
+		if !strings.Contains(res.stdout, "no certificates in "+empty) {
+			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
+		}
+		if strings.Contains(res.stdout, "no certificates to display") {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 		if _, err := os.Stat(outPath); !os.IsNotExist(err) {
@@ -181,13 +184,21 @@ func TestListCountFormatJSONCLI(t *testing.T) {
 		t.Fatal(err)
 	}
 	zero := runCLI(t, bin, home, "list", "-file", empty, "-count", "-format", "json")
-	if zero.code != 0 {
+	if zero.code != 1 {
 		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", zero.code, zero.stdout, zero.stderr)
 	}
-	if strings.Contains(zero.stdout, "no certificates") || strings.Contains(zero.stderr, "no certificates") {
+	if zero.stderr != "" {
+		t.Fatalf("stderr=%q", zero.stderr)
+	}
+	if !strings.Contains(zero.stdout, "ERROR: no certificates in "+empty) {
 		t.Fatalf("stdout=%q stderr=%q", zero.stdout, zero.stderr)
 	}
-	assertCLICountJSON(t, zero.stdout, 0)
+	if strings.Contains(zero.stdout, "no certificates to display") || strings.TrimSpace(zero.stdout) == "0" {
+		t.Fatalf("stdout=%q", zero.stdout)
+	}
+	if strings.Contains(zero.stdout, `"count"`) {
+		t.Fatalf("printed a count on parse failure: %q", zero.stdout)
+	}
 }
 
 func assertCLICountJSON(t *testing.T, got string, n int) {
@@ -347,6 +358,59 @@ func TestListURLBundleCLI(t *testing.T) {
 			t.Fatalf("stdout=%q stderr=%q", res.stdout, res.stderr)
 		}
 	})
+}
+
+func TestListFileParseCLI(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	garbage := filepath.Join(home, "garbage.txt")
+	if err := os.WriteFile(garbage, []byte("not a certificate"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runCLI(t, bin, home, "list", "--file", garbage)
+	if res.code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", res.code, res.stdout, res.stderr)
+	}
+	if res.stderr != "" {
+		t.Fatalf("stderr=%q", res.stderr)
+	}
+	if !strings.HasPrefix(res.stdout, "ERROR: ") {
+		t.Fatalf("stdout=%q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "no certificates in "+garbage) {
+		t.Fatalf("stdout=%q", res.stdout)
+	}
+	if strings.Contains(res.stdout, "no certificates to display") {
+		t.Fatalf("stdout=%q", res.stdout)
+	}
+
+	count := runCLI(t, bin, home, "list", "--file", garbage, "--count")
+	if count.code != 1 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", count.code, count.stdout, count.stderr)
+	}
+	if count.stderr != "" {
+		t.Fatalf("stderr=%q", count.stderr)
+	}
+	if strings.TrimSpace(count.stdout) == "0" || strings.Contains(count.stdout, "no certificates to display") {
+		t.Fatalf("stdout=%q", count.stdout)
+	}
+	if !strings.Contains(count.stdout, "ERROR: no certificates in "+garbage) {
+		t.Fatalf("stdout=%q", count.stdout)
+	}
+
+	gz := filepath.Join("testdata", "certdata.txt.gz")
+	ok := runCLI(t, bin, home, "list", "--file", gz, "--count")
+	if ok.code != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", ok.code, ok.stdout, ok.stderr)
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(ok.stdout))
+	if err != nil {
+		t.Fatalf("stdout=%q stderr=%q", ok.stdout, ok.stderr)
+	}
+	if n <= 0 {
+		t.Fatalf("certdata.txt.gz count = %d", n)
+	}
 }
 
 func TestListAllowlistRequiresWeb(t *testing.T) {

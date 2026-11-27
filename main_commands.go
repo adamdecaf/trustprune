@@ -855,8 +855,11 @@ func listCommand(st *runState) *cli.Command {
     trustprune list --app acrobat
 
   List certificates from a file (no --app). --file here is not a store path.
-  A directory is a pulled Android cacerts folder of <hash>.0 PEM or DER files,
-  or .crt/.cer/.der exports of user-installed CAs.
+  A regular file may be PEM, DER, Mozilla certdata.txt, or gzip compressed
+  (.gz suffix or gzip magic). A directory is a pulled Android cacerts folder
+  of <hash>.0 PEM or DER files, or .crt/.cer/.der exports of user-installed CAs.
+  A file that cannot be parsed is an error that names the path, including
+  with --count.
     trustprune list --file <path>
 
   Guide-only Android report: certificates in that directory that the
@@ -922,7 +925,7 @@ APPS
 		Flags: []cli.Flag{
 			flagApp(),
 			flagStore(),
-			flagFile("PEM or DER certificate file, or a pulled Android cacerts directory (also with --app android)", false),
+			flagFile("PEM, DER, Mozilla certdata.txt, or gzip-compressed certificate file, or a pulled Android cacerts directory (also with --app android)", false),
 			flagBundle(),
 			flagURL("download a PEM or DER certificate bundle from the URL and list it (not a TLS site lookup)"),
 			flagCount(),
