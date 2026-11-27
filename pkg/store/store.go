@@ -36,6 +36,7 @@ var (
 	// Define a mapping between -app and the Store instance
 	appStores = map[string]Store{
 		"acrobat": AcrobatStore(),
+		"android": AndroidStore(),
 		"certifi": CertifiStore(),
 		"chrome":  ChromeStore(),
 		"firefox": FirefoxStore(),
