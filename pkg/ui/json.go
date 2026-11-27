@@ -20,25 +20,28 @@ import (
 	"io"
 	"time"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 const jsonFormat = "json"
 
 type jsonCert struct {
-	SHA256    string `json:"sha256"`
-	Subject   string `json:"subject"`
-	Issuer    string `json:"issuer"`
-	Serial    string `json:"serial"`
-	NotBefore string `json:"not_before"`
-	NotAfter  string `json:"not_after"`
-	Days      int    `json:"days"`
-	Expired   bool   `json:"expired"`
-	KeyType   string `json:"key_type"`
-	KeyBits   int    `json:"key_bits"`
-	IsCA      bool   `json:"is_ca"`
-	Store     string `json:"store"`
-	Path      string `json:"path"`
+	SHA256        string   `json:"sha256"`
+	Subject       string   `json:"subject"`
+	Issuer        string   `json:"issuer"`
+	Serial        string   `json:"serial"`
+	NotBefore     string   `json:"not_before"`
+	NotAfter      string   `json:"not_after"`
+	Days          int      `json:"days"`
+	Expired       bool     `json:"expired"`
+	KeyType       string   `json:"key_type"`
+	KeyBits       int      `json:"key_bits"`
+	IsCA          bool     `json:"is_ca"`
+	Store         string   `json:"store"`
+	Path          string   `json:"path"`
+	Blocklists    []string `json:"blocklists,omitempty"`
+	DistrustAfter string   `json:"distrust_after,omitempty"`
 }
 
 type jsonPrinter struct {
@@ -69,21 +72,26 @@ func (p jsonPrinter) write(w io.Writer, certs []*x509.Certificate) error {
 		}
 		algo, bits := certutil.PublicKeyInfo(c)
 		days := certutil.DaysUntilExpiry(c, now)
-		out = append(out, jsonCert{
-			SHA256:    certutil.GetHexSHA256Fingerprint(*c),
-			Subject:   certutil.StringifyPKIXName(c.Subject),
-			Issuer:    certutil.StringifyPKIXName(c.Issuer),
-			Serial:    c.SerialNumber.String(),
-			NotBefore: c.NotBefore.UTC().Format(time.RFC3339),
-			NotAfter:  c.NotAfter.UTC().Format(time.RFC3339),
-			Days:      days,
-			Expired:   days < 0,
-			KeyType:   algo,
-			KeyBits:   bits,
-			IsCA:      c.IsCA,
-			Store:     store,
-			Path:      path,
-		})
+		row := jsonCert{
+			SHA256:     certutil.GetHexSHA256Fingerprint(*c),
+			Subject:    certutil.StringifyPKIXName(c.Subject),
+			Issuer:     certutil.StringifyPKIXName(c.Issuer),
+			Serial:     c.SerialNumber.String(),
+			NotBefore:  c.NotBefore.UTC().Format(time.RFC3339),
+			NotAfter:   c.NotAfter.UTC().Format(time.RFC3339),
+			Days:       days,
+			Expired:    days < 0,
+			KeyType:    algo,
+			KeyBits:    bits,
+			IsCA:       c.IsCA,
+			Store:      store,
+			Path:       path,
+			Blocklists: allowlist.BlocklistIDs(c),
+		}
+		if after := allowlist.MozillaDistrustAfter(c); !after.IsZero() {
+			row.DistrustAfter = after.Format(time.RFC3339)
+		}
+		out = append(out, row)
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")

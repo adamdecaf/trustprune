@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 	"github.com/adamdecaf/trustprune/pkg/file"
@@ -142,6 +143,88 @@ func BlocklistNames(cert *x509.Certificate) []string {
 		names = append(names, BlocklistCCADB)
 	}
 	return names
+}
+
+// MozillaDistrustAfter returns the embedded Mozilla
+// CKA_NSS_SERVER_DISTRUST_AFTER instant for cert, or zero when the
+// certificate has no recorded date. Dates come from the generated
+// mozilla blocklist, not from a live certdata download.
+func MozillaDistrustAfter(cert *x509.Certificate) time.Time {
+	if cert == nil || len(cert.Raw) == 0 {
+		return time.Time{}
+	}
+	s, ok := mozillaServerDistrustAfter[certutil.GetHexSHA256Fingerprint(*cert)]
+	if !ok {
+		return time.Time{}
+	}
+	tm, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return time.Time{}
+	}
+	return tm.UTC()
+}
+
+// List label values for table LABELS. JSON blocklists uses the same
+// names without the "blocklist:" prefix.
+const (
+	ListLabelDeny       = "deny"
+	ListLabelDistrusted = "distrusted"
+	ListBlocklistPrefix = "blocklist:"
+)
+
+var listBlocklistIDs = []struct {
+	name string
+	id   string
+}{
+	{BlocklistChromium, "chromium"},
+	{BlocklistMozilla, "mozilla"},
+	{BlocklistApple, "apple"},
+	{BlocklistCCADB, "ccadb"},
+}
+
+// BlocklistIDs returns the short names of embedded blocklists that contain
+// cert, in the same order as BlocklistNames: chromium, mozilla, apple,
+// then ccadb. It does not include the built-in denylist.
+func BlocklistIDs(cert *x509.Certificate) []string {
+	names := BlocklistNames(cert)
+	if len(names) == 0 {
+		return nil
+	}
+	var ids []string
+	for _, n := range names {
+		for _, item := range listBlocklistIDs {
+			if n == item.name {
+				ids = append(ids, item.id)
+				break
+			}
+		}
+	}
+	return ids
+}
+
+// ListLabels returns the labels for list table output, in a stable order:
+// deny (built-in denylist), distrusted (a recorded Mozilla
+// CKA_NSS_SERVER_DISTRUST_AFTER instant that is not after now), then
+// blocklist:<id> for each BlocklistIDs entry. now is time.Now when zero.
+func ListLabels(cert *x509.Certificate, now time.Time) []string {
+	if cert == nil {
+		return nil
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	now = now.UTC()
+	var labels []string
+	if denied, _ := Denied(cert); denied {
+		labels = append(labels, ListLabelDeny)
+	}
+	if after := MozillaDistrustAfter(cert); !after.IsZero() && !after.After(now) {
+		labels = append(labels, ListLabelDistrusted)
+	}
+	for _, id := range BlocklistIDs(cert) {
+		labels = append(labels, ListBlocklistPrefix+id)
+	}
+	return labels
 }
 
 // AddBlocklistedForTest appends fingerprint to the named embedded blocklist

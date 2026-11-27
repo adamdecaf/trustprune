@@ -26,6 +26,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
@@ -91,8 +92,8 @@ func UnknownFormatError(name string) error {
 const tableColumnWidth = 40
 
 // tableMaxLineWidth is the widest a non-verbose table line can be: two capped
-// name columns plus KEY, DAYS and the fingerprint preview.
-const tableMaxLineWidth = 2*tableColumnWidth + 40
+// name columns plus KEY, DAYS, the fingerprint preview, and LABELS.
+const tableMaxLineWidth = 2*tableColumnWidth + 80
 
 // soonExpiryDays is the exclusive upper bound for the "soon" DAYS marker in
 // non-verbose table output (0 ≤ days < soonExpiryDays).
@@ -143,9 +144,9 @@ func (p tablePrinter) write(w io.Writer, certs []*x509.Certificate) error {
 	}
 	orderCertsAndPaths(certs, p.paths)
 
-	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT"}
+	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "LABELS"}
 	if p.verbose {
-		headers = append(headers, "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER")
+		headers = append(headers[:5], "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER", "LABELS")
 	}
 
 	rows := make([][]string, len(certs))
@@ -219,16 +220,29 @@ func (p tablePrinter) tableCells(cert *x509.Certificate, now time.Time, i int) [
 		days = fmt.Sprintf("%d", daysLeft)
 		fp = fingerprint
 	}
+	label := formatListLabels(cert, now)
 	cells := []string{subject, issuer, key, days, fp}
 	if !p.verbose {
-		return cells
+		return append(cells, label)
 	}
 	return append(cells,
 		cert.SerialNumber.String(),
 		p.rowPath(i),
 		cert.NotBefore.Format("2006-01-02"),
 		cert.NotAfter.Format("2006-01-02"),
+		label,
 	)
+}
+
+// formatListLabels renders the LABELS column. No labels is "-". Several
+// labels are joined with "," and no spaces, the same way chain and connect
+// format LABELS.
+func formatListLabels(cert *x509.Certificate, now time.Time) string {
+	labels := allowlist.ListLabels(cert, now)
+	if len(labels) == 0 {
+		return "-"
+	}
+	return strings.Join(labels, ",")
 }
 
 // rowPath is the verbose PATH cell for certificate i.

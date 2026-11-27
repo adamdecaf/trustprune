@@ -145,6 +145,19 @@ package allowlist
 	}
 	fmt.Fprintf(&buf, "}\n")
 
+	fmt.Fprintf(&buf, "\n// mozillaServerDistrustAfter is CKA_NSS_SERVER_DISTRUST_AFTER for\n")
+	fmt.Fprintf(&buf, "// fingerprints in mozillaBlocklistedFingerprints that have a date.\n")
+	fmt.Fprintf(&buf, "// Values are UTC RFC 3339 instants recorded at generation time.\n")
+	fmt.Fprintf(&buf, "var mozillaServerDistrustAfter = map[string]string{\n")
+	for i := range entries {
+		e := entries[i]
+		if e.DistrustAfter.IsZero() {
+			continue
+		}
+		fmt.Fprintf(&buf, "\t\"%s\": \"%s\",\n", certutil.GetHexSHA256Fingerprint(*e.Cert), e.DistrustAfter.UTC().Format(time.RFC3339))
+	}
+	fmt.Fprintf(&buf, "}\n")
+
 	out, err := format.Source(buf.Bytes())
 	if err != nil {
 		log.Fatalf("error formatting output code, err=%v", err)

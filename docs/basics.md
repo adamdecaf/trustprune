@@ -145,24 +145,24 @@ Compared fields for a single certificate are subject, issuer, serial, validity, 
 
 The cli sub-command `list` will output a list of certificates installed (and trusted) in the certificate store. This option defaults to the platform (Linux, OSX, or Windows), but can be switched to an application via the `--app` flag. `--out <path>` writes that formatted output to a file for every format and for `--count`. Stdout stays empty.
 
-Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, and SHA256-FINGERPRINT (16-character preview). Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. Every list format, including this table, uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
+Show certificates installed in the platform. The default format is a table with uppercase headers SUBJECT, ISSUER, KEY, DAYS, SHA256-FINGERPRINT (16-character preview), and LABELS. Each column is as wide as its longest header or cell, and columns are separated by two spaces. SUBJECT and ISSUER are capped at 40 characters and end with `…` when cut; ISSUER shows `=` when the full issuer name matches the subject (self-signed roots). DAYS shows `expired` when the certificate is past `NotAfter`, `N!` when fewer than 90 days remain, and the plain day count otherwise. LABELS is `-` when none apply. Values come from the built-in denylist and the Chromium, Mozilla, Apple, and CCADB blocklists (`deny`, `distrusted`, `blocklist:chromium`, `blocklist:mozilla`, `blocklist:apple`, `blocklist:ccadb`). Several labels are joined with a comma and no spaces. Every list format, including this table, uses the same order: subject (case-insensitive), then SHA-256 fingerprint.
 
 ```
 $ trustprune list
-SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT
-EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516
-Entrust Root Certification Authority      =       RSA-2048   330   73c176434f1bc6d5
-Entrust Root Certification Authority - …  =       ECDSA-384  4369  02ed0eb28c14da45
+SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT  LABELS
+EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516    -
+Entrust Root Certification Authority      =       RSA-2048   330   73c176434f1bc6d5    -
+Entrust Root Certification Authority - …  =       ECDSA-384  4369  02ed0eb28c14da45    distrusted,blocklist:mozilla
 ...
 ```
 
-`-v` / `--verbose` applies to that default table. It shows the full fingerprint, serial, source or store path (the URL for `list --url`, with userinfo redacted), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER. The same flag is accepted globally (`trustprune -v list`).
+`-v` / `--verbose` applies to that default table. It shows the full fingerprint, serial, source or store path (the URL for `list --url`, with userinfo redacted), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, NOT-AFTER, and LABELS. The same flag is accepted globally (`trustprune -v list`). `--format json` adds `blocklists` and `distrust_after` (UTC RFC 3339, omitted when unset).
 
 ```
 $ trustprune list -v
 PATH: testdata/lots.crt
-SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT                                                SERIAL                                   NOT-BEFORE  NOT-AFTER
-EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516e77573c0992f0979ca084e4685681ff195ccba8a229b8a76  112324828676200291871926431888494945866  2010-10-30  2030-12-17
+SUBJECT                                   ISSUER  KEY        DAYS  SHA256-FINGERPRINT                                                SERIAL                                   NOT-BEFORE  NOT-AFTER   LABELS
+EE Certification Centre Root CA           =       RSA-2048   1811  3e84ba4342908516e77573c0992f0979ca084e4685681ff195ccba8a229b8a76  112324828676200291871926431888494945866  2010-10-30  2030-12-17  -
 ...
 ```
 

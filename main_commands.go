@@ -894,12 +894,18 @@ FORMATTING
     trustprune list --format openssl
     trustprune list --format json
 
-  Table output (the default) adds KEY and DAYS; -v / --verbose adds the full fingerprint, serial, and path
+  Table output (the default) adds KEY, DAYS, and LABELS; -v / --verbose adds the full fingerprint, serial, and path
     trustprune list -v
     trustprune list --verbose
 
   DAYS (non-verbose table): "expired" when NotAfter is past; "N!" when 0 <= N < 90 days
   remain; plain N otherwise. -v and --format json keep numeric days (json also has expired).
+  LABELS is "-" when none apply. Values come from the built-in denylist and the
+  Chromium, Mozilla, Apple, and CCADB blocklists: deny, distrusted (a recorded
+  Mozilla distrust-after date that has passed), and blocklist:chromium,
+  blocklist:mozilla, blocklist:apple, blocklist:ccadb. Several labels are joined
+  with a comma and no spaces. --format json adds blocklists (an array of those
+  short names) and distrust_after (UTC RFC 3339, omitted when unset).
 
   Only show the count of certificates found
     trustprune list --count
