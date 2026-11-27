@@ -573,7 +573,7 @@ func TestPrepareWebAllowlistURL(t *testing.T) {
 		t.Fatalf("allowlist = %#v", al)
 	}
 	_, err = prepareWebAllowlist(&Config{AllowlistPath: srv.URL + "/allowlist.yaml", AllowlistSHA256: strings.Repeat("ab", 32)})
-	if err == nil || !strings.Contains(err.Error(), "list --allowlist") || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err == nil || !strings.Contains(err.Error(), "list --allowlist") || !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Fatalf("err = %v", err)
 	}
 }

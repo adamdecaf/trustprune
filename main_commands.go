@@ -91,8 +91,9 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file allowlist.json --app java
 
   --file is a local YAML or JSON allowlist, or an https URL. http:// and any other
-  scheme are rejected. --sha256 is the SHA-256 of those file bytes (64 hex digits)
-  and is checked before the allowlist is parsed. --signature is a detached minisign
+  scheme are rejected. --sha256 is the SHA-256 of those file bytes (64 hex digits,
+  or sha256sum output). It is checked before the allowlist is parsed. A mismatch
+  is "sha256 mismatch: want <expected> got <actual>". --signature is a detached minisign
   signature of those same bytes (a local path or https URL) and requires --pubkey,
   a local minisign public key file or the key itself (not a URL). The signature is
   verified before the allowlist is parsed. Signature downloads use the same https
@@ -100,6 +101,7 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
     trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
     trustprune allowlist --file allowlist.yaml --sha256 <64 hex>
+    trustprune allowlist --file allowlist.yaml --sha256 "<64 hex>  allowlist.yaml"
     trustprune allowlist --file allowlist.yaml --signature allowlist.yaml.minisig --pubkey minisign.pub
 
   --store overrides the java, certifi, or poppler store path.
@@ -542,7 +544,8 @@ func createCommand(st *runState) *cli.Command {
   The store is only read. Nothing is removed, added, or backed up.
 
   Platform store, PEM on stdout. --file is a local YAML or JSON allowlist, or an
-  https URL. --sha256 is the SHA-256 of those file bytes (64 hex digits).
+  https URL. --sha256 is the SHA-256 of those file bytes (64 hex digits, or
+  sha256sum output). A mismatch is "sha256 mismatch: want <expected> got <actual>".
   --signature is a detached minisign signature of those bytes (local path or
   https URL) and requires --pubkey (a local minisign public key file or the key
   itself, not a URL). Both are checked before the allowlist is parsed.
@@ -908,7 +911,8 @@ FORMATTING
   That page has a checkbox per certificate (checked means keep) and a
   Download allowlist button. --allowlist pre-checks certificates that
   allowlist would keep. It may be a local YAML or JSON file or an https URL.
-  --sha256 is the SHA-256 of those file bytes (64 hex digits). --signature
+  --sha256 is the SHA-256 of those file bytes (64 hex digits, or sha256sum
+  output). A mismatch is "sha256 mismatch: want <expected> got <actual>". --signature
   is a detached minisign signature of those bytes (local path or https URL)
   and requires --pubkey (a local minisign public key file or the key itself,
   not a URL). The page leaves the trust store unchanged.

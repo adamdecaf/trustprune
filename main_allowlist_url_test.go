@@ -189,15 +189,31 @@ func TestCreateAllowlistURLClientHook(t *testing.T) {
 		if code == 0 || !strings.Contains(stdout.String(), "no backup") {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
-		if strings.Contains(stdout.String(), "SHA-256 mismatch") || strings.Contains(stdout.String(), "unable to read allowlist") {
+		if strings.Contains(stdout.String(), "sha256 mismatch") || strings.Contains(stdout.String(), "unable to read allowlist") {
 			t.Fatalf("fetch or pin failed: %s", stdout.String())
+		}
+	})
+
+	t.Run("sha256sum output", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		var stdout, stderr bytes.Buffer
+		code := run([]string{"trustprune", "allowlist", "--dry-run", "--file", srv.URL + "/al.json", "--sha256", pin + "  al.json"}, &stdout, &stderr)
+		if code == 0 || !strings.Contains(stdout.String(), "no backup") {
+			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+		}
+		if strings.Contains(stdout.String(), "sha256 mismatch") || strings.Contains(stdout.String(), "unable to read allowlist") || strings.Contains(stdout.String(), "invalid --sha256") {
+			t.Fatalf("sha256sum pin failed: %s", stdout.String())
 		}
 	})
 
 	t.Run("mismatch does not apply", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		code := run([]string{"trustprune", "create", "--file", srv.URL + "/al.json", "--sha256", strings.Repeat("ab", 32)}, &stdout, &stderr)
-		if code != 1 || !strings.Contains(stdout.String(), "SHA-256 mismatch") {
+		wantPin := strings.Repeat("ab", 32)
+		code := run([]string{"trustprune", "create", "--file", srv.URL + "/al.json", "--sha256", wantPin}, &stdout, &stderr)
+		wantMsg := "sha256 mismatch: want " + wantPin + " got " + pin
+		if code != 1 || !strings.Contains(stdout.String(), wantMsg) {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
 		if strings.Contains(stdout.String(), "no certificates matched") || strings.Contains(stdout.String(), "unable to read allowlist") {
@@ -213,7 +229,7 @@ func TestCreateAllowlistURLClientHook(t *testing.T) {
 		}
 	})
 
-	if hits < 3 {
+	if hits < 4 {
 		t.Fatalf("hook was not used for every fetch: hits=%d", hits)
 	}
 }

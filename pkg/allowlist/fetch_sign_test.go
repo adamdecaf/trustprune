@@ -142,7 +142,7 @@ func TestFromPathOrURL_SignatureAndPin(t *testing.T) {
 	}
 	opts.SHA256 = strings.Repeat("ab", 32)
 	_, err = FromPathOrURL(alPath, opts)
-	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Fatalf("bad pin: %v", err)
 	}
 }
