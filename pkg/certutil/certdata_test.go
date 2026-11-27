@@ -274,27 +274,43 @@ func TestDistrustedServerCerts_badDate(t *testing.T) {
 	}
 }
 
-func TestDistrustedServerCerts_historicalFixture(t *testing.T) {
+func TestDistrustedServerCerts_fixture(t *testing.T) {
 	bs := readCertDataFixture(t)
-	got, err := ParseDistrustedServerCerts(bytes.NewReader(bs), time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC))
+	cutoff := time.Date(2026, 11, 17, 0, 0, 0, 0, time.UTC)
+	got, err := ParseDistrustedServerCerts(bytes.NewReader(bs), cutoff)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The fixture has no CKA_NSS_SERVER_DISTRUST_AFTER dates. The two
-	// explicitly distrusted certificates that include a DER are DigiNotar.
-	if len(got) != 2 {
+	// Fingerprints are SHA-256 of the certificate DER from the pinned
+	// certdata.txt snapshot. These seven have a passed
+	// CKA_NSS_SERVER_DISTRUST_AFTER at the cutoff.
+	want := map[string]string{
+		"6dc47172e01cbcb0bf62580d895fe2b8ac9ad4f873801e0c10b9c837d21eb177": "Entrust.net Certification Authority (2048)",
+		"2530cc8e98321502bad96f9b1fba1b099e2d299e0f4548bb914f363bc0d4531f": "Izenpe.com",
+		"552f7bdcf1a7af9e6ce672017f4f12abf77240c78e761ac203d1d9d20ac89988": "DigiCert Trusted Root G4",
+		"43df5774b03e7fef5fe40d931a7bedf1bb2e6b42738c4e6d3841103d3aa7f339": "Entrust Root Certification Authority - G2",
+		"02ed0eb28c14da45165c566791700d6451d7fb56f0b2ab1d3b8eb070e56edff5": "Entrust Root Certification Authority - EC1",
+		"40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367": "emSign Root CA - G1",
+		"57de0583efd2b26e0361da99da9df4648def7ee8441c3b728afa9bcde0f9b26a": "Autoridad de Certificacion Firmaprofesional CIF A62634068",
+	}
+	if len(got) != len(want) {
 		names := make([]string, 0, len(got))
 		for _, entry := range got {
 			names = append(names, entry.Cert.Subject.String())
 		}
-		t.Fatalf("got %d distrusted certs: %s", len(got), strings.Join(names, "; "))
+		t.Fatalf("got %d distrusted certs, want %d: %s", len(got), len(want), strings.Join(names, "; "))
 	}
 	for _, entry := range got {
-		if !entry.NotTrusted || !entry.DistrustAfter.IsZero() {
-			t.Fatalf("%s NotTrusted=%v date=%s", entry.Cert.Subject.CommonName, entry.NotTrusted, entry.DistrustAfter)
+		fp := GetHexSHA256Fingerprint(*entry.Cert)
+		cn, ok := want[fp]
+		if !ok {
+			t.Fatalf("unexpected distrusted fingerprint %s (%s)", fp, entry.Cert.Subject.String())
 		}
-		if !strings.Contains(entry.Cert.Subject.String(), "DigiNotar") {
-			t.Fatalf("subject %s", entry.Cert.Subject.String())
+		if entry.Cert.Subject.CommonName != cn {
+			t.Fatalf("%s CommonName %q, want %q", fp, entry.Cert.Subject.CommonName, cn)
+		}
+		if entry.NotTrusted || entry.DistrustAfter.IsZero() || !entry.DistrustAfter.Before(cutoff) {
+			t.Fatalf("%s NotTrusted=%v date=%s", entry.Cert.Subject.CommonName, entry.NotTrusted, entry.DistrustAfter)
 		}
 	}
 }
@@ -326,23 +342,41 @@ func readCertDataFixture(t *testing.T) []byte {
 	return bs
 }
 
-func TestDecodeNSS_historicalFixture(t *testing.T) {
+func TestDecodeNSS_fixture(t *testing.T) {
 	bs := readCertDataFixture(t)
 	entries, err := parseCertData(bytes.NewReader(bs))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 132 {
-		t.Fatalf("got %d certs", len(entries))
+	if len(entries) != 113 {
+		t.Fatalf("got %d certs, want 113", len(entries))
 	}
-	if entries[0].cert.Subject.CommonName != "GlobalSign Root CA" {
+	if entries[0].cert.Subject.CommonName != "COMODO ECC Certification Authority" {
 		t.Fatalf("first cert %q", entries[0].cert.Subject.CommonName)
 	}
-	// The historical fixture has no CKA_NSS_SERVER_DISTRUST_AFTER dates.
-	for i, entry := range entries {
-		if !entry.serverDistrustAfter.IsZero() {
-			t.Fatalf("cert %d has distrust-after %s", i, entry.serverDistrustAfter)
+	// Four roots in the pinned snapshot have a CKA_NSS_SERVER_DISTRUST_AFTER date.
+	wantDated := map[string]time.Time{
+		"Izenpe.com":               time.Date(2026, 4, 15, 23, 59, 59, 0, time.UTC),
+		"DigiCert Trusted Root G4": time.Date(2026, 9, 14, 23, 59, 59, 0, time.UTC),
+		"emSign Root CA - G1":      time.Date(2026, 11, 16, 23, 59, 59, 0, time.UTC),
+		"Autoridad de Certificacion Firmaprofesional CIF A62634068": time.Date(2026, 8, 6, 7, 1, 0, 0, time.UTC),
+	}
+	dated := 0
+	for _, entry := range entries {
+		cn := entry.cert.Subject.CommonName
+		if want, ok := wantDated[cn]; ok {
+			dated++
+			if !entry.serverDistrustAfter.Equal(want) {
+				t.Fatalf("%s distrust-after %s, want %s", cn, entry.serverDistrustAfter.UTC().Format(time.RFC3339), want.Format(time.RFC3339))
+			}
+			continue
 		}
+		if !entry.serverDistrustAfter.IsZero() {
+			t.Fatalf("%s has unexpected distrust-after %s", cn, entry.serverDistrustAfter)
+		}
+	}
+	if dated != len(wantDated) {
+		t.Fatalf("dated certs %d, want %d", dated, len(wantDated))
 	}
 	sum := sha256.New()
 	for _, entry := range entries {
@@ -350,7 +384,8 @@ func TestDecodeNSS_historicalFixture(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	const want = "e68e03a1d1d4532b86fe113857f10b1c00bd450a5137cf5c5024b00f349e19e2"
+	// SHA-256 of the 113 certificate DERs in parse order, from the pinned snapshot.
+	const want = "73b5aca636a138bad80104e5b388b617b7c72ba490d653d3feab1db5622740a8"
 	if got := hex.EncodeToString(sum.Sum(nil)); got != want {
 		t.Fatalf("fixture digest %s", got)
 	}
