@@ -17,8 +17,10 @@ package cmd
 import (
 	"bytes"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -59,10 +61,15 @@ type androidDisable struct {
 // ListAndroidGuide is the guide-only list --app android report. It reads a
 // pulled Android cacerts directory with FromAndroidDirFiles, loads the
 // allowlist at cfg.AllowlistPath, and prints the certificates
-// allowlist.Matches would not keep, most important first, with a short
-// reason for each, plus short Settings and adb steps. It does not write to
-// dir or to a device. The report is written with ui.WriteConfiguredText so
-// --out stages the same way as other list output.
+// allowlist.Matches would not keep, most important first. The default
+// output is a compact table with SUBJECT, REASON, DAYS, a SHA-256
+// preview, and LABELS, plus a footer of the form "N to disable of M".
+// REASON includes a recorded Mozilla distrust-after instant when one
+// exists. LABELS and JSON blocklists/distrust_after use the same
+// embedded denylist and blocklist data as list. Settings and adb steps
+// print only with -v, and only on the table. --format json and --count
+// are supported; other formats are rejected. It does not write to dir
+// or to a device. --out stages the same way as other list output.
 func ListAndroidGuide(dir string, cfg *ui.Config) error {
 	files, err := certutil.FromAndroidDirFiles(dir)
 	if err != nil {
@@ -88,11 +95,26 @@ func ListAndroidGuide(dir string, cfg *ui.Config) error {
 		}
 	}
 	sortAndroidDisable(rows)
-	var buf bytes.Buffer
-	if err := writeAndroidGuide(&buf, rows); err != nil {
-		return err
+	if cfg != nil && cfg.Count {
+		return ui.WriteCount(cfg, len(rows))
 	}
-	return ui.WriteConfiguredText(cfg, strings.TrimRight(buf.String(), "\n"))
+	format := ui.DefaultFormat()
+	if cfg != nil && strings.TrimSpace(cfg.Format) != "" {
+		format = cfg.Format
+	}
+	switch {
+	case strings.EqualFold(format, "json"):
+		return writeAndroidGuideJSON(cfg, rows, len(files), now)
+	case strings.EqualFold(format, ui.DefaultFormat()):
+		verbose := cfg != nil && cfg.Verbose
+		var buf bytes.Buffer
+		if err := writeAndroidGuide(&buf, rows, len(files), now, verbose); err != nil {
+			return err
+		}
+		return ui.WriteConfiguredText(cfg, strings.TrimRight(buf.String(), "\n"))
+	default:
+		return fmt.Errorf("list --app android --format supports table and json")
+	}
 }
 
 func rankAndroidDisable(f certutil.AndroidFile, now time.Time) androidDisable {
@@ -126,6 +148,9 @@ func rankAndroidDisable(f certutil.AndroidFile, now time.Time) androidDisable {
 		}
 	} else if expired {
 		parts[len(parts)-1] += ", expired"
+	}
+	if after := allowlist.MozillaDistrustAfter(f.Cert); !after.IsZero() {
+		parts = append(parts, "distrust after "+after.UTC().Format(time.RFC3339))
 	}
 	row.reason = strings.Join(parts, "; ")
 	return row
@@ -181,34 +206,138 @@ func androidNotAfter(cert *x509.Certificate) time.Time {
 	return cert.NotAfter.UTC()
 }
 
-func writeAndroidGuide(w io.Writer, disable []androidDisable) error {
-	if len(disable) == 0 {
-		if _, err := io.WriteString(w, "Certificates the allowlist/denylist would disable: none\n\n"); err != nil {
-			return err
-		}
-	} else {
-		if _, err := fmt.Fprintf(w, "Certificates the allowlist/denylist would disable (%d), most important first:\n", len(disable)); err != nil {
-			return err
-		}
-		for i := range disable {
-			cert := disable[i].file.Cert
-			name := "(no subject)"
-			fp := ""
-			if cert != nil {
-				name = certutil.StringifyPKIXName(cert.Subject)
-				if name == "" {
-					name = "(no subject)"
-				}
-				fp = certutil.GetHexSHA256Fingerprint(*cert)
-			}
-			if _, err := fmt.Fprintf(w, "\n  %s\n  SHA-256: %s\n  Reason: %s\n", name, fp, disable[i].reason); err != nil {
-				return err
-			}
-		}
-		if _, err := io.WriteString(w, "\n"); err != nil {
-			return err
-		}
+func writeAndroidGuide(w io.Writer, disable []androidDisable, total int, now time.Time, verbose bool) error {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	headers := []string{"SUBJECT", "REASON", "DAYS", "SHA256-FINGERPRINT", "LABELS"}
+	if verbose {
+		headers = []string{"SUBJECT", "REASON", "DAYS", "SHA256-FINGERPRINT", "PATH", "LABELS"}
+	}
+	rows := make([][]string, len(disable))
+	for i := range disable {
+		rows[i] = androidGuideRow(disable[i], now, verbose)
+	}
+	if _, err := io.WriteString(w, ui.AlignTable(headers, rows)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(w, "%d to disable of %d\n", len(disable), total); err != nil {
+		return err
+	}
+	if !verbose {
+		return nil
+	}
+	if _, err := io.WriteString(w, "\n"); err != nil {
+		return err
 	}
 	_, err := io.WriteString(w, androidGuideSteps)
 	return err
+}
+
+func androidGuideRow(row androidDisable, now time.Time, verbose bool) []string {
+	cert := row.file.Cert
+	subject := "(no subject)"
+	fp := ""
+	days := "-"
+	labels := "-"
+	if cert != nil {
+		subject = certutil.StringifyPKIXName(cert.Subject)
+		if subject == "" {
+			subject = "(no subject)"
+		}
+		subject = ui.TruncateTableColumn(subject)
+		fp = certutil.GetHexSHA256Fingerprint(*cert)
+		daysLeft := certutil.DaysUntilExpiry(cert, now)
+		if verbose {
+			days = fmt.Sprintf("%d", daysLeft)
+		} else {
+			days = ui.FormatTableDays(daysLeft)
+			if len(fp) > ui.FingerprintPreviewLength {
+				fp = fp[:ui.FingerprintPreviewLength]
+			}
+		}
+		labels = formatAndroidLabels(cert, now)
+	}
+	reason := row.reason
+	if reason == "" {
+		reason = "-"
+	}
+	if verbose {
+		path := strings.TrimSpace(row.file.Path)
+		if path == "" {
+			path = "-"
+		} else {
+			path = filepath.Base(path)
+		}
+		return []string{subject, reason, days, fp, path, labels}
+	}
+	return []string{subject, reason, days, fp, labels}
+}
+
+func formatAndroidLabels(cert *x509.Certificate, now time.Time) string {
+	labels := allowlist.ListLabels(cert, now)
+	if len(labels) == 0 {
+		return "-"
+	}
+	return strings.Join(labels, ",")
+}
+
+type androidDisableJSON struct {
+	Subject       string   `json:"subject"`
+	Reason        string   `json:"reason"`
+	Days          int      `json:"days"`
+	Expired       bool     `json:"expired"`
+	SHA256        string   `json:"sha256"`
+	Path          string   `json:"path,omitempty"`
+	UserCA        bool     `json:"user_ca,omitempty"`
+	Labels        []string `json:"labels,omitempty"`
+	Blocklists    []string `json:"blocklists,omitempty"`
+	DistrustAfter string   `json:"distrust_after,omitempty"`
+}
+
+type androidGuideJSON struct {
+	ToDisable    int                  `json:"to_disable"`
+	Total        int                  `json:"total"`
+	Certificates []androidDisableJSON `json:"certificates"`
+}
+
+func writeAndroidGuideJSON(cfg *ui.Config, disable []androidDisable, total int, now time.Time) error {
+	if now.IsZero() {
+		now = time.Now()
+	}
+	out := androidGuideJSON{
+		ToDisable:    len(disable),
+		Total:        total,
+		Certificates: make([]androidDisableJSON, 0, len(disable)),
+	}
+	for i := range disable {
+		out.Certificates = append(out.Certificates, androidDisableJSONRow(disable[i], now))
+	}
+	return ui.WriteOutput(cfg, func(w io.Writer) error {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		return enc.Encode(out)
+	})
+}
+
+func androidDisableJSONRow(row androidDisable, now time.Time) androidDisableJSON {
+	item := androidDisableJSON{Reason: row.reason, Path: row.file.Path}
+	if row.file.UserCA() {
+		item.UserCA = true
+	}
+	cert := row.file.Cert
+	if cert == nil {
+		return item
+	}
+	item.Subject = certutil.StringifyPKIXName(cert.Subject)
+	item.SHA256 = certutil.GetHexSHA256Fingerprint(*cert)
+	days := certutil.DaysUntilExpiry(cert, now)
+	item.Days = days
+	item.Expired = days < 0
+	item.Labels = allowlist.ListLabels(cert, now)
+	item.Blocklists = allowlist.BlocklistIDs(cert)
+	if after := allowlist.MozillaDistrustAfter(cert); !after.IsZero() {
+		item.DistrustAfter = after.UTC().Format(time.RFC3339)
+	}
+	return item
 }
