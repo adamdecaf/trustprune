@@ -18,7 +18,7 @@
 // A certificate is included when CKA_TRUST_SERVER_AUTH is CKT_NSS_NOT_TRUSTED,
 // or when CKA_NSS_SERVER_DISTRUST_AFTER had passed at generation time.
 // The distrust-after date is recorded on that entry.
-// Generated on 2026-11-18T04:07:25Z by box, any modifications will be overwritten
+// Generated on 2026-11-27T20:06:43Z by box, any modifications will be overwritten
 package allowlist
 
 var mozillaBlocklistedFingerprints = []string{

@@ -81,10 +81,10 @@ func TestMozillaIncludedAllowlistMatchesFixture(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(certs) != 132 {
-		t.Fatalf("fixture has %d trusted server certs, want 132", len(certs))
+	if len(certs) != 113 {
+		t.Fatalf("fixture has %d trusted server certs, want 113", len(certs))
 	}
-	if certs[0].Cert == nil || certs[0].Cert.Subject.CommonName != "GlobalSign Root CA" {
+	if certs[0].Cert == nil || certs[0].Cert.Subject.CommonName != "COMODO ECC Certification Authority" {
 		cn := ""
 		if certs[0].Cert != nil {
 			cn = certs[0].Cert.Subject.CommonName

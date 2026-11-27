@@ -255,12 +255,12 @@ Certificate:
 ```
 $ trustprune list --url https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt --format long
 Certificate
-  SHA256 Fingerprint: ebd41040e4bb3ec742c9e381d31ef2a41a48b6685c96e7cef3c1df6cd4331c99
-  SerialNumber: 4835703278459707669005204
-  Subject: GlobalSign Root CA
-  Issuer: GlobalSign Root CA
-  NotBefore: 1998-09-01T12:00:00Z
-  NotAfter: 2028-01-28T12:00:00Z
+  SHA256 Fingerprint: 1793927a0614549789adce2f8f34f7f0b66d0f3ae3a3b84d21ec15dbba4fadc7
+  SerialNumber: 41578283867086692638256921589707938090
+  Subject: COMODO ECC Certification Authority
+  Issuer: COMODO ECC Certification Authority
+  NotBefore: 2008-03-06T00:00:00Z
+  NotAfter: 2038-01-18T23:59:59Z
   IsCA: true
 ...
 ```
