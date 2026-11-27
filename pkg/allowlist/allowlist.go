@@ -111,6 +111,66 @@ func Blocklisted(cert *x509.Certificate) bool {
 		fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp)
 }
 
+// Names for BlocklistNames, in the order a hit is reported.
+const (
+	BlocklistChromium = "Chromium blocklist"
+	BlocklistMozilla  = "Mozilla blocklist"
+	BlocklistApple    = "Apple blocklist"
+	BlocklistCCADB    = "CCADB removed"
+)
+
+// BlocklistNames reports which embedded blocklists contain cert's SHA-256,
+// in a stable order: Chromium, Mozilla, Apple, then CCADB removed. It does
+// not include the built-in denylist; use Denied for that. The match is the
+// certificate SHA-256, the same comparison Matches uses.
+func BlocklistNames(cert *x509.Certificate) []string {
+	if cert == nil || len(cert.Raw) == 0 {
+		return nil
+	}
+	fp := certutil.GetHexSHA256Fingerprint(*cert)
+	var names []string
+	if fingerprintBlocked(blocklistedFingerprints, fp) {
+		names = append(names, BlocklistChromium)
+	}
+	if fingerprintBlocked(mozillaBlocklistedFingerprints, fp) {
+		names = append(names, BlocklistMozilla)
+	}
+	if fingerprintBlocked(appleBlocklistedFingerprints, fp) {
+		names = append(names, BlocklistApple)
+	}
+	if fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp) {
+		names = append(names, BlocklistCCADB)
+	}
+	return names
+}
+
+// AddBlocklistedForTest appends fingerprint to the named embedded blocklist
+// until the returned function runs. list is "chromium", "mozilla", "apple",
+// or "ccadb". It is for tests. Do not call it from parallel tests.
+func AddBlocklistedForTest(list, fingerprint string) func() {
+	fp := strings.ToLower(strings.TrimSpace(fingerprint))
+	switch strings.ToLower(strings.TrimSpace(list)) {
+	case "chromium":
+		prev := blocklistedFingerprints
+		blocklistedFingerprints = append(append([]string{}, prev...), fp)
+		return func() { blocklistedFingerprints = prev }
+	case "mozilla":
+		prev := mozillaBlocklistedFingerprints
+		mozillaBlocklistedFingerprints = append(append([]string{}, prev...), fp)
+		return func() { mozillaBlocklistedFingerprints = prev }
+	case "apple":
+		prev := appleBlocklistedFingerprints
+		appleBlocklistedFingerprints = append(append([]string{}, prev...), fp)
+		return func() { appleBlocklistedFingerprints = prev }
+	case "ccadb":
+		prev := ccadbRemovedBlocklistedFingerprints
+		ccadbRemovedBlocklistedFingerprints = append(append([]string{}, prev...), fp)
+		return func() { ccadbRemovedBlocklistedFingerprints = prev }
+	default:
+		panic("allowlist.AddBlocklistedForTest: unknown blocklist " + list)
+	}
+}
+
 // MatchesAll checks if a given list of certificates all match against an allowlist
 func (a Allowlist) MatchesAll(cs []*x509.Certificate) bool {
 	for i := range cs {
