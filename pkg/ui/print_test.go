@@ -28,12 +28,14 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
@@ -275,7 +277,7 @@ func TestTablePrinterGoldenWidth(t *testing.T) {
 	compareGolden(t, tableGoldenPath, out)
 
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if !strings.HasPrefix(lines[0], "SUBJECT ") || !strings.Contains(lines[0], "ISSUER") || !strings.Contains(lines[0], "SHA256-FINGERPRINT") {
+	if !strings.HasPrefix(lines[0], "SUBJECT ") || !strings.Contains(lines[0], "ISSUER") || !strings.Contains(lines[0], "SHA256-FINGERPRINT") || !strings.Contains(lines[0], "LABELS") {
 		t.Fatalf("headers: %q", lines[0])
 	}
 	if strings.Contains(lines[0], "SHA256 FINGERPRINT") {
@@ -304,7 +306,7 @@ func TestTablePrinterVerboseGolden(t *testing.T) {
 		t.Fatalf("shared path line: %q", lines[0])
 	}
 	header := lines[1]
-	for _, name := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"} {
+	for _, name := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER", "LABELS"} {
 		if !strings.Contains(header, name) {
 			t.Errorf("header missing %s: %q", name, header)
 		}
@@ -501,12 +503,12 @@ func TestTablePrinterDaysMarkers(t *testing.T) {
 				matched = true
 				fields := strings.Fields(line)
 				// SUBJECT may be multi-token; DAYS is immediately before fingerprint (hex)
-				// Layout: SUBJECT ... ISSUER KEY DAYS FINGERPRINT
+				// Layout: SUBJECT ... ISSUER KEY DAYS FINGERPRINT LABELS
 				// With self-signed ISSUER is "=".
-				if len(fields) < 5 {
+				if len(fields) < 6 {
 					t.Fatalf("short line: %q", line)
 				}
-				gotDays := fields[len(fields)-2]
+				gotDays := fields[len(fields)-3]
 				if gotDays != days {
 					t.Errorf("%s: DAYS=%q want %q\nline=%q", subj, gotDays, days, line)
 				}
@@ -539,7 +541,7 @@ func TestTablePrinterDaysMarkers(t *testing.T) {
 	if strings.Contains(vheader, "PATH") {
 		t.Fatalf("shared path kept the PATH column:\n%s", vout)
 	}
-	if !strings.Contains(vheader, "SHA256-FINGERPRINT") || !strings.Contains(vheader, "NOT-BEFORE") || !strings.Contains(vheader, "NOT-AFTER") || !strings.Contains(vheader, "SERIAL") {
+	if !strings.Contains(vheader, "SHA256-FINGERPRINT") || !strings.Contains(vheader, "NOT-BEFORE") || !strings.Contains(vheader, "NOT-AFTER") || !strings.Contains(vheader, "SERIAL") || !strings.Contains(vheader, "LABELS") {
 		t.Fatalf("verbose headers:\n%s", vout)
 	}
 	if strings.Contains(vout, "SHA256 FINGERPRINT") || strings.Contains(vout, "NOT BEFORE") || strings.Contains(vout, "NOT AFTER") {
@@ -569,7 +571,7 @@ func TestTableColumnWidthsMatchContent(t *testing.T) {
 	if err := (tablePrinter{now: now}).write(&buf, certs); err != nil {
 		t.Fatal(err)
 	}
-	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT"}
+	headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "LABELS"}
 	rows := expectedTableRows(certs, now, false, nil)
 	assertContentColumnWidths(t, buf.String(), headers, rows)
 
@@ -611,7 +613,7 @@ func TestVerboseTablePathColumn(t *testing.T) {
 				t.Fatalf("path repeated in the table:\n%s", out)
 			}
 		}
-		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"}
+		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER", "LABELS"}
 		rows := expectedTableRows(certs, now, true, []string{"stores/one.pem", "stores/one.pem"})
 		rows = dropPathCells(rows)
 		assertContentColumnWidths(t, strings.Join(lines[1:], "\n")+"\n", headers, rows)
@@ -642,7 +644,7 @@ func TestVerboseTablePathColumn(t *testing.T) {
 		if !strings.Contains(out, "a.pem") || !strings.Contains(out, "b.pem") {
 			t.Fatalf("missing path cells:\n%s", out)
 		}
-		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER"}
+		headers := []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "PATH", "NOT-BEFORE", "NOT-AFTER", "LABELS"}
 		rows := expectedTableRows(certs, now, true, paths)
 		assertContentColumnWidths(t, out, headers, rows)
 		if got := contentWidth(headers, rows, 5); got != len("SERIAL") {
@@ -678,6 +680,7 @@ func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, p
 			days = fmt.Sprintf("%d", daysLeft)
 			preview = fp
 		}
+		label := formatListLabels(cert, now)
 		rows[i] = []string{subject, issuer, key, days, preview}
 		if verbose {
 			path := "-"
@@ -689,7 +692,10 @@ func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, p
 				path,
 				cert.NotBefore.Format("2006-01-02"),
 				cert.NotAfter.Format("2006-01-02"),
+				label,
 			)
+		} else {
+			rows[i] = append(rows[i], label)
 		}
 	}
 	return rows
@@ -698,7 +704,7 @@ func expectedTableRows(certs []*x509.Certificate, now time.Time, verbose bool, p
 func dropPathCells(rows [][]string) [][]string {
 	out := make([][]string, len(rows))
 	for i, row := range rows {
-		// SUBJECT ISSUER KEY DAYS FP SERIAL PATH NOT-BEFORE NOT-AFTER
+		// SUBJECT ISSUER KEY DAYS FP SERIAL PATH NOT-BEFORE NOT-AFTER LABELS
 		next := append([]string{}, row[:6]...)
 		next = append(next, row[7:]...)
 		out[i] = next
@@ -980,10 +986,11 @@ func tableIDs(t *testing.T, out string) []listedCert {
 	got := make([]listedCert, 0, len(lines)-1)
 	for _, line := range lines[1:] {
 		fields := strings.Fields(line)
-		if len(fields) < 2 {
+		// Layout: SUBJECT ... ISSUER KEY DAYS FINGERPRINT LABELS
+		if len(fields) < 6 {
 			t.Fatalf("short row %q", line)
 		}
-		got = append(got, listedCert{subject: fields[0], fp: fields[len(fields)-1]})
+		got = append(got, listedCert{subject: fields[0], fp: fields[len(fields)-2]})
 	}
 	return got
 }
@@ -1047,4 +1054,78 @@ func assertLineHas(t *testing.T, out, marker, path string) {
 		}
 	}
 	t.Fatalf("missing %s:\n%s", marker, out)
+}
+
+func TestTableAndJSONLabelsFromBlocklist(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	now := time.Date(2026, 11, 27, 18, 0, 0, 0, time.UTC)
+	certs := lotsCerts(t)
+
+	var buf bytes.Buffer
+	if err := (tablePrinter{now: now}).write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "LABELS") {
+		t.Fatalf("missing LABELS header:\n%s", out)
+	}
+	var sawLabeled, sawPlain bool
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n")[1:] {
+		if strings.Contains(line, "02ed0eb28c14da45") || strings.Contains(line, "43df5774b03e7fef") || strings.Contains(line, "6dc47172e01cbcb0") {
+			if !strings.Contains(line, "distrusted,blocklist:mozilla") {
+				t.Errorf("Entrust row missing labels:\n%s", line)
+			}
+			sawLabeled = true
+			continue
+		}
+		if strings.HasPrefix(line, "EE Certification Centre Root CA") {
+			if !strings.HasSuffix(strings.TrimRight(line, " "), "-") {
+				t.Errorf("plain row should be unlabeled:\n%s", line)
+			}
+			sawPlain = true
+		}
+	}
+	if !sawLabeled || !sawPlain {
+		t.Fatalf("missing labeled or plain row:\n%s", out)
+	}
+
+	cfg := &Config{Format: "json", SourcePath: "testdata/lots.crt"}
+	buf.Reset()
+	p := jsonPrinter{meta: Meta{Name: "file"}, cfg: cfg, now: now}
+	if err := p.write(&buf, certs); err != nil {
+		t.Fatal(err)
+	}
+	var rows []jsonCert
+	if err := json.Unmarshal(buf.Bytes(), &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, buf.Bytes())
+	}
+	var labeled int
+	for i, r := range rows {
+		wantLabels := allowlist.ListLabels(certs[i], now)
+		wantLists := allowlist.BlocklistIDs(certs[i])
+		wantAfter := ""
+		if after := allowlist.MozillaDistrustAfter(certs[i]); !after.IsZero() {
+			wantAfter = after.Format(time.RFC3339)
+		}
+		if r.DistrustAfter != wantAfter {
+			t.Errorf("%s distrust_after=%q want %q", r.Subject, r.DistrustAfter, wantAfter)
+		}
+		if !slices.Equal(r.Blocklists, wantLists) {
+			t.Errorf("%s blocklists=%v want %v", r.Subject, r.Blocklists, wantLists)
+		}
+		got := formatListLabels(certs[i], now)
+		if len(wantLabels) == 0 {
+			if got != "-" {
+				t.Errorf("%s table labels=%q want -", r.Subject, got)
+			}
+			continue
+		}
+		if got != strings.Join(wantLabels, ",") {
+			t.Errorf("%s table labels=%q want %q", r.Subject, got, strings.Join(wantLabels, ","))
+		}
+		labeled++
+	}
+	if labeled == 0 {
+		t.Fatal("lots.crt had no blocklisted certs")
+	}
 }

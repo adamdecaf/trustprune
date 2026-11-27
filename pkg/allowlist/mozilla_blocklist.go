@@ -44,3 +44,16 @@ var mozillaBlocklistedFingerprints = []string{
 	// CKA_NSS_SERVER_DISTRUST_AFTER 2026-08-06T07:01:00Z
 	`57de0583efd2b26e0361da99da9df4648def7ee8441c3b728afa9bcde0f9b26a`,
 }
+
+// mozillaServerDistrustAfter is CKA_NSS_SERVER_DISTRUST_AFTER for
+// fingerprints in mozillaBlocklistedFingerprints that have a date.
+// Values are UTC RFC 3339 instants recorded at generation time.
+var mozillaServerDistrustAfter = map[string]string{
+	"6dc47172e01cbcb0bf62580d895fe2b8ac9ad4f873801e0c10b9c837d21eb177": "2024-11-30T23:59:59Z",
+	"2530cc8e98321502bad96f9b1fba1b099e2d299e0f4548bb914f363bc0d4531f": "2026-04-15T23:59:59Z",
+	"552f7bdcf1a7af9e6ce672017f4f12abf77240c78e761ac203d1d9d20ac89988": "2026-09-14T23:59:59Z",
+	"43df5774b03e7fef5fe40d931a7bedf1bb2e6b42738c4e6d3841103d3aa7f339": "2024-11-30T23:59:59Z",
+	"02ed0eb28c14da45165c566791700d6451d7fb56f0b2ab1d3b8eb070e56edff5": "2024-11-30T23:59:59Z",
+	"40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367": "2026-11-16T23:59:59Z",
+	"57de0583efd2b26e0361da99da9df4648def7ee8441c3b728afa9bcde0f9b26a": "2026-08-06T07:01:00Z",
+}

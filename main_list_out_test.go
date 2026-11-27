@@ -559,7 +559,7 @@ func TestListFormatDefaultAndUnknown(t *testing.T) {
 		if lines[0] != "PATH: "+lots {
 			t.Fatalf("shared path line=%q", lines[0])
 		}
-		for _, header := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER"} {
+		for _, header := range []string{"SUBJECT", "ISSUER", "KEY", "DAYS", "SHA256-FINGERPRINT", "SERIAL", "NOT-BEFORE", "NOT-AFTER", "LABELS"} {
 			if !strings.Contains(lines[1], header) {
 				t.Fatalf("verbose header %q missing from %q", header, lines[1])
 			}
@@ -643,5 +643,43 @@ func TestListAcrobatTrustReportCLI(t *testing.T) {
 	}
 	if string(got) != res.stdout {
 		t.Fatalf("file=%q stdout=%q", got, res.stdout)
+	}
+}
+
+func TestListLabelsCLI(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+
+	res := runCLI(t, bin, home, "list", "--file", filepath.Join("testdata", "lots.crt"))
+	if res.code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, "LABELS") {
+		t.Fatalf("missing LABELS header:\n%s", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "distrusted,blocklist:mozilla") {
+		t.Fatalf("missing Entrust labels:\n%s", res.stdout)
+	}
+
+	js := runCLI(t, bin, home, "list", "--file", filepath.Join("testdata", "lots.crt"), "--format", "json")
+	if js.code != 0 {
+		t.Fatalf("json code=%d stdout=%s stderr=%s", js.code, js.stdout, js.stderr)
+	}
+	if !strings.Contains(js.stdout, `"blocklists"`) || !strings.Contains(js.stdout, `"mozilla"`) {
+		t.Fatalf("json missing blocklists:\n%s", js.stdout)
+	}
+	if !strings.Contains(js.stdout, `"distrust_after"`) || !strings.Contains(js.stdout, "2024-11-30T23:59:59Z") {
+		t.Fatalf("json missing distrust_after:\n%s", js.stdout)
+	}
+
+	gz := runCLI(t, bin, home, "list", "--file", filepath.Join("testdata", "certdata.txt.gz"), "--format", "json")
+	if gz.code != 0 {
+		t.Fatalf("certdata code=%d stdout=%s stderr=%s", gz.code, gz.stdout, gz.stderr)
+	}
+	if !strings.Contains(gz.stdout, "2026-09-14T23:59:59Z") || !strings.Contains(gz.stdout, "2026-11-16T23:59:59Z") {
+		t.Fatalf("certdata json missing DigiCert G4 or emSign distrust_after:\n%s", gz.stdout)
+	}
+	if !strings.Contains(gz.stdout, "DigiCert Trusted Root G4") || !strings.Contains(gz.stdout, "emSign Root CA - G1") {
+		t.Fatalf("certdata json missing expected subjects:\n%s", gz.stdout)
 	}
 }
