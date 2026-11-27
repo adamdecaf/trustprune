@@ -166,7 +166,7 @@ trustprune list --app okular                           # shows the NSS DB path, 
 
 # From a file, or a downloaded PEM or DER bundle (Mozilla certdata.txt also works; not a TLS site lookup)
 trustprune list --file example.crt
-trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+trustprune list --url https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt
 
 # Add
 trustprune add --file cert.pem

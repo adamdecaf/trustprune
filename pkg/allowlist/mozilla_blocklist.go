@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Fingerprints are derived from Mozilla certdata.txt,
-// https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+// https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt
 // Mozilla Public License, v. 2.0. See NOTICE.
 // A certificate is included when CKA_TRUST_SERVER_AUTH is CKT_NSS_NOT_TRUSTED,
 // or when CKA_NSS_SERVER_DISTRUST_AFTER had passed at generation time.

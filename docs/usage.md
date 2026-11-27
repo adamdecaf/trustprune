@@ -110,7 +110,7 @@ trustprune list --file example.crt
 trustprune list --file /tmp/android-cacerts
 trustprune list --app android --file /tmp/android-cacerts --allowlist allowlist.yaml
 # Downloads a PEM or DER bundle (Mozilla certdata.txt also works). Not a live TLS lookup.
-trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+trustprune list --url https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt
 trustprune list --ui web --allowlist allowlist.json
 trustprune list --ui web --allowlist https://trustprune.com/downloads/allowlists/mozilla-included.yaml
 ```

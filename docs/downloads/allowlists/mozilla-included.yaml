@@ -1,6 +1,6 @@
 # Baseline allowlist of Mozilla certdata.txt roots trusted for TLS server authentication.
 # Source: testdata/certdata.txt.gz
-# Upstream: https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt
+# Upstream: https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt
 # Regenerate: make allowlists
 #   or: CGO_ENABLED=0 go run pkg/allowlist/mozilla_allowlist_gen.go -file testdata/certdata.txt.gz
 # Fingerprints are SHA-256 of the certificate DER.

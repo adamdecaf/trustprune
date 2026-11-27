@@ -77,7 +77,7 @@ $ trustprune create --file wh.json --app java --out java-cas.pem
 
 ## Baseline allowlists
 
-Mozilla's [certdata.txt](https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt) trusts a set of roots for TLS server authentication. That set is a baseline allowlist: those roots, as SHA-256 fingerprints.
+Mozilla's [certdata.txt](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt) trusts a set of roots for TLS server authentication. That set is a baseline allowlist: those roots, as SHA-256 fingerprints.
 
 This is a starting baseline. It is not a top-1-million list or a Censys observed list.
 
@@ -205,7 +205,7 @@ $ trustprune gen-allowlist --out allowlist.yaml --from firefox
 
 `trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted. That list matches certificate SHA-256 fingerprints.
 
-It also includes a Mozilla blocklist generated from [certdata.txt](https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt). That list matches the same way. It contains certificates marked `CKT_NSS_NOT_TRUSTED` for server authentication, and roots whose `CKA_NSS_SERVER_DISTRUST_AFTER` date has passed. The date is recorded on those entries. A root whose distrust-after date is still in the future is omitted until `make generate` runs again after that date.
+It also includes a Mozilla blocklist generated from [certdata.txt](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt). That list matches the same way. It contains certificates marked `CKT_NSS_NOT_TRUSTED` for server authentication, and roots whose `CKA_NSS_SERVER_DISTRUST_AFTER` date has passed. The date is recorded on those entries. A root whose distrust-after date is still in the future is omitted until `make generate` runs again after that date.
 
 It also includes an Apple blocklist generated from the [Blocked Certificates](https://support.apple.com/en-us/103255) table on Apple's "CA certificates with additional constraints" page. That list matches certificate SHA-256 fingerprints. Certificates Apple only constrains, rather than blocks, are left out. HT204132 is the earlier Apple support article that described these lists.
 

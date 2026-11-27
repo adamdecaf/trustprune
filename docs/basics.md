@@ -253,7 +253,7 @@ Certificate:
 `trustprune list --url` downloads a PEM or DER certificate bundle from the URL and lists those certificates. It does not look up a live site. Mozilla [certdata.txt](https://wiki.mozilla.org/CA/Included_Certificates) is also accepted. Output uses the same formats as any other list (table by default). To see a site's certificate chain, run `trustprune chain <host> --remote`.
 
 ```
-$ trustprune list --url https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt --format long
+$ trustprune list --url https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt --format long
 Certificate
   SHA256 Fingerprint: ebd41040e4bb3ec742c9e381d31ef2a41a48b6685c96e7cef3c1df6cd4331c99
   SerialNumber: 4835703278459707669005204
