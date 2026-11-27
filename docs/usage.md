@@ -72,7 +72,7 @@ Trusted Identities in that address book are where AATL and EUTL certificates are
 
 `--app android` is guide only. `trustprune apps` always reports `guide only` (PATH is `-`). There is no host store to probe, and trustprune does not write to a device.
 
-`list --app android --file <dir> --allowlist <path>` prints a disable report on a pulled cacerts directory: see [list](#list). `add`, `allowlist`, `backup`, `restore`, `create`, and `connect` print Settings and adb steps and exit 1. They do not write, and `--dry-run` does not plan a change. `--store` is rejected.
+`list --app android --file <dir> --allowlist <path>` prints a disable report on a pulled cacerts directory: see [list](#list). `add`, `allowlist`, `backup`, `restore`, `create`, and `connect` print Settings and adb steps and exit 1. They do not write. `add`, `allowlist`, `backup`, and `restore` also accept `--dry-run` and print the same steps. `--store` is rejected.
 
 To disable a system CA, open **Settings > Security > Encryption & credentials > Trusted credentials**, tap the certificate, and choose Disable. To uninstall a user CA, use the User tab and Uninstall. On a rooted device or emulator, `adb pull` can copy `/system/etc/security/cacerts` or `/apex/com.android.conscrypt/cacerts` for the list report. Paths, network security config, and remaining follow-up are in [Platforms](platforms.md#android) and the [research note](research/android.md).
 
