@@ -172,7 +172,7 @@ func flagListAllowlist() *cli.StringFlag {
 func flagAllowlistSHA256() *cli.StringFlag {
 	return &cli.StringFlag{
 		Name:  "sha256",
-		Usage: "SHA-256 of the allowlist file bytes (64 hex digits); checked before the allowlist is parsed",
+		Usage: "SHA-256 of the allowlist file bytes (64 hex digits, or sha256sum output); checked before the allowlist is parsed",
 		Local: true,
 	}
 }

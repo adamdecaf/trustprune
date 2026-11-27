@@ -279,6 +279,31 @@ func TestFromPathOrURL_Pin(t *testing.T) {
 		}
 	})
 
+	t.Run("sha256sum output", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "allowlist.yaml")
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		for _, pin := range []string{
+			pin + "  allowlist.yaml",
+			strings.ToUpper(pin) + "  allowlist.yaml",
+			pin + " *allowlist.yaml",
+			pin + "\tallowlist.yaml",
+		} {
+			got, err := FromPathOrURL(path, FetchOptions{SHA256: pin})
+			if err != nil {
+				t.Fatalf("pin %q: %v", pin, err)
+			}
+			want, err := FromFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Fatalf("pin %q: got %#v want %#v", pin, got, want)
+			}
+		}
+	})
+
 	t.Run("mismatch does not parse", func(t *testing.T) {
 		bad := []byte("[\n")
 		badSrv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -288,8 +313,10 @@ func TestFromPathOrURL_Pin(t *testing.T) {
 			Client: badSrv.Client(),
 			SHA256: pin,
 		})
-		if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
-			t.Fatalf("err = %v", err)
+		gotSum := sha256.Sum256(bad)
+		wantMsg := "sha256 mismatch: want " + pin + " got " + hex.EncodeToString(gotSum[:])
+		if err == nil || err.Error() != wantMsg {
+			t.Fatalf("err = %v, want %q", err, wantMsg)
 		}
 		if strings.Contains(err.Error(), "unable to read allowlist") {
 			t.Fatalf("mismatch still parsed: %v", err)
@@ -311,6 +338,47 @@ func TestFromPathOrURL_Pin(t *testing.T) {
 			t.Fatal("short pin was accepted")
 		}
 	})
+}
+
+func TestParseSHA256Pin(t *testing.T) {
+	t.Parallel()
+	hash := strings.Repeat("ab", 32)
+	tests := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{in: hash, want: hash, ok: true},
+		{in: "  " + strings.ToUpper(hash) + "  ", want: hash, ok: true},
+		{in: hash + "  allowlist.yaml", want: hash, ok: true},
+		{in: strings.ToUpper(hash) + "  allowlist.yaml", want: hash, ok: true},
+		{in: hash + " *allowlist.yaml", want: hash, ok: true},
+		{in: hash + "\tallowlist.yaml", want: hash, ok: true},
+		{in: "", ok: false},
+		{in: "   ", ok: false},
+		{in: "abcd", ok: false},
+		{in: "0x" + hash, ok: false},
+		{in: strings.Repeat("zz", 32), ok: false},
+		{in: strings.Repeat("ab", 31), ok: false},
+	}
+	for _, tc := range tests {
+		got, err := parseSHA256Pin(tc.in)
+		if tc.ok {
+			if err != nil {
+				t.Fatalf("parseSHA256Pin(%q) = %v", tc.in, err)
+			}
+			if got != tc.want {
+				t.Fatalf("parseSHA256Pin(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			if err := ValidateSHA256Pin(tc.in); err != nil {
+				t.Fatalf("ValidateSHA256Pin(%q) = %v", tc.in, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), "64 hex digits") {
+			t.Fatalf("parseSHA256Pin(%q) = %q, %v", tc.in, got, err)
+		}
+	}
 }
 
 func TestFromPathOrURL_InvalidBodyMatchesFile(t *testing.T) {
@@ -526,7 +594,7 @@ func TestFromPathOrURL_ErrorsDoNotLeakPassword(t *testing.T) {
 		},
 		{
 			name: "sha256 mismatch with userinfo",
-			want: "SHA-256 mismatch",
+			want: "sha256 mismatch: want " + strings.Repeat("ab", 32) + " got ",
 			setup: func(t *testing.T) (string, FetchOptions) {
 				srv := tlsAllowlistServer(t, func(w http.ResponseWriter, r *http.Request) {
 					_, _ = w.Write([]byte("countries:\n  - US\n"))

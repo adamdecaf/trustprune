@@ -79,7 +79,7 @@ func TestCreateFromStoreAllowlistURL(t *testing.T) {
 		SHA256:        strings.Repeat("ab", 32),
 		Out:           filepath.Join(dir, "nope.pem"),
 	})
-	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch: want ") {
 		t.Fatalf("err = %v", err)
 	}
 	if st.listCalls != before {
@@ -105,7 +105,7 @@ func TestAllowlistStorePinMismatchDoesNotApply(t *testing.T) {
 
 	g := &noWriteStore{}
 	err := allowlistStore(g, "", srv.URL+"/bad.yaml", allowlist.FetchOptions{SHA256: strings.Repeat("cd", 32)}, nil)
-	if err == nil || !strings.Contains(err.Error(), "SHA-256 mismatch") {
+	if err == nil || !strings.Contains(err.Error(), "sha256 mismatch: want ") {
 		t.Fatalf("err = %v", err)
 	}
 	if strings.Contains(err.Error(), "unable to read allowlist") {

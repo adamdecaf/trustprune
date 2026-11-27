@@ -53,7 +53,8 @@ var HTTPClient *http.Client
 // A nil Client uses HTTPClient, then httputil.New.
 // MaxSize is the URL body cap in bytes. Zero uses DefaultMaxBytes.
 // The cap applies to https responses, not to local allowlist files.
-// SHA256 is an optional hex SHA-256 of the file bytes. Empty skips the check.
+// SHA256 is an optional SHA-256 of the file bytes: 64 hex digits, or
+// sha256sum output (the hash plus a filename). Empty skips the check.
 // Signature is an optional detached minisign signature, as a local path or
 // an https URL. PubKey is the matching minisign public key: a local file
 // or the key itself (the base64 line or a full minisign .pub file).
@@ -98,7 +99,7 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 	if err != nil {
 		return Allowlist{}, err
 	}
-	if err := matchSHA256(ref, body, pin); err != nil {
+	if err := matchSHA256(body, pin); err != nil {
 		return Allowlist{}, err
 	}
 	if err := verifyAllowlistSignature(body, opts); err != nil {
@@ -272,14 +273,26 @@ func ValidateRef(ref string) error {
 	return err
 }
 
-// ValidateSHA256Pin reports whether pin is 64 hex digits. Matching is
-// case-insensitive. Empty is not a pin.
+// ValidateSHA256Pin reports whether pin is 64 hex digits, or sha256sum
+// output whose first field is 64 hex digits. Matching is case-insensitive.
+// Empty is not a pin.
 func ValidateSHA256Pin(pin string) error {
+	_, err := parseSHA256Pin(pin)
+	return err
+}
+
+// parseSHA256Pin returns the lowercase 64-hex-digit pin. sha256sum
+// output is accepted by taking the first field. Empty is invalid.
+func parseSHA256Pin(pin string) (string, error) {
 	pin = strings.TrimSpace(pin)
-	if !sha256Hex(pin) {
-		return fmt.Errorf("invalid allowlist SHA-256: want 64 hex digits")
+	if pin == "" {
+		return "", fmt.Errorf("invalid allowlist SHA-256: want 64 hex digits")
 	}
-	return nil
+	field := strings.Fields(pin)[0]
+	if !sha256Hex(field) {
+		return "", fmt.Errorf("invalid allowlist SHA-256: want 64 hex digits")
+	}
+	return strings.ToLower(field), nil
 }
 
 // errInvalidAllowlistURL is returned when ref looks like a URL but
@@ -350,17 +363,21 @@ func sha256Hex(s string) bool {
 	return true
 }
 
-func matchSHA256(ref string, body []byte, pin string) error {
-	if pin == "" {
+func matchSHA256(body []byte, pin string) error {
+	if strings.TrimSpace(pin) == "" {
 		return nil
 	}
-	sum := sha256.Sum256(body)
-	want, err := hex.DecodeString(pin)
-	if err != nil || len(want) != len(sum) {
+	wantHex, err := parseSHA256Pin(pin)
+	if err != nil {
+		return err
+	}
+	want, err := hex.DecodeString(wantHex)
+	if err != nil || len(want) != sha256.Size {
 		return fmt.Errorf("invalid allowlist SHA-256: want 64 hex digits")
 	}
+	sum := sha256.Sum256(body)
 	if subtle.ConstantTimeCompare(sum[:], want) != 1 {
-		return fmt.Errorf("allowlist SHA-256 mismatch for %s: got %x", diagnosticRef(ref), sum[:])
+		return fmt.Errorf("sha256 mismatch: want %s got %s", wantHex, hex.EncodeToString(sum[:]))
 	}
 	return nil
 }
