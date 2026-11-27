@@ -119,6 +119,8 @@ func allowlistCommand(st *runState) *cli.Command {
     trustprune allowlist --file allowlist.yaml --dry-run --count
 
   With --dry-run, -v / --verbose adds per-certificate remove and keep details
+  and lists unmatched allowlist fingerprints. The unmatched count is in the
+  summary line even without -v.
     trustprune allowlist --file allowlist.yaml --dry-run -v
 
   Remove untrusted certificates in an explicit OpenSSL PEM CA bundle

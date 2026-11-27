@@ -57,7 +57,7 @@ Allowlist completed successfully
 128 removed, 40 kept
 ```
 
-The last line is how many certificates were removed or distrusted, and how many were kept. Counts depend on the store. Fingerprints in the file that matched no certificate are listed between those lines under `Unmatched allowlist entries:`. `--count` prints only the removed count.
+The last line is how many certificates were removed or distrusted, and how many were kept. Counts depend on the store. Fingerprints in the file that matched no certificate add `, K unmatched` to that line. `-v` / `--verbose` also lists them under `Unmatched allowlist entries:`. `--count` prints only the removed count.
 
 You can also apply an allowlist against an application's certificate store:
 
