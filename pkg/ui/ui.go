@@ -84,6 +84,14 @@ type Config struct {
 	// AllowlistSHA256 is an optional SHA-256 of the allowlist bytes
 	// (list --sha256). Empty skips the check.
 	AllowlistSHA256 string
+
+	// AllowlistSignature is an optional detached minisign signature of
+	// the allowlist bytes (list --signature), a local path or https URL.
+	AllowlistSignature string
+
+	// AllowlistPubKey is the minisign public key for AllowlistSignature
+	// (list --pubkey): a local file or the key itself, not a URL.
+	AllowlistPubKey string
 }
 
 func ListCertificates(certs []*x509.Certificate, cfg *Config) error {

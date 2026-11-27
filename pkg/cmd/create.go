@@ -57,6 +57,12 @@ type CreateOptions struct {
 	// SHA256 is an optional SHA-256 of the allowlist bytes (--sha256).
 	// Empty skips the check. 64 hex digits, case-insensitive.
 	SHA256 string
+	// Signature is an optional detached minisign signature of the
+	// allowlist bytes (--signature), a local path or https URL.
+	Signature string
+	// PubKey is the minisign public key for Signature (--pubkey): a
+	// local file or the key itself, not a URL.
+	PubKey string
 	// Format is pem (the default), jks, or pkcs12. Empty means pem.
 	// Matching is case-insensitive.
 	Format string
@@ -171,7 +177,11 @@ func CreateFromStore(st createSource, opts CreateOptions) error {
 	if CreateFormatRequiresOut(format) && out == "" {
 		return CreateOutRequiredError(format)
 	}
-	al, err := allowlist.FromPathOrURL(opts.AllowlistPath, allowlist.FetchOptions{SHA256: opts.SHA256})
+	al, err := allowlist.FromPathOrURL(opts.AllowlistPath, allowlist.FetchOptions{
+		SHA256:    opts.SHA256,
+		Signature: opts.Signature,
+		PubKey:    opts.PubKey,
+	})
 	if err != nil {
 		return err
 	}

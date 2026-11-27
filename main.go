@@ -519,13 +519,15 @@ OPTIONS:{{template "visibleFlagTemplate" .}}{{end}}
 
 func listConfig(c *cli.Command) *ui.Config {
 	return &ui.Config{
-		Count:           c.Bool("count"),
-		Format:          strings.ToLower(c.String("format")),
-		Outfile:         c.String("out"),
-		UI:              c.String("ui"),
-		Verbose:         isVerbose(c),
-		AllowlistPath:   flagString(c, "allowlist"),
-		AllowlistSHA256: flagString(c, "sha256"),
+		Count:              c.Bool("count"),
+		Format:             strings.ToLower(c.String("format")),
+		Outfile:            c.String("out"),
+		UI:                 c.String("ui"),
+		Verbose:            isVerbose(c),
+		AllowlistPath:      flagString(c, "allowlist"),
+		AllowlistSHA256:    flagString(c, "sha256"),
+		AllowlistSignature: flagString(c, "signature"),
+		AllowlistPubKey:    flagString(c, "pubkey"),
 	}
 }
 

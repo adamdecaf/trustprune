@@ -1116,7 +1116,11 @@ func prepareWebAllowlist(cfg *Config) (*allowlist.Allowlist, error) {
 	if path == "" {
 		return nil, nil
 	}
-	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{SHA256: cfg.AllowlistSHA256})
+	al, err := allowlist.FromPathOrURL(path, allowlist.FetchOptions{
+		SHA256:    cfg.AllowlistSHA256,
+		Signature: cfg.AllowlistSignature,
+		PubKey:    cfg.AllowlistPubKey,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list --allowlist: %w", err)
 	}
