@@ -191,3 +191,64 @@ func writeAndroidPEM(t *testing.T, dir, name string, cert *x509.Certificate) {
 		t.Fatal(err)
 	}
 }
+
+func TestAndroidFileUserCA(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		path string
+		user bool
+	}{
+		{path: "/tmp/cacerts/aaaaaaaa.0", user: false},
+		{path: "/tmp/cacerts/AAAAAAAA.0", user: false},
+		{path: "/tmp/user.crt", user: true},
+		{path: "/tmp/user.CER", user: true},
+		{path: "/tmp/user.der", user: true},
+		{path: "/tmp/cacerts-added/aaaaaaaa.0", user: true},
+		{path: "/tmp/CACERTS-ADDED/aaaaaaaa.0", user: true},
+		{path: "", user: false},
+	}
+	for _, tc := range cases {
+		got := AndroidFile{Path: tc.path}.UserCA()
+		if got != tc.user {
+			t.Errorf("UserCA(%q)=%v, want %v", tc.path, got, tc.user)
+		}
+	}
+}
+
+func TestFromAndroidDirFilesMarksUserExports(t *testing.T) {
+	dir := t.TempDir()
+	sys := mintAndroidCA(t, "System Root", 1)
+	usr := mintAndroidCA(t, "User Root", 2)
+	writeAndroidPEM(t, dir, "aaaaaaaa.0", sys)
+	writeAndroidPEM(t, dir, "user.crt", usr)
+	files, err := FromAndroidDirFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("len=%d", len(files))
+	}
+	byCN := map[string]AndroidFile{}
+	for _, f := range files {
+		byCN[f.Cert.Subject.CommonName] = f
+	}
+	if !byCN["User Root"].UserCA() || byCN["System Root"].UserCA() {
+		t.Fatalf("user/system marks: %#v %#v", byCN["User Root"], byCN["System Root"])
+	}
+}
+
+func TestFromAndroidDirFilesCacertsAdded(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "cacerts-added")
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	usr := mintAndroidCA(t, "Added Root", 3)
+	writeAndroidPEM(t, dir, "aaaaaaaa.0", usr)
+	files, err := FromAndroidDirFiles(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || !files[0].UserCA() {
+		t.Fatalf("cacerts-added: %#v", files)
+	}
+}

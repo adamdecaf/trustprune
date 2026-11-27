@@ -334,6 +334,57 @@ func TestMutatingCommandsAppAndroidGuideOnly(t *testing.T) {
 	}
 }
 
+func TestListAppAndroidGuideRanking(t *testing.T) {
+	bin := cliBinary(t)
+	home := t.TempDir()
+	dir := t.TempDir()
+	now := time.Now()
+	keep := mintListAndroidCAAt(t, "Keep Root", 1, now.Add(24*time.Hour))
+	user := mintListAndroidCAAt(t, "Zzz User", 2, now.Add(365*24*time.Hour))
+	expired := mintListAndroidCAAt(t, "Aaa Expired", 3, now.Add(-24*time.Hour))
+	later := mintListAndroidCAAt(t, "Mmm Later", 4, now.Add(200*24*time.Hour))
+	writeListAndroidPEM(t, dir, "cccccccc.0", keep)
+	writeListAndroidPEM(t, dir, "aaaaaaaa.0", expired)
+	writeListAndroidPEM(t, dir, "bbbbbbbb.0", later)
+	writeListAndroidPEM(t, dir, "user.crt", user)
+
+	keepFP := certutil.GetHexSHA256Fingerprint(*keep)
+	userFP := certutil.GetHexSHA256Fingerprint(*user)
+	expiredFP := certutil.GetHexSHA256Fingerprint(*expired)
+	laterFP := certutil.GetHexSHA256Fingerprint(*later)
+	alPath := filepath.Join(t.TempDir(), "allowlist.yaml")
+	if err := (allowlist.Allowlist{Fingerprints: []string{keepFP}}).ToFile(alPath); err != nil {
+		t.Fatal(err)
+	}
+
+	res := runCLI(t, bin, home, "list", "--app", "android", "--file", dir, "--allowlist", alPath)
+	if res.code != 0 {
+		t.Fatalf("code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
+	}
+	out := res.stdout
+	if strings.Contains(out, keepFP) {
+		t.Fatalf("kept fingerprint was listed as disabled:\n%s", out)
+	}
+	userAt := strings.Index(out, userFP)
+	expiredAt := strings.Index(out, expiredFP)
+	laterAt := strings.Index(out, laterFP)
+	if userAt < 0 || expiredAt < 0 || laterAt < 0 {
+		t.Fatalf("missing fingerprints:\n%s", out)
+	}
+	if userAt >= expiredAt || expiredAt >= laterAt {
+		t.Fatalf("order user=%d expired=%d later=%d\n%s", userAt, expiredAt, laterAt, out)
+	}
+	if !strings.Contains(out, "most important first") {
+		t.Fatalf("missing ranking header:\n%s", out)
+	}
+	if !strings.Contains(out, "Reason: not in the allowlist (user CA)") {
+		t.Fatalf("missing user CA reason:\n%s", out)
+	}
+	if !strings.Contains(out, "Reason: not in the allowlist (expired)") {
+		t.Fatalf("missing expired reason:\n%s", out)
+	}
+}
+
 func mintListAndroidCA(t *testing.T, cn string, serial int64) *x509.Certificate {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -360,7 +411,34 @@ func mintListAndroidCA(t *testing.T, cn string, serial int64) *x509.Certificate 
 	return cert
 }
 
+func mintListAndroidCAAt(t *testing.T, cn string, serial int64, notAfter time.Time) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: cn, Organization: []string{"trustprune test"}},
+		NotBefore:             notAfter.Add(-365 * 24 * time.Hour),
+		NotAfter:              notAfter,
+		KeyUsage:              x509.KeyUsageCertSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
+}
+
 func writeListAndroidPEM(t *testing.T, dir, name string, cert *x509.Certificate) {
+
 	t.Helper()
 	var buf bytes.Buffer
 	if err := pem.Encode(&buf, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw}); err != nil {

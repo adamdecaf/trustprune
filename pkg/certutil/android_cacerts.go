@@ -29,6 +29,30 @@ import (
 // a dot, and a decimal suffix (0, 1, …), as in Conscrypt's cacerts README.
 var androidCacertName = regexp.MustCompile(`(?i)^[0-9a-f]{8}\.[0-9]+$`)
 
+// AndroidFile is one certificate loaded from a pulled Android cacerts directory.
+type AndroidFile struct {
+	Cert *x509.Certificate
+	Path string
+}
+
+// UserCA reports whether this file looks like a user-installed CA: a
+// .crt, .cer, or .der export, or a file whose parent directory is
+// named cacerts-added (the usual name of the user-added store).
+func (f AndroidFile) UserCA() bool {
+	return androidUserCAPath(f.Path)
+}
+
+func androidUserCAPath(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".crt", ".cer", ".der":
+		return true
+	}
+	return strings.EqualFold(filepath.Base(filepath.Dir(path)), "cacerts-added")
+}
+
 // FromAndroidDir reads a pulled Android system cacerts directory. It loads
 // regular files named <hash>.<n> (OpenSSL legacy subject hash and a collision
 // suffix) and .crt, .cer, or .der exports of user-installed CAs. Each file is
@@ -36,6 +60,20 @@ var androidCacertName = regexp.MustCompile(`(?i)^[0-9a-f]{8}\.[0-9]+$`)
 // certificate. The directory is not walked recursively. Files whose names do
 // not match, and empty matching files, are ignored.
 func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
+	files, err := FromAndroidDirFiles(dir)
+	if err != nil {
+		return nil, err
+	}
+	certs := make([]*x509.Certificate, len(files))
+	for i := range files {
+		certs[i] = files[i].Cert
+	}
+	return certs, nil
+}
+
+// FromAndroidDirFiles is FromAndroidDir but keeps each certificate's path
+// so callers can tell user-CA exports from system <hash>.<n> files.
+func FromAndroidDirFiles(dir string) ([]AndroidFile, error) {
 	st, err := os.Stat(dir)
 	if err != nil {
 		return nil, err
@@ -56,7 +94,7 @@ func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
 	}
 	sort.Strings(names)
 
-	var certs []*x509.Certificate
+	var files []AndroidFile
 	for _, name := range names {
 		path := filepath.Join(dir, name)
 		bs, err := os.ReadFile(path) // #nosec G304 -- user-selected cacerts directory
@@ -70,12 +108,14 @@ func FromAndroidDir(dir string) ([]*x509.Certificate, error) {
 		if err != nil {
 			return nil, err
 		}
-		certs = append(certs, got...)
+		for i := range got {
+			files = append(files, AndroidFile{Cert: got[i], Path: path})
+		}
 	}
-	if len(certs) == 0 {
+	if len(files) == 0 {
 		return nil, fmt.Errorf("no Android cacerts files in %s (expected <hash>.0 PEM or DER entries, or .crt/.cer/.der files)", dir)
 	}
-	return certs, nil
+	return files, nil
 }
 
 func androidCacertFile(name string) bool {

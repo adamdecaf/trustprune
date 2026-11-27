@@ -19,7 +19,9 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/allowlist"
 	"github.com/adamdecaf/trustprune/pkg/certutil"
@@ -35,14 +37,34 @@ To disable a system CA, open Settings > Security > Encryption & credentials > Tr
 On a rooted device or emulator, adb can pull a copy of the store for this report (for example adb pull /system/etc/security/cacerts or adb pull /apex/com.android.conscrypt/cacerts), then re-run this command on the copied directory. trustprune does not write to the device.
 `
 
+// Disable ranking: built-in denylist, then Chromium, Mozilla, Apple, and
+// CCADB-removed blocklists, then certificates not in the allowlist. Within
+// a rank, user-CA files come before system files, then earlier NotAfter,
+// then case-insensitive subject, then SHA-256 fingerprint.
+const (
+	androidRankDenylist = iota
+	androidRankChromium
+	androidRankMozilla
+	androidRankApple
+	androidRankCCADB
+	androidRankAllowlist
+)
+
+type androidDisable struct {
+	file   certutil.AndroidFile
+	reason string
+	rank   int
+}
+
 // ListAndroidGuide is the guide-only list --app android report. It reads a
-// pulled Android cacerts directory with FromAndroidDir, loads the allowlist
-// at cfg.AllowlistPath, and prints the certificates allowlist.Matches would
-// not keep, plus short Settings and adb steps. It does not write to dir or
-// to a device. The report is written with ui.WriteConfiguredText so --out
-// stages the same way as other list output.
+// pulled Android cacerts directory with FromAndroidDirFiles, loads the
+// allowlist at cfg.AllowlistPath, and prints the certificates
+// allowlist.Matches would not keep, most important first, with a short
+// reason for each, plus short Settings and adb steps. It does not write to
+// dir or to a device. The report is written with ui.WriteConfiguredText so
+// --out stages the same way as other list output.
 func ListAndroidGuide(dir string, cfg *ui.Config) error {
-	certs, err := certutil.FromAndroidDir(dir)
+	files, err := certutil.FromAndroidDirFiles(dir)
 	if err != nil {
 		return err
 	}
@@ -55,36 +77,128 @@ func ListAndroidGuide(dir string, cfg *ui.Config) error {
 	if err != nil {
 		return err
 	}
-	var disable []*x509.Certificate
-	for i := range certs {
-		if !al.Matches(certs[i]) {
-			disable = append(disable, certs[i])
+	now := time.Now()
+	var rows []androidDisable
+	for i := range files {
+		if !al.Matches(files[i].Cert) {
+			rows = append(rows, rankAndroidDisable(files[i], now))
 		}
 	}
-	certutil.Sort(disable)
+	sortAndroidDisable(rows)
 	var buf bytes.Buffer
-	if err := writeAndroidGuide(&buf, disable); err != nil {
+	if err := writeAndroidGuide(&buf, rows); err != nil {
 		return err
 	}
 	return ui.WriteConfiguredText(cfg, strings.TrimRight(buf.String(), "\n"))
 }
 
-func writeAndroidGuide(w io.Writer, disable []*x509.Certificate) error {
+func rankAndroidDisable(f certutil.AndroidFile, now time.Time) androidDisable {
+	row := androidDisable{file: f, rank: androidRankAllowlist}
+	var parts []string
+	if denied, name := allowlist.Denied(f.Cert); denied {
+		row.rank = androidRankDenylist
+		if name != "" {
+			parts = append(parts, "built-in denylist ("+name+")")
+		} else {
+			parts = append(parts, "built-in denylist")
+		}
+	}
+	for _, name := range allowlist.BlocklistNames(f.Cert) {
+		parts = append(parts, name)
+		if r, ok := androidBlocklistRank(name); ok && r < row.rank {
+			row.rank = r
+		}
+	}
+	expired := androidCertExpired(f.Cert, now)
+	if len(parts) == 0 {
+		switch {
+		case f.UserCA() && expired:
+			parts = append(parts, "not in the allowlist (user CA, expired)")
+		case f.UserCA():
+			parts = append(parts, "not in the allowlist (user CA)")
+		case expired:
+			parts = append(parts, "not in the allowlist (expired)")
+		default:
+			parts = append(parts, "not in the allowlist")
+		}
+	} else if expired {
+		parts[len(parts)-1] += ", expired"
+	}
+	row.reason = strings.Join(parts, "; ")
+	return row
+}
+
+func androidBlocklistRank(name string) (int, bool) {
+	switch name {
+	case allowlist.BlocklistChromium:
+		return androidRankChromium, true
+	case allowlist.BlocklistMozilla:
+		return androidRankMozilla, true
+	case allowlist.BlocklistApple:
+		return androidRankApple, true
+	case allowlist.BlocklistCCADB:
+		return androidRankCCADB, true
+	default:
+		return 0, false
+	}
+}
+
+func androidCertExpired(cert *x509.Certificate, now time.Time) bool {
+	if cert == nil || cert.NotAfter.IsZero() {
+		return false
+	}
+	return !cert.NotAfter.After(now)
+}
+
+func sortAndroidDisable(rows []androidDisable) {
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].rank != rows[j].rank {
+			return rows[i].rank < rows[j].rank
+		}
+		ui, uj := rows[i].file.UserCA(), rows[j].file.UserCA()
+		if ui != uj {
+			return ui
+		}
+		ai := androidNotAfter(rows[i].file.Cert)
+		aj := androidNotAfter(rows[j].file.Cert)
+		if ai.IsZero() != aj.IsZero() {
+			return !ai.IsZero()
+		}
+		if !ai.Equal(aj) {
+			return ai.Before(aj)
+		}
+		return certutil.Less(rows[i].file.Cert, rows[j].file.Cert)
+	})
+}
+
+func androidNotAfter(cert *x509.Certificate) time.Time {
+	if cert == nil {
+		return time.Time{}
+	}
+	return cert.NotAfter.UTC()
+}
+
+func writeAndroidGuide(w io.Writer, disable []androidDisable) error {
 	if len(disable) == 0 {
 		if _, err := io.WriteString(w, "Certificates the allowlist/denylist would disable: none\n\n"); err != nil {
 			return err
 		}
 	} else {
-		if _, err := fmt.Fprintf(w, "Certificates the allowlist/denylist would disable (%d):\n", len(disable)); err != nil {
+		if _, err := fmt.Fprintf(w, "Certificates the allowlist/denylist would disable (%d), most important first:\n", len(disable)); err != nil {
 			return err
 		}
 		for i := range disable {
-			name := certutil.StringifyPKIXName(disable[i].Subject)
-			if name == "" {
-				name = "(no subject)"
+			cert := disable[i].file.Cert
+			name := "(no subject)"
+			fp := ""
+			if cert != nil {
+				name = certutil.StringifyPKIXName(cert.Subject)
+				if name == "" {
+					name = "(no subject)"
+				}
+				fp = certutil.GetHexSHA256Fingerprint(*cert)
 			}
-			fp := certutil.GetHexSHA256Fingerprint(*disable[i])
-			if _, err := fmt.Fprintf(w, "\n  %s\n  SHA-256: %s\n", name, fp); err != nil {
+			if _, err := fmt.Fprintf(w, "\n  %s\n  SHA-256: %s\n  Reason: %s\n", name, fp, disable[i].reason); err != nil {
 				return err
 			}
 		}
