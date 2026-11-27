@@ -36,6 +36,17 @@ func TestBackupForAppFoxitGuideOnly(t *testing.T) {
 	}
 }
 
+func TestBackupForAppAndroidGuideOnly(t *testing.T) {
+	t.Parallel()
+	err := BackupForApp("android")
+	if !errors.Is(err, store.ErrAndroidGuideOnly) {
+		t.Fatalf("backup android: %v", err)
+	}
+	if !strings.Contains(err.Error(), "guide only") || !strings.Contains(err.Error(), "Settings > Security") {
+		t.Fatalf("backup android: %v", err)
+	}
+}
+
 func TestBackupForAppUnknown(t *testing.T) {
 	t.Parallel()
 	err := BackupForApp("nope-not-an-app")

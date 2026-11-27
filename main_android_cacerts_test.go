@@ -218,9 +218,35 @@ func TestListAppAndroidRequiresAllowlist(t *testing.T) {
 	assertUsageError(t, res, "list --app android requires --allowlist")
 }
 
-func TestMutatingCommandsRejectAppAndroid(t *testing.T) {
+func TestAppsShowsAndroidGuideOnly(t *testing.T) {
 	bin := cliBinary(t)
 	home := t.TempDir()
+	res := runCLI(t, bin, home, "apps")
+	if res.code != 0 {
+		t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	found := false
+	for _, line := range strings.Split(res.stdout, "\n") {
+		if strings.Contains(line, "android") && strings.Contains(line, "guide only") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("apps missing android guide-only row:\n%s", res.stdout)
+	}
+
+	res = runCLI(t, bin, home, "apps", "--format", "json")
+	if res.code != 0 {
+		t.Fatalf("json code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
+	}
+	if !strings.Contains(res.stdout, `"name": "android"`) || !strings.Contains(res.stdout, `"guideOnly": true`) {
+		t.Fatalf("apps json missing android guideOnly:\n%s", res.stdout)
+	}
+}
+
+func TestMutatingCommandsAppAndroidGuideOnly(t *testing.T) {
+	bin := cliBinary(t)
 	keep := mintListAndroidCA(t, "Android Keep Root", 1)
 	alPath := filepath.Join(t.TempDir(), "allowlist.yaml")
 	if err := (allowlist.Allowlist{Fingerprints: []string{certutil.GetHexSHA256Fingerprint(*keep)}}).ToFile(alPath); err != nil {
@@ -229,21 +255,80 @@ func TestMutatingCommandsRejectAppAndroid(t *testing.T) {
 	certPath := filepath.Join(t.TempDir(), "keep.pem")
 	writeListAndroidPEM(t, filepath.Dir(certPath), filepath.Base(certPath), keep)
 
-	cases := [][]string{
-		{"allowlist", "--app", "android", "--file", alPath, "--dry-run"},
-		{"add", "--app", "android", "--file", certPath, "--dry-run"},
-		{"backup", "--app", "android", "--dry-run"},
-		{"restore", "--app", "android", "--dry-run"},
+	type mutCase struct {
+		name string
+		args func(home, out string) []string
 	}
-	for _, args := range cases {
-		t.Run(args[0], func(t *testing.T) {
-			res := runCLI(t, bin, home, args...)
-			if res.code == 0 {
-				t.Fatalf("code=0 stdout=%s stderr=%s", res.stdout, res.stderr)
+	cases := []mutCase{
+		{"allowlist", func(home, out string) []string {
+			return []string{"allowlist", "--app", "android", "--file", alPath, "--dry-run"}
+		}},
+		{"add", func(home, out string) []string {
+			return []string{"add", "--app", "android", "--file", certPath, "--dry-run"}
+		}},
+		{"backup", func(home, out string) []string {
+			return []string{"backup", "--app", "android", "--dry-run"}
+		}},
+		{"restore", func(home, out string) []string {
+			return []string{"restore", "--app", "android", "--dry-run"}
+		}},
+		{"create", func(home, out string) []string {
+			return []string{"create", "--app", "android", "--file", alPath, "--out", out}
+		}},
+	}
+	phrases := []string{
+		"guide only",
+		"cannot change an Android device",
+		"Settings > Security > Encryption & credentials > Trusted credentials",
+		"adb pull",
+		"/system/etc/security/cacerts",
+		"/apex/com.android.conscrypt/cacerts",
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			home := t.TempDir()
+			out := filepath.Join(home, "created.pem")
+			res := runCLI(t, bin, home, tc.args(home, out)...)
+			if res.code != 1 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", res.code, res.stdout, res.stderr)
 			}
-			out := res.stdout + res.stderr
-			if !strings.Contains(out, "unknown app android") {
-				t.Fatalf("want unknown app android, got code=%d\nstdout=%s\nstderr=%s", res.code, res.stdout, res.stderr)
+			if !strings.HasPrefix(strings.TrimSpace(res.stdout), "ERROR:") {
+				t.Fatalf("want ERROR: on stdout, got stdout=%s stderr=%s", res.stdout, res.stderr)
+			}
+			if strings.Contains(res.stdout, "unknown app") || strings.Contains(res.stderr, "unknown app") {
+				t.Fatalf("treated android as unknown: stdout=%s stderr=%s", res.stdout, res.stderr)
+			}
+			for _, phrase := range phrases {
+				if !strings.Contains(res.stdout, phrase) {
+					t.Errorf("stdout missing %q\nstdout=%s", phrase, res.stdout)
+				}
+			}
+			if _, err := os.Stat(out); err == nil {
+				t.Fatalf("create wrote %s", out)
+			}
+			entries, err := os.ReadDir(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("command wrote into HOME: %v", entries)
+			}
+		})
+		t.Run(tc.name+"-store", func(t *testing.T) {
+			home := t.TempDir()
+			out := filepath.Join(home, "created.pem")
+			args := append(tc.args(home, out), "--store", filepath.Join(home, "override"))
+			res := runCLI(t, bin, home, args...)
+			assertUsageError(t, res, "--store with --app android")
+			if _, err := os.Stat(out); err == nil {
+				t.Fatalf("create wrote %s under --store", out)
+			}
+			entries, err := os.ReadDir(home)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(entries) != 0 {
+				t.Fatalf("--store rejection wrote into HOME: %v", entries)
 			}
 		})
 	}
