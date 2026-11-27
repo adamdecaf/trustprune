@@ -54,8 +54,8 @@ import (
 const mozillaCertDataTimeout = 2 * time.Minute
 
 var (
-	// mozillaCertDataURL is the certdata.txt tip already used by `trustprune list --url`.
-	mozillaCertDataURL = "https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt"
+	// mozillaCertDataURL is the certdata.txt already used by `trustprune list --url`.
+	mozillaCertDataURL = "https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt"
 
 	defaultAllowlistOut = "docs/downloads/allowlists/mozilla-included.yaml"
 )
@@ -193,10 +193,11 @@ func getMozillaCertData(u string) ([]byte, error) {
 	}
 	req.Close = true
 
-	// hg.mozilla.org redirects to hg-edge.mozilla.org. That edge host answers
-	// HTTP/1.1 and stalls the default Go HTTP/2 client while it waits for
-	// response headers. An empty TLSNextProto map disables HTTP/2.
-	// mozillaCertDataTimeout bounds the whole exchange, including the body.
+	// An empty TLSNextProto map disables HTTP/2. That workaround was needed
+	// when this fetched hg.mozilla.org, which redirected to an HTTP/1.1
+	// hg-edge host that stalled Go's default HTTP/2 client while waiting
+	// for response headers. mozillaCertDataTimeout bounds the whole
+	// exchange, including the body.
 	client := &http.Client{
 		Timeout: mozillaCertDataTimeout,
 		Transport: &http.Transport{

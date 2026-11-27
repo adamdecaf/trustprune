@@ -42,7 +42,7 @@ func TestMozillaIncludedAllowlistMatchesFixture(t *testing.T) {
 	}
 	for _, phrase := range []string{
 		"Baseline allowlist of Mozilla certdata.txt roots trusted for TLS server authentication.",
-		"https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt",
+		"https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt",
 		"make allowlists",
 		"testdata/certdata.txt.gz",
 		"SHA-256 of the certificate DER",

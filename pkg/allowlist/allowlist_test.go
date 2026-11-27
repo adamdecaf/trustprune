@@ -343,7 +343,7 @@ func TestAllowlist_mozillaBlocklistedFingerprintsLoad(t *testing.T) {
 		}
 	}
 	// Entrust Root Certification Authority - G2, server distrust after
-	// 2024-11-30 from Mozilla certdata.txt (mozilla-central tip).
+	// 2024-11-30 from Mozilla certdata.txt.
 	const entrustG2 = "43df5774b03e7fef5fe40d931a7bedf1bb2e6b42738c4e6d3841103d3aa7f339"
 	found := false
 	for _, fp := range mozillaBlocklistedFingerprints {
@@ -360,7 +360,7 @@ func TestAllowlist_mozillaBlocklistedFingerprintsLoad(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	const sourceURL = "https://hg.mozilla.org/mozilla-central/raw-file/tip/security/nss/lib/ckfw/builtins/certdata.txt"
+	const sourceURL = "https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt"
 	if !bytes.Contains(src, []byte(sourceURL)) {
 		t.Fatal("generated file is missing the certdata.txt source URL")
 	}
