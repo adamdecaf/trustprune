@@ -72,7 +72,9 @@ type Config struct {
 	// stay in a PATH column.
 	Verbose bool
 
-	// SourcePath is the -file path when listing from a file (included in JSON).
+	// SourcePath is the --file path when listing from a file, or the
+	// redacted URL when listing from --url. It is included in JSON and
+	// in the verbose table PATH line.
 	SourcePath string
 
 	// AllowlistPath is an optional allowlist for the web checklist

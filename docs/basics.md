@@ -156,7 +156,7 @@ Entrust Root Certification Authority - …  =       ECDSA-384  4369  02ed0eb28c1
 ...
 ```
 
-`-v` / `--verbose` applies to that default table. It shows the full fingerprint, serial, source or store path (`-` for URLs), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER. The same flag is accepted globally (`trustprune -v list`).
+`-v` / `--verbose` applies to that default table. It shows the full fingerprint, serial, source or store path (the URL for `list --url`, with userinfo redacted), and the dates. DAYS stays numeric. When every row has the same path, the table omits the PATH column and prints `PATH: <path>` on the line above. When paths differ, PATH stays a column. Other verbose headers are SHA256-FINGERPRINT, SERIAL, NOT-BEFORE, and NOT-AFTER. The same flag is accepted globally (`trustprune -v list`).
 
 ```
 $ trustprune list -v

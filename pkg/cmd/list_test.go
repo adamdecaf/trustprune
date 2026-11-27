@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"compress/gzip"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -312,5 +313,134 @@ func TestListCertsForAppPlatformOSName(t *testing.T) {
 	gi, wi := got.GetInfo(), store.Platform().GetInfo()
 	if gi == nil || wi == nil || gi.Name != wi.Name || gi.Path != wi.Path || gi.Version != wi.Version {
 		t.Fatalf("ForApp(%s) info %#v, platform %#v", runtime.GOOS, gi, wi)
+	}
+}
+
+func TestListURLSourceRedactsUserinfo(t *testing.T) {
+	t.Parallel()
+	got := listURLSource("https://alice:s3cret-url@example.com/bundle.pem")
+	if strings.Contains(got, "s3cret-url") {
+		t.Fatalf("password leaked: %q", got)
+	}
+	if !strings.Contains(got, "xxxxx") || !strings.Contains(got, "alice") {
+		t.Fatalf("redacted URL = %q", got)
+	}
+}
+
+func TestListCertsFromURLJSONStoreAndPath(t *testing.T) {
+	t.Parallel()
+	pem, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(pem); err != nil {
+			t.Errorf("write pem: %v", err)
+		}
+	}))
+	t.Cleanup(ts.Close)
+
+	out := filepath.Join(t.TempDir(), "certs.json")
+	if err := ListCertsFromURL(ts.URL, &ui.Config{Format: "json", Outfile: out}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rows []struct {
+		Store string `json:"store"`
+		Path  string `json:"path"`
+	}
+	if err := json.Unmarshal(got, &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, got)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	if rows[0].Store != "url" {
+		t.Fatalf("store = %q, want url", rows[0].Store)
+	}
+	if rows[0].Path != ts.URL {
+		t.Fatalf("path = %q, want %q", rows[0].Path, ts.URL)
+	}
+}
+
+func TestListCertsFromURLJSONRedactsUserinfo(t *testing.T) {
+	t.Parallel()
+	pem, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(pem); err != nil {
+			t.Errorf("write pem: %v", err)
+		}
+	}))
+	t.Cleanup(ts.Close)
+
+	u, err := url.Parse(ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const password = "s3cret-url"
+	u.User = url.UserPassword("alice", password)
+	out := filepath.Join(t.TempDir(), "certs.json")
+	if err := ListCertsFromURL(u.String(), &ui.Config{Format: "json", Outfile: out}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(got), password) {
+		t.Fatalf("password leaked:\n%s", got)
+	}
+	var rows []struct {
+		Store string `json:"store"`
+		Path  string `json:"path"`
+	}
+	if err := json.Unmarshal(got, &rows); err != nil {
+		t.Fatalf("json: %v\n%s", err, got)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("got %d rows", len(rows))
+	}
+	if rows[0].Store != "url" {
+		t.Fatalf("store = %q, want url", rows[0].Store)
+	}
+	if !strings.Contains(rows[0].Path, "xxxxx") || !strings.Contains(rows[0].Path, "alice") {
+		t.Fatalf("path = %q", rows[0].Path)
+	}
+}
+
+func TestListCertsFromURLVerbosePath(t *testing.T) {
+	t.Parallel()
+	pem, err := os.ReadFile("../../testdata/example.crt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if _, err := w.Write(pem); err != nil {
+			t.Errorf("write pem: %v", err)
+		}
+	}))
+	t.Cleanup(ts.Close)
+
+	out := filepath.Join(t.TempDir(), "table.txt")
+	cfg := &ui.Config{Format: ui.DefaultFormat(), UI: ui.DefaultUI(), Verbose: true, Outfile: out}
+	if err := ListCertsFromURL(ts.URL, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if strings.Contains(text, "PATH: -") {
+		t.Fatalf("verbose path still empty:\n%s", text)
+	}
+	if !strings.Contains(text, "PATH: "+ts.URL) {
+		t.Fatalf("missing PATH line:\n%s", text)
 	}
 }

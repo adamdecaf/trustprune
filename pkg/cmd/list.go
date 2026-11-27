@@ -101,7 +101,30 @@ func ListCertsFromURL(where string, cfg *ui.Config) (err error) {
 	if len(certs) == 0 {
 		return listURLNoCertsError(where)
 	}
-	return ui.ListCertificates(certs, cfg)
+	path := listURLSource(where)
+	if cfg != nil {
+		c := *cfg
+		c.SourcePath = path
+		cfg = &c
+	} else {
+		cfg = &ui.Config{SourcePath: path}
+	}
+	return ui.ListCertificatesWithMeta(ui.Meta{Name: "url", Path: path}, certs, cfg)
+}
+
+// listURLSource is the URL shown as JSON path and verbose PATH.
+// Userinfo passwords are masked with url.URL.Redacted, the same way
+// allowlist fetch errors redact URLs. A value that cannot be parsed
+// is replaced so the raw string is not printed.
+func listURLSource(ref string) string {
+	u, err := url.Parse(ref)
+	if err != nil {
+		return "invalid URL"
+	}
+	if u.Scheme == "" {
+		return ref
+	}
+	return u.Redacted()
 }
 
 // listURLNoCertsError is used when --url downloaded a body with no
