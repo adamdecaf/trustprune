@@ -314,12 +314,27 @@ func TestFromPathOrURL_Pin(t *testing.T) {
 			SHA256: pin,
 		})
 		gotSum := sha256.Sum256(bad)
-		wantMsg := "sha256 mismatch: want " + pin + " got " + hex.EncodeToString(gotSum[:])
+		src := badSrv.URL + "/bad.yaml"
+		wantMsg := src + ": sha256 mismatch: want " + pin + " got " + hex.EncodeToString(gotSum[:])
 		if err == nil || err.Error() != wantMsg {
 			t.Fatalf("err = %v, want %q", err, wantMsg)
 		}
 		if strings.Contains(err.Error(), "unable to read allowlist") {
 			t.Fatalf("mismatch still parsed: %v", err)
+		}
+	})
+
+	t.Run("local mismatch names path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "allowlist.yaml")
+		if err := os.WriteFile(path, body, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		wantPin := strings.Repeat("ab", 32)
+		_, err := FromPathOrURL(path, FetchOptions{SHA256: wantPin})
+		gotSum := sha256.Sum256(body)
+		wantMsg := path + ": sha256 mismatch: want " + wantPin + " got " + hex.EncodeToString(gotSum[:])
+		if err == nil || err.Error() != wantMsg {
+			t.Fatalf("err = %v, want %q", err, wantMsg)
 		}
 	})
 
@@ -742,4 +757,16 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
+}
+
+func TestDiagnosticRefWindowsPath(t *testing.T) {
+	for _, path := range []string{
+		`C:\Users\foo\allowlist.yaml`,
+		`C:/Users/foo/allowlist.yaml`,
+		`D:\My Files\allowlist.yaml`,
+	} {
+		if got := diagnosticRef(path); got != path {
+			t.Errorf("diagnosticRef(%q) = %q, want the original path", path, got)
+		}
+	}
 }

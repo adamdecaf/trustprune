@@ -212,7 +212,7 @@ func TestCreateAllowlistURLClientHook(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		wantPin := strings.Repeat("ab", 32)
 		code := run([]string{"trustprune", "create", "--file", srv.URL + "/al.json", "--sha256", wantPin}, &stdout, &stderr)
-		wantMsg := "sha256 mismatch: want " + wantPin + " got " + pin
+		wantMsg := srv.URL + "/al.json: sha256 mismatch: want " + wantPin + " got " + pin
 		if code != 1 || !strings.Contains(stdout.String(), wantMsg) {
 			t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 		}
