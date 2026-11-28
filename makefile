@@ -112,11 +112,16 @@ $(BETTERLEAKS_BIN):
 
 .PHONY: generate allowlists denylists web-allowlist
 generate:
-	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
+	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go -file pkg/allowlist/testdata/chromium-ssl-blocklist.tar.gz -commit 1acdbf06cfb80e82bfc7371c508c85088425b9d7 -date 2026-10-21T17:46:56Z
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/apple_blocklist_gen.go -file pkg/allowlist/testdata/apple-blocked-certificates.html
 	$(MAKE) denylists
 	$(MAKE) allowlists
+
+# generate refreshes embedded blocklists and allowlists from checked-in
+# testdata. It does not download. The Chromium target uses
+# pkg/allowlist/testdata/chromium-ssl-blocklist.tar.gz (net/data/ssl/blocklist
+# at Chromium src commit 1acdbf06cfb80e82bfc7371c508c85088425b9d7).
 
 # denylists writes CCADB Mozilla Removed CA Certificate Report fingerprints
 # from the checked-in CSV. It does not download.

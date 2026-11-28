@@ -222,7 +222,7 @@ $ trustprune gen-allowlist --out allowlist.yaml --from firefox
 
 ### Blocklisted certificates
 
-`trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted. That list matches certificate SHA-256 fingerprints.
+`trustprune` includes the [Chromium certificate blocklist](https://chromium.googlesource.com/chromium/src/+/main/net/data/ssl/blocklist/) to never allowlist certificates which are generally regarded by the industry as untrusted. Certificate PEM files in that directory are matched by the SHA-256 of the certificate DER, including leaf and intermediate certificates, not only roots. Standalone public-key files (`.key`) are matched by the SHA-256 of the SubjectPublicKeyInfo, so any certificate that uses one of those keys is blocked. Hashes are computed from the file bytes, never from the filename.
 
 It also includes a Mozilla blocklist generated from [certdata.txt](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt). That list matches the same way. It contains certificates marked `CKT_NSS_NOT_TRUSTED` for server authentication, and roots whose `CKA_NSS_SERVER_DISTRUST_AFTER` date has passed. The date is recorded on those entries. A root whose distrust-after date is still in the future is omitted until `make generate` runs again after that date.
 
@@ -230,7 +230,7 @@ It also includes an Apple blocklist generated from the [Blocked Certificates](ht
 
 It also includes fingerprints from the [CCADB Mozilla Removed CA Certificate Report](https://ccadb.my.salesforce-sites.com/mozilla/RemovedCACertificateReportCSVFormat) (listed from [CA/Removed Certificates](https://wiki.mozilla.org/CA/Removed_Certificates)). That list matches the report's SHA-256 Fingerprint column. The report has no structured removal-reason column. Every row is included except those whose Comments indicate the removal is only expiry or a voluntary / CA-requested withdrawal. Empty comments are kept. `make denylists` refreshes this list from the checked-in CSV.
 
-`make generate` refreshes the Chromium, Mozilla, and Apple lists from their documented sources, and the CCADB removed-CA list from the checked-in CSV. The Apple target uses the checked-in HTML excerpt and does not download.
+`make generate` refreshes the Chromium, Mozilla, and Apple lists, and the CCADB removed-CA list, from checked-in testdata. It does not download. The Chromium archive is `pkg/allowlist/testdata/chromium-ssl-blocklist.tar.gz`; its commit and date are recorded in `pkg/allowlist/blocklist.go`.
 
 There is currently no way to disable this behavior.
 
