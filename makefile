@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 GOARCH ?= $(shell go env GOARCH)
 
-.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git generate allowlists denylists
+.PHONY: build check test dist linux osx win lint coverage-floor leaks leaks-git generate allowlists denylists web-allowlist
 
 linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=$(GOARCH) go build -trimpath -o bin/trustprune-linux-$(GOARCH) github.com/adamdecaf/trustprune
@@ -110,7 +110,7 @@ $(BETTERLEAKS_BIN):
 	cp "$$tmp/betterleaks" "$@"; \
 	chmod +x "$@"
 
-.PHONY: generate allowlists denylists
+.PHONY: generate allowlists denylists web-allowlist
 generate:
 	CGO_ENABLED=0 go run pkg/allowlist/blocklist_gen.go
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_blocklist_gen.go
@@ -127,6 +127,29 @@ denylists:
 # It does not download.
 allowlists:
 	CGO_ENABLED=0 go run pkg/allowlist/mozilla_allowlist_gen.go -file testdata/certdata.txt.gz -out docs/downloads/allowlists/mozilla-included.yaml
+
+# web-allowlist writes the top-sites web baseline. It dials the network and
+# is not part of make allowlists or make generate, which stay offline.
+#
+# LIST is required. Example:
+#   make web-allowlist LIST=/tmp/tranco-947L2-100000.csv LIST_ID=947L2 N=50000 \
+#     LIST_URL=https://tranco-list.eu/download/947L2/100000 \
+#     LIST_DATE='2026-11-27 (daily list, window 2026-10-29 to 2026-11-27)'
+LIST ?=
+N ?= 0
+THRESHOLD ?= 1
+LIST_NAME ?= Tranco
+LIST_ID ?=
+LIST_URL ?=
+LIST_DATE ?=
+WORKERS ?= 64
+TIMEOUT ?= 8s
+CERTDATA ?= testdata/certdata.txt.gz
+WEB_ALLOWLIST_OUT ?= docs/downloads/allowlists/web.yaml
+
+web-allowlist:
+	@if [ -z "$(LIST)" ]; then echo "LIST is required (local Tranco CSV)" >&2; exit 1; fi
+	CGO_ENABLED=0 go run pkg/allowlist/web_allowlist_gen.go -list "$(LIST)" -n "$(N)" -threshold "$(THRESHOLD)" -certdata "$(CERTDATA)" -out "$(WEB_ALLOWLIST_OUT)" -list-name "$(LIST_NAME)" -list-id "$(LIST_ID)" -list-url "$(LIST_URL)" -list-date "$(LIST_DATE)" -workers "$(WORKERS)" -timeout "$(TIMEOUT)"
 
 test: check
 	$(MAKE) linux

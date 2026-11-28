@@ -339,6 +339,7 @@ Allowlist files are YAML or JSON with optional `fingerprints` (SHA-256) and `cou
 trustprune allowlist --file allowlist.yaml
 trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
 trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml
+trustprune allowlist --file https://trustprune.com/downloads/allowlists/web.yaml --dry-run
 trustprune allowlist --file allowlist.yaml --signature allowlist.yaml.minisig --pubkey minisign.pub
 trustprune allowlist --file allowlist.json --app java
 trustprune allowlist --app java --store /path/to/cacerts --file allowlist.yaml
@@ -443,6 +444,7 @@ An allowlist that matches no trusted certificate fails with exit 1 (`no certific
 ```bash
 trustprune create --file allowlist.yaml
 trustprune create --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --out mozilla-roots.pem
+trustprune create --file https://trustprune.com/downloads/allowlists/web.yaml --out web-roots.pem
 trustprune create --file allowlist.yaml --out ca-bundle.pem
 trustprune create --file allowlist.yaml --format pem --out ca-bundle.pem
 trustprune create --file allowlist.yaml --format jks --out trusted.jks

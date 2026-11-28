@@ -48,7 +48,7 @@ trustprune create --file urls.yaml --format jks --out trusted.jks
 
 Allowlist files are YAML or JSON. See [docs/allowlists.md](docs/allowlists.md) for fingerprints, country filters, and generating an allowlist from hostnames, platform presets, or browser history.
 
-A Mozilla included-root baseline (roots `certdata.txt` trusts for server authentication) is at [docs/downloads/allowlists/mozilla-included.yaml](docs/downloads/allowlists/mozilla-included.yaml). `--file` accepts that https URL or a local copy. Steps are under [Baseline allowlists](docs/allowlists.md#baseline-allowlists).
+A Mozilla included-root baseline (roots `certdata.txt` trusts for server authentication) is at [docs/downloads/allowlists/mozilla-included.yaml](docs/downloads/allowlists/mozilla-included.yaml). A data-driven web baseline (the subset of those roots that anchored TLS chains of popular sites) is at [docs/downloads/allowlists/web.yaml](docs/downloads/allowlists/web.yaml). `--file` accepts those https URLs or a local copy. Steps are under [Baseline allowlists](docs/allowlists.md#baseline-allowlists).
 
 Go programs can apply that allowlist without changing a store. `certpool.New` reads the system store and returns an `*x509.CertPool` of the certificates the allowlist keeps. `certpool.FromFile` applies the same filter to a PEM bundle on disk. See [Go library](docs/allowlists.md#go-library).
 
