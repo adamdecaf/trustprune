@@ -77,15 +77,19 @@ $ trustprune create --file wh.json --app java --out java-cas.pem
 
 ## Baseline allowlists
 
-Mozilla's [certdata.txt](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt) trusts a set of roots for TLS server authentication. That set is a baseline allowlist: those roots, as SHA-256 fingerprints.
+trustprune ships two starting baselines, both as SHA-256 fingerprints of Mozilla [certdata.txt](https://raw.githubusercontent.com/mozilla-firefox/firefox/main/security/nss/lib/ckfw/builtins/certdata.txt) roots trusted for TLS server authentication. Neither is a full top-1-million scan or a Censys observed list, and neither is a signed hosted list.
 
-This is a starting baseline. It is not a top-1-million list or a Censys observed list.
+`--file` accepts these https URLs directly. `http://` and any other scheme are rejected. `--sha256` is optional and is the SHA-256 of the file bytes (64 hex digits, any case). It is checked before the allowlist is parsed. `curl` still saves a local copy.
+
+`allowlist` still requires a prior backup. Applying either file still skips denylisted and blocklisted certificates. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
+
+### Mozilla included roots
+
+The included-root baseline is every certdata.txt root trusted for server authentication.
 
 Download it from the docs site: <https://trustprune.com/downloads/allowlists/mozilla-included.yaml>
 
-The same file is in the repo at `docs/downloads/allowlists/mozilla-included.yaml`.
-
-`--file` accepts that https URL directly. `http://` and any other scheme are rejected. `--sha256` is optional and is the SHA-256 of the file bytes (64 hex digits, any case). It is checked before the allowlist is parsed. `curl` still saves a local copy.
+The same file is in the repo at `docs/downloads/allowlists/mozilla-included.yaml`. Regenerate with `make allowlists` (offline, from `testdata/certdata.txt.gz`).
 
 ```
 $ trustprune allowlist --file https://trustprune.com/downloads/allowlists/mozilla-included.yaml --dry-run
@@ -96,9 +100,24 @@ $ curl -fsSL https://trustprune.com/downloads/allowlists/mozilla-included.yaml -
 $ trustprune allowlist --file mozilla-included.yaml --dry-run
 ```
 
-`allowlist` still requires a prior backup. Applying the file still skips denylisted and blocklisted certificates. See [Blocklisted certificates](#blocklisted-certificates) and [Denylisted certificates](#denylisted-certificates).
+### Web (top sites)
 
-Regenerate the checked-in file with `make allowlists` (uses `testdata/certdata.txt.gz`).
+The web baseline is the subset of those Mozilla roots that actually anchored TLS chains of popular websites. The checked-in file was generated from a [Tranco](https://tranco-list.eu/) daily list (list ID, date window, sample size, success count, and per-root site counts are in the file header). It includes every Mozilla root that anchored at least one successful site in that sample. It is a large sample, not a full top-1-million scan.
+
+Download it from the docs site: <https://trustprune.com/downloads/allowlists/web.yaml>
+
+The same file is in the repo at `docs/downloads/allowlists/web.yaml`.
+
+```
+$ trustprune allowlist --file https://trustprune.com/downloads/allowlists/web.yaml --dry-run
+$ trustprune allowlist --file https://trustprune.com/downloads/allowlists/web.yaml
+$ trustprune create --file https://trustprune.com/downloads/allowlists/web.yaml --out web-roots.pem
+
+$ curl -fsSL https://trustprune.com/downloads/allowlists/web.yaml -o web.yaml
+$ trustprune allowlist --file web.yaml --dry-run
+```
+
+Regenerate with `make web-allowlist LIST=/path/to/tranco.csv` after downloading a local Tranco CSV. `LIST` is required. That target dials the network and is not part of `make allowlists` or `make generate`. The scanner verifies each handshake only against the pinned `testdata/certdata.txt.gz` roots; fingerprints that are not in that set are never written.
 
 ## Generating allowlists
 
