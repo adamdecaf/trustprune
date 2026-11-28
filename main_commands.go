@@ -93,7 +93,7 @@ func allowlistCommand(st *runState) *cli.Command {
   --file is a local YAML or JSON allowlist, or an https URL. http:// and any other
   scheme are rejected. --sha256 is the SHA-256 of those file bytes (64 hex digits,
   or sha256sum output). It is checked before the allowlist is parsed. A mismatch
-  is "sha256 mismatch: want <expected> got <actual>". --signature is a detached minisign
+  is "<source>: sha256 mismatch: want <expected> got <actual>" (the allowlist path or the redacted URL). --signature is a detached minisign
   signature of those same bytes (a local path or https URL) and requires --pubkey,
   a local minisign public key file or the key itself (not a URL). The signature is
   verified before the allowlist is parsed. Signature downloads use the same https
@@ -547,7 +547,7 @@ func createCommand(st *runState) *cli.Command {
 
   Platform store, PEM on stdout. --file is a local YAML or JSON allowlist, or an
   https URL. --sha256 is the SHA-256 of those file bytes (64 hex digits, or
-  sha256sum output). A mismatch is "sha256 mismatch: want <expected> got <actual>".
+  sha256sum output). A mismatch is "<source>: sha256 mismatch: want <expected> got <actual>" (the allowlist path or the redacted URL).
   --signature is a detached minisign signature of those bytes (local path or
   https URL) and requires --pubkey (a local minisign public key file or the key
   itself, not a URL). Both are checked before the allowlist is parsed.
@@ -924,7 +924,7 @@ FORMATTING
   Download allowlist button. --allowlist pre-checks certificates that
   allowlist would keep. It may be a local YAML or JSON file or an https URL.
   --sha256 is the SHA-256 of those file bytes (64 hex digits, or sha256sum
-  output). A mismatch is "sha256 mismatch: want <expected> got <actual>". --signature
+  output). A mismatch is "<source>: sha256 mismatch: want <expected> got <actual>" (the allowlist path or the redacted URL). --signature
   is a detached minisign signature of those bytes (local path or https URL)
   and requires --pubkey (a local minisign public key file or the key itself,
   not a URL). The page leaves the trust store unchanged.

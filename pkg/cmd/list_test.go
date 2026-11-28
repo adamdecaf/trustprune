@@ -15,6 +15,7 @@
 package cmd
 
 import (
+	"bytes"
 	"compress/gzip"
 	"encoding/json"
 	"encoding/pem"
@@ -170,6 +171,46 @@ func writeGzipFile(t *testing.T, path string, body []byte) {
 	}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestGunzipWithLimitSizeCap(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	zw := gzip.NewWriter(&buf)
+	if _, err := zw.Write(bytes.Repeat([]byte("A"), 200)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "bomb.gz")
+	if err := os.WriteFile(path, buf.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := gunzipWithLimit(path, buf.Bytes(), 64)
+	if err == nil {
+		t.Fatal("expected decompressed size cap error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, path) || !strings.Contains(msg, "decompressed size exceeds") || !strings.Contains(msg, "64") {
+		t.Fatalf("error = %q", msg)
+	}
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "certdata.txt.gz"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := gunzipIfNeeded(filepath.Join("..", "..", "testdata", "certdata.txt.gz"), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) == 0 {
+		t.Fatal("certdata.txt.gz decompressed to empty")
+	}
+	if int64(len(out)) > maxGunzipSize {
+		t.Fatalf("certdata uncompressed %d exceeds cap %d", len(out), maxGunzipSize)
 	}
 }
 

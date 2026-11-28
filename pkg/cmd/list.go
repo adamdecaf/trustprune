@@ -33,6 +33,11 @@ import (
 
 var (
 	maxDownloadSize int64 = 10 * 1024 * 1024 // bytes
+
+	// maxGunzipSize is the decompressed-size cap for list --file gzip
+	// input. testdata/certdata.txt.gz is about 1.3 MiB uncompressed;
+	// 32 MiB leaves room for that file to grow.
+	maxGunzipSize int64 = 32 * 1024 * 1024
 )
 
 // ListCertsFromFile finds certificates at the given filepath
@@ -90,7 +95,13 @@ func listFileNoCertsError(where string) error {
 
 // gunzipIfNeeded decompresses body when path ends in .gz or the bytes
 // start with a gzip magic header. Other files are returned unchanged.
+// Decompression stops and returns an error naming path when the
+// uncompressed size would exceed maxGunzipSize.
 func gunzipIfNeeded(path string, body []byte) ([]byte, error) {
+	return gunzipWithLimit(path, body, maxGunzipSize)
+}
+
+func gunzipWithLimit(path string, body []byte, limit int64) ([]byte, error) {
 	gzipName := strings.HasSuffix(strings.ToLower(path), ".gz")
 	gzipMagic := len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b
 	if !gzipName && !gzipMagic {
@@ -100,8 +111,11 @@ func gunzipIfNeeded(path string, body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("gzip %s: %w", path, err)
 	}
-	out, err := io.ReadAll(r)
+	out, err := io.ReadAll(io.LimitReader(r, limit+1))
 	cerr := r.Close()
+	if int64(len(out)) > limit {
+		return nil, fmt.Errorf("gzip %s: decompressed size exceeds %d byte limit", path, limit)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("gzip %s: %w", path, err)
 	}

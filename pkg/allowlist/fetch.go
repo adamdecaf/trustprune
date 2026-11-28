@@ -100,7 +100,7 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 		return Allowlist{}, err
 	}
 	if err := matchSHA256(body, pin); err != nil {
-		return Allowlist{}, err
+		return Allowlist{}, fmt.Errorf("%s: %w", diagnosticRef(ref), err)
 	}
 	if err := verifyAllowlistSignature(body, opts); err != nil {
 		return Allowlist{}, err
