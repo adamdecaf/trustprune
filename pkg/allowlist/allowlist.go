@@ -46,7 +46,8 @@ type Allowlist struct {
 // its fingerprint or country. The denylist matches the certificate SHA-256
 // and the SubjectPublicKeyInfo SHA-256. Chromium, Mozilla, Apple, and
 // CCADB Removed CA Certificate Report blocklist fingerprints never match
-// either.
+// either, and a certificate whose SubjectPublicKeyInfo SHA-256 is on the
+// Chromium standalone-key list never matches.
 func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	if inc == nil {
 		return false
@@ -54,16 +55,11 @@ func (a Allowlist) Matches(inc *x509.Certificate) bool {
 	if denied, _ := Denied(inc); denied {
 		return false
 	}
-
-	fp := certutil.GetHexSHA256Fingerprint(*inc)
-
-	// is the certificate explicitly distrusted?
-	if fingerprintBlocked(blocklistedFingerprints, fp) ||
-		fingerprintBlocked(mozillaBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(appleBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp) {
+	if Blocklisted(inc) {
 		return false
 	}
+
+	fp := certutil.GetHexSHA256Fingerprint(*inc)
 
 	// check if our allowlist's fingerprints include this certificate
 	for i := range a.Fingerprints {
@@ -100,7 +96,7 @@ func fingerprintBlocked(list []string, fp string) bool {
 // the embedded Mozilla certdata.txt blocklist, the embedded Apple
 // blocklist, or the embedded CCADB Mozilla Removed CA Certificate Report
 // list. The match is the certificate SHA-256, the same comparison Matches
-// uses, except the Chromium list also matches the SHA-256 of the
+// uses, and the Chromium list also matches the SHA-256 of the
 // certificate's SubjectPublicKeyInfo against standalone public keys from
 // Chromium's blocklist. It does not use OCSP, CRLs, or the network.
 func Blocklisted(cert *x509.Certificate) bool {
@@ -118,7 +114,7 @@ const (
 // BlocklistNames reports which embedded blocklists contain cert, in a
 // stable order: Chromium, Mozilla, Apple, then CCADB removed. It does
 // not include the built-in denylist; use Denied for that. The match is
-// the certificate SHA-256, the same comparison Matches uses, except the
+// the certificate SHA-256, the same comparison Matches uses, and the
 // Chromium list also matches standalone public-key SPKI hashes.
 func BlocklistNames(cert *x509.Certificate) []string {
 	if cert == nil || len(cert.Raw) == 0 {

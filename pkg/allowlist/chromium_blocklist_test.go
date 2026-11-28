@@ -179,10 +179,20 @@ func TestChromiumBlocklistMatchesSPKI(t *testing.T) {
 	if len(names) != 1 || names[0] != BlocklistChromium {
 		t.Fatalf("BlocklistNames = %v", names)
 	}
-	// A different key must not match.
+	// Matches is the allowlist apply path. A cert using a blocked key
+	// must not match even when the allowlist names its fingerprint.
+	al := Allowlist{Fingerprints: []string{certutil.GetHexSHA256Fingerprint(*cert)}}
+	if al.Matches(cert) {
+		t.Fatal("Matches allowed a certificate whose SPKI is on the Chromium key list")
+	}
+	// A different key must not match the blocklist, and may match an allowlist.
 	other, _ := mintChromiumTestCA(t, "Other Root", now.Add(10*365*24*time.Hour))
 	if Blocklisted(other) {
 		t.Fatal("Blocklisted matched a certificate with a different SPKI")
+	}
+	alOther := Allowlist{Fingerprints: []string{certutil.GetHexSHA256Fingerprint(*other)}}
+	if !alOther.Matches(other) {
+		t.Fatal("Matches rejected a certificate that is not blocklisted")
 	}
 }
 
