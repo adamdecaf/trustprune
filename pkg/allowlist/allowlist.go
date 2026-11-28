@@ -97,19 +97,14 @@ func fingerprintBlocked(list []string, fp string) bool {
 }
 
 // Blocklisted reports whether cert is on the embedded Chromium blocklist,
-// the embedded Mozilla certdata.txt blocklist, or the embedded CCADB
-// Mozilla Removed CA Certificate Report list. The match is the
-// certificate SHA-256, the same comparison Matches uses. It does not use
-// OCSP, CRLs, or the network.
+// the embedded Mozilla certdata.txt blocklist, the embedded Apple
+// blocklist, or the embedded CCADB Mozilla Removed CA Certificate Report
+// list. The match is the certificate SHA-256, the same comparison Matches
+// uses, except the Chromium list also matches the SHA-256 of the
+// certificate's SubjectPublicKeyInfo against standalone public keys from
+// Chromium's blocklist. It does not use OCSP, CRLs, or the network.
 func Blocklisted(cert *x509.Certificate) bool {
-	if cert == nil || len(cert.Raw) == 0 {
-		return false
-	}
-	fp := certutil.GetHexSHA256Fingerprint(*cert)
-	return fingerprintBlocked(blocklistedFingerprints, fp) ||
-		fingerprintBlocked(mozillaBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(appleBlocklistedFingerprints, fp) ||
-		fingerprintBlocked(ccadbRemovedBlocklistedFingerprints, fp)
+	return len(BlocklistNames(cert)) > 0
 }
 
 // Names for BlocklistNames, in the order a hit is reported.
@@ -120,17 +115,18 @@ const (
 	BlocklistCCADB    = "CCADB removed"
 )
 
-// BlocklistNames reports which embedded blocklists contain cert's SHA-256,
-// in a stable order: Chromium, Mozilla, Apple, then CCADB removed. It does
-// not include the built-in denylist; use Denied for that. The match is the
-// certificate SHA-256, the same comparison Matches uses.
+// BlocklistNames reports which embedded blocklists contain cert, in a
+// stable order: Chromium, Mozilla, Apple, then CCADB removed. It does
+// not include the built-in denylist; use Denied for that. The match is
+// the certificate SHA-256, the same comparison Matches uses, except the
+// Chromium list also matches standalone public-key SPKI hashes.
 func BlocklistNames(cert *x509.Certificate) []string {
 	if cert == nil || len(cert.Raw) == 0 {
 		return nil
 	}
 	fp := certutil.GetHexSHA256Fingerprint(*cert)
 	var names []string
-	if fingerprintBlocked(blocklistedFingerprints, fp) {
+	if fingerprintBlocked(blocklistedFingerprints, fp) || fingerprintBlocked(blocklistedSPKIs, spkiSHA256(cert)) {
 		names = append(names, BlocklistChromium)
 	}
 	if fingerprintBlocked(mozillaBlocklistedFingerprints, fp) {
