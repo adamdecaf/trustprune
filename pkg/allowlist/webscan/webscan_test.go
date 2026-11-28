@@ -35,16 +35,16 @@ import (
 func TestVerifiedRootAndThresholdYAML(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	rootA, keyA := mintCAWithKey(t, "Test Root A", 1, now.Add(10*365*24*time.Hour))
 	rootB, keyB := mintCAWithKey(t, "Test Root B", 2, now.Add(10*365*24*time.Hour))
 	rootC, keyC := mintCAWithKey(t, "Unlisted Root", 3, now.Add(10*365*24*time.Hour))
 
-	leafA1 := mintIssued(t, "a1.example", 21, now.Add(24*time.Hour), rootA, keyA, false, "a1.example")
-	leafA2 := mintIssued(t, "a2.example", 22, now.Add(24*time.Hour), rootA, keyA, false, "a2.example")
-	leafA3 := mintIssued(t, "a3.example", 23, now.Add(24*time.Hour), rootA, keyA, false, "a3.example")
-	leafB := mintIssued(t, "b.example", 24, now.Add(24*time.Hour), rootB, keyB, false, "b.example")
-	leafC := mintIssued(t, "c.example", 25, now.Add(24*time.Hour), rootC, keyC, false, "c.example")
+	leafA1 := mintIssued(t, "a1.example", 21, now.Add(20*365*24*time.Hour), rootA, keyA, false, "a1.example")
+	leafA2 := mintIssued(t, "a2.example", 22, now.Add(20*365*24*time.Hour), rootA, keyA, false, "a2.example")
+	leafA3 := mintIssued(t, "a3.example", 23, now.Add(20*365*24*time.Hour), rootA, keyA, false, "a3.example")
+	leafB := mintIssued(t, "b.example", 24, now.Add(20*365*24*time.Hour), rootB, keyB, false, "b.example")
+	leafC := mintIssued(t, "c.example", 25, now.Add(20*365*24*time.Hour), rootC, keyC, false, "c.example")
 
 	pool := x509.NewCertPool()
 	pool.AddCert(rootA)
@@ -119,6 +119,16 @@ func TestVerifiedRootAndThresholdYAML(t *testing.T) {
 	if !strings.Contains(out, "Successful verifications: 4") || !strings.Contains(out, "Success rate: 80.0%") {
 		t.Fatalf("missing success stats:\n%s", out)
 	}
+	if !strings.Contains(out, "Distrusted (leaf NotBefore after root CKA_NSS_SERVER_DISTRUST_AFTER): 0") {
+		t.Fatalf("missing distrusted count:\n%s", out)
+	}
+	encoded, err := rep.EncodeYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(encoded) != out {
+		t.Fatal("EncodeYAML did not match YAML")
+	}
 	if !strings.Contains(out, "not a full top-1-million scan") {
 		t.Fatalf("missing sample caveat:\n%s", out)
 	}
@@ -189,6 +199,24 @@ func TestLoadMozillaRootsFile(t *testing.T) {
 	if pool == nil || len(known) < 100 {
 		t.Fatalf("loaded %d mozilla roots", len(known))
 	}
+	izenpe := "2530cc8e98321502bad96f9b1fba1b099e2d299e0f4548bb914f363bc0d4531f"
+	wantCutoff := time.Date(2026, 4, 15, 23, 59, 59, 0, time.UTC)
+	if root := known[izenpe]; root == nil || !root.ServerDistrustAfter.Equal(wantCutoff) {
+		got := time.Time{}
+		if root != nil {
+			got = root.ServerDistrustAfter
+		}
+		t.Fatalf("Izenpe ServerDistrustAfter = %s, want %s", got, wantCutoff)
+	}
+	dated := 0
+	for _, root := range known {
+		if !root.ServerDistrustAfter.IsZero() {
+			dated++
+		}
+	}
+	if dated != 4 {
+		t.Fatalf("dated mozilla roots = %d, want 4", dated)
+	}
 	for fp, root := range known {
 		if len(fp) != 64 || root == nil || root.SHA256 != fp || root.Cert == nil {
 			t.Fatalf("bad root entry %q: %+v", fp, root)
@@ -200,9 +228,9 @@ func TestLoadMozillaRootsFile(t *testing.T) {
 		}
 	}
 	// A self-minted CA is not a Mozilla root, so it must not verify.
-	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	unknown, key := mintCAWithKey(t, "Unknown Root", 99, now.Add(365*24*time.Hour))
-	leaf := mintIssued(t, "evil.example", 100, now.Add(24*time.Hour), unknown, key, false, "evil.example")
+	leaf := mintIssued(t, "evil.example", 100, now.Add(20*365*24*time.Hour), unknown, key, false, "evil.example")
 	if got := VerifiedRoot(leaf, nil, "evil.example", pool, known); got != nil {
 		t.Fatalf("unknown root accepted: %+v", got)
 	}
@@ -211,10 +239,10 @@ func TestLoadMozillaRootsFile(t *testing.T) {
 func TestVerifiedRootIntermediate(t *testing.T) {
 	t.Parallel()
 
-	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	root, rootKey := mintCAWithKey(t, "Test Root A", 1, now.Add(10*365*24*time.Hour))
 	intCA, intKey := mintIssuedWithKey(t, "Test Int A", 11, now.Add(5*365*24*time.Hour), root, rootKey, true)
-	leaf := mintIssued(t, "via-int.example", 21, now.Add(24*time.Hour), intCA, intKey, false, "via-int.example")
+	leaf := mintIssued(t, "via-int.example", 21, now.Add(20*365*24*time.Hour), intCA, intKey, false, "via-int.example")
 
 	pool := x509.NewCertPool()
 	pool.AddCert(root)
@@ -249,6 +277,84 @@ func TestGunzipIfNeededCap(t *testing.T) {
 
 func fpOf(c *x509.Certificate) string {
 	return certutil.GetHexSHA256Fingerprint(*c)
+}
+
+func TestVerifiedRootDistrustAfter(t *testing.T) {
+	t.Parallel()
+
+	at := time.Now().UTC()
+	cutoff := at.Add(-90 * 24 * time.Hour)
+	notAfter := at.Add(20 * 365 * 24 * time.Hour)
+	root, key := mintCAWithKey(t, "Dated Root", 1, notAfter)
+
+	before := mintIssuedWindow(t, "before.example", 21, cutoff.Add(-24*time.Hour), notAfter, root, key, false, "before.example")
+	equal := mintIssuedWindow(t, "equal.example", 22, cutoff, notAfter, root, key, false, "equal.example")
+	after := mintIssuedWindow(t, "after.example", 23, cutoff.Add(24*time.Hour), notAfter, root, key, false, "after.example")
+
+	pool := x509.NewCertPool()
+	pool.AddCert(root)
+	known := map[string]*Root{
+		fpOf(root): {
+			Cert:                root,
+			SHA256:              fpOf(root),
+			Subject:             certutil.StringifyPKIXName(root.Subject),
+			ServerDistrustAfter: cutoff,
+		},
+	}
+
+	got, distrusted := VerifyChain(before, nil, "before.example", pool, known, at)
+	if got == nil || distrusted || got.SHA256 != fpOf(root) {
+		t.Fatalf("leaf issued before cutoff: root=%+v distrusted=%v", got, distrusted)
+	}
+	got, distrusted = VerifyChain(equal, nil, "equal.example", pool, known, at)
+	if got == nil || distrusted {
+		t.Fatalf("leaf issued at cutoff should still count: root=%+v distrusted=%v", got, distrusted)
+	}
+	got, distrusted = VerifyChain(after, nil, "after.example", pool, known, at)
+	if got == nil || !distrusted || got.SHA256 != fpOf(root) {
+		t.Fatalf("leaf issued after cutoff: root=%+v distrusted=%v", got, distrusted)
+	}
+	if VerifiedRoot(after, nil, "after.example", pool, known) != nil {
+		t.Fatal("VerifiedRoot counted a distrusted leaf")
+	}
+	if VerifiedRoot(before, nil, "before.example", pool, known) == nil {
+		t.Fatal("VerifiedRoot dropped a leaf issued before the cutoff")
+	}
+
+	counts := NewCounts()
+	counts.Add(VerifiedRoot(before, nil, "before.example", pool, known))
+	counts.Add(VerifiedRoot(equal, nil, "equal.example", pool, known))
+	counts.Add(VerifiedRoot(after, nil, "after.example", pool, known))
+	if counts.Sites(fpOf(root)) != 2 {
+		t.Fatalf("sites = %d, want 2 (after-cutoff leaf excluded)", counts.Sites(fpOf(root)))
+	}
+
+	// A root with no cutoff still counts a leaf regardless of NotBefore.
+	plainKnown := map[string]*Root{
+		fpOf(root): {Cert: root, SHA256: fpOf(root), Subject: certutil.StringifyPKIXName(root.Subject)},
+	}
+	if VerifiedRoot(after, nil, "after.example", pool, plainKnown) == nil {
+		t.Fatal("zero cutoff rejected a valid leaf")
+	}
+}
+
+func TestEncodeYAMLEmpty(t *testing.T) {
+	t.Parallel()
+
+	_, err := Report{N: 10, Success: 3, Threshold: 2}.EncodeYAML()
+	if err == nil {
+		t.Fatal("expected empty-allowlist error")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "no roots met threshold 2") || !strings.Contains(msg, "scanning 10 hosts") || !strings.Contains(msg, "3 successful verifications") {
+		t.Fatalf("error = %q", msg)
+	}
+	if strings.HasSuffix(msg, ".") || strings.HasSuffix(msg, "!") {
+		t.Fatalf("error ends with punctuation: %q", msg)
+	}
+	if out := (Report{N: 10, Success: 3, Threshold: 2}).YAML(); !strings.Contains(string(out), "fingerprints:\n") {
+		t.Fatalf("YAML still renders empty fingerprints, got:\n%s", out)
+	}
 }
 
 func mintCAWithKey(t *testing.T, cn string, serial int64, notAfter time.Time) (*x509.Certificate, *ecdsa.PrivateKey) {
@@ -339,4 +445,36 @@ func mintIssuedWithKey(t *testing.T, cn string, serial int64, notAfter time.Time
 		t.Fatal(err)
 	}
 	return cert, key
+}
+
+func mintIssuedWindow(t *testing.T, cn string, serial int64, notBefore, notAfter time.Time, issuer *x509.Certificate, issuerKey *ecdsa.PrivateKey, isCA bool, dnsNames ...string) *x509.Certificate {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(serial),
+		Subject:               pkix.Name{CommonName: cn, Organization: []string{"trustprune test"}},
+		NotBefore:             notBefore,
+		NotAfter:              notAfter,
+		DNSNames:              dnsNames,
+		KeyUsage:              x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  isCA,
+	}
+	if isCA {
+		tmpl.KeyUsage = x509.KeyUsageCertSign | x509.KeyUsageCRLSign
+		tmpl.ExtKeyUsage = nil
+	}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, issuer, &key.PublicKey, issuerKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cert
 }

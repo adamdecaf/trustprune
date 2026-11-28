@@ -117,7 +117,7 @@ $ curl -fsSL https://trustprune.com/downloads/allowlists/web.yaml -o web.yaml
 $ trustprune allowlist --file web.yaml --dry-run
 ```
 
-Regenerate with `make web-allowlist` after downloading a local Tranco CSV. That target dials the network and is not part of `make allowlists` or `make generate`. The scanner verifies each handshake only against the pinned `testdata/certdata.txt.gz` roots; fingerprints that are not in that set are never written.
+Regenerate with `make web-allowlist LIST=/path/to/tranco.csv` after downloading a local Tranco CSV. `LIST` is required. That target dials the network and is not part of `make allowlists` or `make generate`. The scanner verifies each handshake only against the pinned `testdata/certdata.txt.gz` roots; fingerprints that are not in that set are never written.
 
 ## Generating allowlists
 

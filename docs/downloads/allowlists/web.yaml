@@ -4,8 +4,9 @@
 # List URL: https://tranco-list.eu/download/947L2/100000
 # List date: 2026-11-27 (daily list, window 2026-10-29 to 2026-11-27)
 # Sites scanned: 50000
-# Successful verifications: 35773
-# Success rate: 71.5%
+# Successful verifications: 35928
+# Success rate: 71.9%
+# Distrusted (leaf NotBefore after root CKA_NSS_SERVER_DISTRUST_AFTER): 0
 # This is a large sample of the source list, not a full top-1-million scan.
 # Trust store: testdata/certdata.txt.gz
 # Cite: https://tranco-list.eu/ (V. Le Pochat et al., NDSS 2019)
@@ -17,56 +18,56 @@
 # This file has no Jekyll front matter so the docs site can serve it unchanged.
 #
 # Per-root site counts (successful verifications, highest first):
-#   349dfa4058c5e263123b398ae795573c4e1313c83fe68f93556cd5e8031b3c7d    9610  GTS Root R4
-#   96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6    5042  ISRG Root X1
-#   69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470    4950  ISRG Root X2
-#   8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e    4701  Amazon Root CA 1
-#   cb3ccbb76031e5e0138f8dd39a23f9de47ffc35e43c1144cea27d46a5ab1cb5f    3501  DigiCert Global Root G2
-#   7bb647a62aeeac88bf257aa522d01ffea395e0ab45c73f93f65654ec38f25a06    2087  Sectigo Public Server Authentication Root R46
-#   4fa3126d8d3a11d1c4855a4f807cbad6cf919d3a5a88b03bea2c6372d93c40c9    1148  GlobalSign Root R46
-#   d947432abde7b7fa90fc2e6b59101b1280e0e1c7e4e40fa3c6887fff57a7f4cf     717  GTS Root R1
-#   cbb522d7b7f127ad6a0113865bdf1cd4102e7d0759af635a7cf4720dc963c53b     619  GlobalSign
-#   45140b3247eb9cc8c5b4f0d7b53091f73292089e6e5a63e2749dd3aca9198eda     607  Go Daddy Root Certificate Authority - G2
-#   31ad6648f8104138c738f39ea4320133393e3a18cc02296ef97c2ac9ef6731d0     526  DigiCert Global Root G3
+#   349dfa4058c5e263123b398ae795573c4e1313c83fe68f93556cd5e8031b3c7d    9654  GTS Root R4
+#   96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6    5053  ISRG Root X1
+#   69729b8e15a86efc177a57afb7171dfc64add28c2fca8cf1507e34453ccb1470    4989  ISRG Root X2
+#   8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e    4686  Amazon Root CA 1
+#   cb3ccbb76031e5e0138f8dd39a23f9de47ffc35e43c1144cea27d46a5ab1cb5f    3481  DigiCert Global Root G2
+#   7bb647a62aeeac88bf257aa522d01ffea395e0ab45c73f93f65654ec38f25a06    2119  Sectigo Public Server Authentication Root R46
+#   4fa3126d8d3a11d1c4855a4f807cbad6cf919d3a5a88b03bea2c6372d93c40c9    1163  GlobalSign Root R46
+#   d947432abde7b7fa90fc2e6b59101b1280e0e1c7e4e40fa3c6887fff57a7f4cf     724  GTS Root R1
+#   cbb522d7b7f127ad6a0113865bdf1cd4102e7d0759af635a7cf4720dc963c53b     633  GlobalSign
+#   45140b3247eb9cc8c5b4f0d7b53091f73292089e6e5a63e2749dd3aca9198eda     609  Go Daddy Root Certificate Authority - G2
+#   31ad6648f8104138c738f39ea4320133393e3a18cc02296ef97c2ac9ef6731d0     533  DigiCert Global Root G3
 #   d95d0e8eda79525bf9beb11b14d2100d3294985f0c62d9fabd9cd999eccb7b1d     316  HARICA TLS RSA Root CA 2021
-#   8faf7d2e2cb4709bb8e0b33666bf75a5dd45b5de480f8ea8d4bfe6bebc17f2ed     207  SSL.com TLS RSA Root CA 2022
-#   c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383     205  Sectigo Public Server Authentication Root E46
-#   fe7696573855773e37a95e7ad4d9cc96c30157c15d31765ba9b15704e1ae78fd     201  Certum Trusted Root CA
-#   2cabeafe37d06ca22aba7391c0033d25982952c453647349763a3ab5ad6ccf69     178  GlobalSign
-#   2ce1cb0bf9d2f9e102993fbe215152c3b2dd0cabde1c68e5319b839154dbb7f5     171  Starfield Root Certificate Authority - G2
-#   e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2     134  USERTrust RSA Certification Authority
-#   3f99cc474acfce4dfed58794665e478d1547739f2e780f1bb4ca9b133097d401     120  HARICA TLS ECC Root CA 2021
+#   8faf7d2e2cb4709bb8e0b33666bf75a5dd45b5de480f8ea8d4bfe6bebc17f2ed     213  SSL.com TLS RSA Root CA 2022
+#   c90f26f0fb1b4018b22227519b5ca2b53e2ca5b3be5cf18efe1bef47380c5383     209  Sectigo Public Server Authentication Root E46
+#   fe7696573855773e37a95e7ad4d9cc96c30157c15d31765ba9b15704e1ae78fd     202  Certum Trusted Root CA
+#   2cabeafe37d06ca22aba7391c0033d25982952c453647349763a3ab5ad6ccf69     180  GlobalSign
+#   2ce1cb0bf9d2f9e102993fbe215152c3b2dd0cabde1c68e5319b839154dbb7f5     168  Starfield Root Certificate Authority - G2
+#   e793c9b02fd8aa13e21c31228accb08119643b749c898964b1746d46c3d4cbd2     142  USERTrust RSA Certification Authority
+#   3f99cc474acfce4dfed58794665e478d1547739f2e780f1bb4ca9b133097d401     116  HARICA TLS ECC Root CA 2021
 #   371a00dc0533b3721a7eeb40e8419e70799d2b0a0f2c1d80693165f7cec4ad75     105  DigiCert TLS RSA4096 Root G5
-#   06c08d7dafd876971eb1124fe67f847ec0c7a158d3ea53cbe940e2ea9791f4c3      64  TrustAsia TLS RSA Root CA
-#   18ce6cfe7bf14e60b2e347b8dfe868cb31d02ebb3ada271569f50343b46db3a4      61  Amazon Root CA 3
+#   18ce6cfe7bf14e60b2e347b8dfe868cb31d02ebb3ada271569f50343b46db3a4      63  Amazon Root CA 3
+#   06c08d7dafd876971eb1124fe67f847ec0c7a158d3ea53cbe940e2ea9791f4c3      62  TrustAsia TLS RSA Root CA
 #   c32ffd9f46f936d16c3673990959434b9ad60aafbb9e7cf33654f144cc1ba143      57  SSL.com TLS ECC Root CA 2022
-#   513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6      51  SECOM Trust Systems CO.,LTD., Security Communication RootCA2
+#   513b2cecb810d4cde5dd85391adfc6c2dd60d87bb736d2b521484aa47a0ebef6      52  SECOM Trust Systems CO.,LTD., Security Communication RootCA2
 #   5c58468d55f58e497e743982d2b50010b6d165374acf83a7d4a32db768c4408e      38  Certum Trusted Network CA
-#   193144f431e0fddb740717d4de926a571133884b4360d30e272913cbe660ce41      33  SwissSign RSA TLS Root CA 2022 - 1
+#   193144f431e0fddb740717d4de926a571133884b4360d30e272913cbe660ce41      36  SwissSign RSA TLS Root CA 2022 - 1
+#   018e13f0772532cf809bd1b17281867283fc48c6e13be9c69812854a490c1b05      29  DigiCert TLS ECC P384 Root G5
 #   5d56499be4d2e08bcfcad08a3e38723d50503bde706948e42f55603019e528ae      29  IdenTrust Commercial Root CA 1
 #   3f63bb2814be174ec8b6439cf08d6d56f0b7c405883a5648a334424d6b3ec558      28  TWCA CYBER Root CA
-#   018e13f0772532cf809bd1b17281867283fc48c6e13be9c69812854a490c1b05      27  DigiCert TLS ECC P384 Root G5
-#   55926084ec963a64b96e2abe01ce0ba86a64fbfebcc7aab5afc155b37fd76066      26  Actalis Authentication Root CA
-#   efc65cadbb59adb6efe84da22311b35624b71b3b1ea0da8b6655174ec8978646      23  Telekom Security TLS RSA Root 2023
-#   0552e6f83fdf65e8fa9670e666df28a4e21340b510cbe52566f97c4fb94b2bd1      21  D-TRUST BR Root CA 2 2023
-#   cbb9c44d84b8043e1050ea31a69f514955d7bfd2e2c6b49301019ad61d9f5058      21  GlobalSign Root E46
+#   55926084ec963a64b96e2abe01ce0ba86a64fbfebcc7aab5afc155b37fd76066      28  Actalis Authentication Root CA
+#   efc65cadbb59adb6efe84da22311b35624b71b3b1ea0da8b6655174ec8978646      24  Telekom Security TLS RSA Root 2023
+#   0552e6f83fdf65e8fa9670e666df28a4e21340b510cbe52566f97c4fb94b2bd1      22  D-TRUST BR Root CA 2 2023
 #   1435f225c5d252d7a21948cc3ce62aecfa88001e3dd72d1cc3555100eb372f93      20  SECOM TLS RSA Root CA 2024
+#   cbb9c44d84b8043e1050ea31a69f514955d7bfd2e2c6b49301019ad61d9f5058      20  GlobalSign Root E46
 #   9bea11c976fe014764c1be56a6f914b5a560317abd9988393382e5161aa0493c      16  UCA Global G2 Root
-#   179fbc148a3dd00fd24ea13458cc43bfa7f59c8182d783a513f6ebec100c8924      13  GlobalSign
+#   179fbc148a3dd00fd24ea13458cc43bfa7f59c8182d783a513f6ebec100c8924      12  GlobalSign
 #   5cc3d78e4e1d5e45547a04e6873e64f90cf9536d1ccc2ef800f355c4c5fd70fd      11  CFCA EV ROOT
 #   e35d28419ed02025cfa69038cd623962458da5c695fbdea3c22b0bfb25897092      11  Amazon Root CA 4
-#   ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa      10  FNMT-RCM, AC RAIZ FNMT-RCM
-#   8fe4fb0af93a4d0d67db0bebb23e37c71bf325dcbcdd240ea04daf58b47e1840       7  QuoVadis Root CA 2 G3
-#   b49141502d00663d740f2e7ec340c52800962666121a36d09cf7dd2b90384fb4       5  e-Szigno TLS Root CA 2023
+#   8fe4fb0af93a4d0d67db0bebb23e37c71bf325dcbcdd240ea04daf58b47e1840       8  QuoVadis Root CA 2 G3
+#   ebc5570c29018c4d67b1aa127baf12f703b4611ebc17b7dab5573894179b93fa       8  FNMT-RCM, AC RAIZ FNMT-RCM
+#   3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378       5  Microsec e-Szigno Root CA 2009
 #   d13db1294c45ebc6fc86c6bbf69fa29bdfe692dff7c713c243c7a956c6a2284c       5  Telia RSA TLS Root CA v3
-#   3c5f81fea5fab82c64bfa2eaecafcde8e077fc8620a7cae537163df36edbf378       4  Microsec e-Szigno Root CA 2009
-#   46edc3689046d53a453fb3104ab80dcaec658b2660ea1629dd7e867990648716       4  TUBITAK Kamu SM SSL Kok Sertifikasi - Surum 1
+#   242b69742fcb1e5b2abf98898b94572187544e5b4d9911786573621f6a74b82c       4  Telia Root CA v2
 #   5a2fc03f0c83b090bbfa40604b0988446c7636183df9846e17101a447fb8efd6       4  Hongkong Post Root CA 3
-#   91e2f5788d5810eba7ba58737de1548a8ecacd014598bc0b143e041b17052552       4  T-TeleSec GlobalRoot Class 2
-#   242b69742fcb1e5b2abf98898b94572187544e5b4d9911786573621f6a74b82c       3  Telia Root CA v2
+#   b49141502d00663d740f2e7ec340c52800962666121a36d09cf7dd2b90384fb4       4  e-Szigno TLS Root CA 2023
 #   40f6af0346a99aa1cd1d555a4e9cce62c7f9634603ee406615833dc8c8d00367       3  emSign Root CA - G1
+#   46edc3689046d53a453fb3104ab80dcaec658b2660ea1629dd7e867990648716       3  TUBITAK Kamu SM SSL Kok Sertifikasi - Surum 1
 #   578af4ded0853f4e5998db4aeaf9cbea8d945f60b620a38d1a3c13b2bc7ba8e1       3  Telekom Security TLS ECC Root 2020
 #   6b328085625318aa50d173c98d8bda09d57e27413d114cf787a0f5d06c030cf6       3  Certum EC-384 CA
+#   91e2f5788d5810eba7ba58737de1548a8ecacd014598bc0b143e041b17052552       3  T-TeleSec GlobalRoot Class 2
 #   2530cc8e98321502bad96f9b1fba1b099e2d299e0f4548bb914f363bc0d4531f       2  Izenpe.com
 #   4ff460d54b9c86dabfbcfc5712e0400d2bed3fbc4d4fbdaa86e06adcd2a9ad7a       2  USERTrust ECC Certification Authority
 #   85666a562ee0be5ce925c1d8890a6f76a87ec16d4d7d5f29ea7419cf20123b69       2  SSL.com Root Certification Authority RSA
@@ -82,7 +83,6 @@
 #   6b9c08e86eb0f767cfad65cd98b62149e5494a67f5845e7bd1ed019f27b86bd6       1  OISTE WISeKey Global Root GB CA
 #   81a9088ea59fb364c548a6f85559099b6f0405efbf18e5324ec9f457ba00112f       1  Atos TrustedRoot Root CA RSA TLS 2021
 #   88f438dcf8ffd1fa8f429115ffe5f82ae1e06e0c70c375faad717b34a49e7265       1  NAVER Global Root Certification Authority
-#   8e8221b2e7d4007836a1672f0dcc299c33bc07d316f132fa1a206d587150f1ce       1  D-TRUST EV Root CA 2 2023
 #   e23d4a036d7b70e9f595b1422079d2b91edfbb1fb651a0633eaa8a9dc5f80703       1  CA Disig Root R2
 #   e59aaa816009c22bff5b25bad37df306f049797c1f81d85ab089e657bd8f0044       1  D-TRUST BR Root CA 1 2020
 fingerprints:
@@ -129,7 +129,6 @@ fingerprints:
   - "81a9088ea59fb364c548a6f85559099b6f0405efbf18e5324ec9f457ba00112f"
   - "85666a562ee0be5ce925c1d8890a6f76a87ec16d4d7d5f29ea7419cf20123b69"
   - "88f438dcf8ffd1fa8f429115ffe5f82ae1e06e0c70c375faad717b34a49e7265"
-  - "8e8221b2e7d4007836a1672f0dcc299c33bc07d316f132fa1a206d587150f1ce"
   - "8ecde6884f3d87b1125ba31ac3fcb13d7016de7f57cc904fe1cb97c6ae98196e"
   - "8faf7d2e2cb4709bb8e0b33666bf75a5dd45b5de480f8ea8d4bfe6bebc17f2ed"
   - "8fe4fb0af93a4d0d67db0bebb23e37c71bf325dcbcdd240ea04daf58b47e1840"

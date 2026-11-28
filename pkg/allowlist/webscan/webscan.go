@@ -27,15 +27,17 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/adamdecaf/trustprune/pkg/certutil"
 )
 
 // Root is a Mozilla trusted-server root from certdata.txt.
 type Root struct {
-	Cert    *x509.Certificate
-	SHA256  string
-	Subject string
+	Cert                *x509.Certificate
+	SHA256              string
+	Subject             string
+	ServerDistrustAfter time.Time // CKA_NSS_SERVER_DISTRUST_AFTER; zero if unset
 }
 
 // LoadMozillaRoots parses a Mozilla certdata.txt document and returns the
@@ -63,9 +65,10 @@ func LoadMozillaRoots(certdata []byte) (*x509.CertPool, map[string]*Root, error)
 		fp := certutil.GetHexSHA256Fingerprint(*c)
 		pool.AddCert(c)
 		byFP[fp] = &Root{
-			Cert:    c,
-			SHA256:  fp,
-			Subject: certutil.StringifyPKIXName(c.Subject),
+			Cert:                c,
+			SHA256:              fp,
+			Subject:             certutil.StringifyPKIXName(c.Subject),
+			ServerDistrustAfter: trusted[i].ServerDistrustAfter,
 		}
 	}
 	return pool, byFP, nil
@@ -73,10 +76,27 @@ func LoadMozillaRoots(certdata []byte) (*x509.CertPool, map[string]*Root, error)
 
 // VerifiedRoot returns the Mozilla root that anchors leaf for dnsName,
 // using intermediates and the Mozilla pool. It returns nil when
-// verification fails or the verified root is not in known.
+// verification fails, the verified root is not in known, or the leaf's
+// NotBefore is after the root's ServerDistrustAfter cutoff. Verification
+// uses the current time.
 func VerifiedRoot(leaf *x509.Certificate, intermediates []*x509.Certificate, dnsName string, pool *x509.CertPool, known map[string]*Root) *Root {
-	if leaf == nil || pool == nil || known == nil {
+	root, distrusted := VerifyChain(leaf, intermediates, dnsName, pool, known, time.Time{})
+	if distrusted {
 		return nil
+	}
+	return root
+}
+
+// VerifyChain is VerifiedRoot with an explicit verification time and a
+// separate distrusted result. at is the verification time; a zero value
+// uses the current time, the same as crypto/x509 when CurrentTime is unset.
+// distrusted is true when a known Mozilla root chained but the leaf was
+// issued after that root's ServerDistrustAfter cutoff. In that case root is
+// still returned so the caller can count the site separately; it must not
+// be added to site counts.
+func VerifyChain(leaf *x509.Certificate, intermediates []*x509.Certificate, dnsName string, pool *x509.CertPool, known map[string]*Root, at time.Time) (root *Root, distrusted bool) {
+	if leaf == nil || pool == nil || known == nil {
+		return nil, false
 	}
 	intPool := x509.NewCertPool()
 	for _, c := range intermediates {
@@ -87,24 +107,39 @@ func VerifiedRoot(leaf *x509.Certificate, intermediates []*x509.Certificate, dns
 	opts := x509.VerifyOptions{
 		Intermediates: intPool,
 		Roots:         pool,
+		CurrentTime:   at,
 	}
 	if dnsName != "" {
 		opts.DNSName = dnsName
 	}
 	chains, err := leaf.Verify(opts)
 	if err != nil || len(chains) == 0 || len(chains[0]) == 0 {
-		return nil
+		return nil, false
 	}
 	rootCert := chains[0][len(chains[0])-1]
 	if rootCert == nil {
-		return nil
+		return nil, false
 	}
 	fp := certutil.GetHexSHA256Fingerprint(*rootCert)
 	root, ok := known[fp]
 	if !ok {
-		return nil
+		return nil, false
 	}
-	return root
+	if DistrustedLeaf(root, leaf) {
+		return root, true
+	}
+	return root, false
+}
+
+// DistrustedLeaf reports whether root has a ServerDistrustAfter cutoff and
+// leaf was issued after that instant (leaf.NotBefore is strictly after the
+// cutoff). A NotBefore equal to the cutoff is still accepted. A nil root
+// or leaf, or a zero cutoff, is not distrusted.
+func DistrustedLeaf(root *Root, leaf *x509.Certificate) bool {
+	if root == nil || leaf == nil || root.ServerDistrustAfter.IsZero() {
+		return false
+	}
+	return leaf.NotBefore.UTC().After(root.ServerDistrustAfter.UTC())
 }
 
 // Counts records how many sites each known Mozilla root anchored.
@@ -200,6 +235,7 @@ type Report struct {
 	CertdataSource string
 	N              int
 	Success        int
+	Distrusted     int // leaves issued after a root ServerDistrustAfter cutoff
 	Threshold      int
 	Roots          []RootCount // fingerprints that meet the threshold
 	Observed       []RootCount // all observed roots, for header comments
@@ -229,6 +265,7 @@ func (r Report) YAML() []byte {
 	if r.N > 0 {
 		fmt.Fprintf(&b, "# Success rate: %.1f%%\n", 100*float64(r.Success)/float64(r.N))
 	}
+	fmt.Fprintf(&b, "# Distrusted (leaf NotBefore after root CKA_NSS_SERVER_DISTRUST_AFTER): %d\n", r.Distrusted)
 	b.WriteString("# This is a large sample of the source list, not a full top-1-million scan.\n")
 	if r.CertdataSource != "" {
 		fmt.Fprintf(&b, "# Trust store: %s\n", r.CertdataSource)
@@ -262,6 +299,20 @@ func (r Report) YAML() []byte {
 		fmt.Fprintf(&b, "  - \"%s\"\n", rc.SHA256)
 	}
 	return []byte(b.String())
+}
+
+// EncodeYAML returns the allowlist YAML. It returns an error, and does not
+// render fingerprints, when no roots met the threshold, so callers cannot
+// write an empty web.yaml.
+func (r Report) EncodeYAML() ([]byte, error) {
+	threshold := r.Threshold
+	if threshold < 1 {
+		threshold = 1
+	}
+	if len(r.Roots) == 0 {
+		return nil, fmt.Errorf("no roots met threshold %d after scanning %d hosts (%d successful verifications)", threshold, r.N, r.Success)
+	}
+	return r.YAML(), nil
 }
 
 func reportListLabel(r Report) string {

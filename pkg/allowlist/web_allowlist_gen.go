@@ -104,7 +104,7 @@ func main() {
 	log.Printf("loaded %d mozilla trusted-server roots from %s; scanning %d hosts with %d workers, timeout %s, threshold %d",
 		len(known), certdataPath, len(hosts), *workersFlag, *timeoutFlag, threshold)
 
-	counts, success, dialFail, verifyFail := scanHosts(hosts, pool, known, *workersFlag, *timeoutFlag)
+	counts, success, dialFail, verifyFail, distrusted := scanHosts(hosts, pool, known, *workersFlag, *timeoutFlag)
 	rep := webscan.Report{
 		ListName:       strings.TrimSpace(*listNameFlag),
 		ListID:         strings.TrimSpace(*listIDFlag),
@@ -113,16 +113,21 @@ func main() {
 		CertdataSource: certdataPath,
 		N:              len(hosts),
 		Success:        success,
+		Distrusted:     distrusted,
 		Threshold:      threshold,
 		Roots:          counts.Above(threshold),
 		Observed:       counts.All(),
 	}
-	if err := os.WriteFile(outPath, rep.YAML(), 0o644); err != nil {
+	body, err := rep.EncodeYAML()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.WriteFile(outPath, body, 0o644); err != nil {
 		log.Fatalf("writing %s: %v", outPath, err)
 	}
 
-	log.Printf("wrote %s: success=%d/%d (%.1f%%) dial_fail=%d verify_fail=%d roots_observed=%d roots_in_allowlist=%d (threshold >= %d)",
-		outPath, success, len(hosts), 100*float64(success)/float64(len(hosts)), dialFail, verifyFail, len(rep.Observed), len(rep.Roots), threshold)
+	log.Printf("wrote %s: success=%d/%d (%.1f%%) dial_fail=%d verify_fail=%d distrusted=%d roots_observed=%d roots_in_allowlist=%d (threshold >= %d)",
+		outPath, success, len(hosts), 100*float64(success)/float64(len(hosts)), dialFail, verifyFail, distrusted, len(rep.Observed), len(rep.Roots), threshold)
 	for i, rc := range rep.Observed {
 		if i >= 10 {
 			break
@@ -157,15 +162,16 @@ func loadHosts(path string, limit int) ([]string, error) {
 	return out, nil
 }
 
-func scanHosts(hosts []string, pool *x509.CertPool, known map[string]*webscan.Root, workers int, timeout time.Duration) (counts *webscan.Counts, success, dialFail, verifyFail int) {
+func scanHosts(hosts []string, pool *x509.CertPool, known map[string]*webscan.Root, workers int, timeout time.Duration) (counts *webscan.Counts, success, dialFail, verifyFail, distrusted int) {
 	counts = webscan.NewCounts()
 	jobs := make(chan string)
 	var (
-		mu      sync.Mutex
-		done    atomic.Int32
-		succA   atomic.Int32
-		dialA   atomic.Int32
-		verifyA atomic.Int32
+		mu        sync.Mutex
+		done      atomic.Int32
+		succA     atomic.Int32
+		dialA     atomic.Int32
+		verifyA   atomic.Int32
+		distrustA atomic.Int32
 	)
 	total := len(hosts)
 	var wg sync.WaitGroup
@@ -183,13 +189,15 @@ func scanHosts(hosts []string, pool *x509.CertPool, known map[string]*webscan.Ro
 					mu.Unlock()
 				case resultDialFail:
 					dialA.Add(1)
+				case resultDistrusted:
+					distrustA.Add(1)
 				default:
 					verifyA.Add(1)
 				}
 				n := int(done.Add(1))
 				if n%1000 == 0 || n == total {
-					s, d, v := succA.Load(), dialA.Load(), verifyA.Load()
-					log.Printf("progress %d/%d success=%d dial_fail=%d verify_fail=%d", n, total, s, d, v)
+					s, d, v, x := succA.Load(), dialA.Load(), verifyA.Load(), distrustA.Load()
+					log.Printf("progress %d/%d success=%d dial_fail=%d verify_fail=%d distrusted=%d", n, total, s, d, v, x)
 				}
 			}
 		}()
@@ -199,7 +207,7 @@ func scanHosts(hosts []string, pool *x509.CertPool, known map[string]*webscan.Ro
 	}
 	close(jobs)
 	wg.Wait()
-	return counts, int(succA.Load()), int(dialA.Load()), int(verifyA.Load())
+	return counts, int(succA.Load()), int(dialA.Load()), int(verifyA.Load()), int(distrustA.Load())
 }
 
 type resultKind int
@@ -208,6 +216,7 @@ const (
 	resultSuccess resultKind = iota
 	resultDialFail
 	resultVerifyFail
+	resultDistrusted
 )
 
 func scanHost(host string, pool *x509.CertPool, known map[string]*webscan.Root, timeout time.Duration) (*webscan.Root, resultKind) {
@@ -241,7 +250,10 @@ func scanHost(host string, pool *x509.CertPool, known map[string]*webscan.Root, 
 	}
 	leaf := state.PeerCertificates[0]
 	intermediates := state.PeerCertificates[1:]
-	root := webscan.VerifiedRoot(leaf, intermediates, host, pool, known)
+	root, distrusted := webscan.VerifyChain(leaf, intermediates, host, pool, known, time.Time{})
+	if distrusted {
+		return root, resultDistrusted
+	}
 	if root == nil {
 		return nil, resultVerifyFail
 	}

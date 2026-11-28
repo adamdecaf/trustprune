@@ -44,6 +44,7 @@ func TestWebAllowlistIsSubsetOfMozillaRoots(t *testing.T) {
 		"List date:",
 		"Sites scanned:",
 		"Successful verifications:",
+		"Distrusted (leaf NotBefore after root CKA_NSS_SERVER_DISTRUST_AFTER):",
 		"not a full top-1-million scan",
 		"Trust store: testdata/certdata.txt.gz",
 		"Cite: https://tranco-list.eu/",
