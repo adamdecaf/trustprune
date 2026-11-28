@@ -758,3 +758,15 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
 	return f(r)
 }
+
+func TestDiagnosticRefWindowsPath(t *testing.T) {
+	for _, path := range []string{
+		`C:\Users\foo\allowlist.yaml`,
+		`C:/Users/foo/allowlist.yaml`,
+		`D:\My Files\allowlist.yaml`,
+	} {
+		if got := diagnosticRef(path); got != path {
+			t.Errorf("diagnosticRef(%q) = %q, want the original path", path, got)
+		}
+	}
+}

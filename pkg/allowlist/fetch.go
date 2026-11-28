@@ -100,7 +100,11 @@ func FromPathOrURL(ref string, opts FetchOptions) (Allowlist, error) {
 		return Allowlist{}, err
 	}
 	if err := matchSHA256(body, pin); err != nil {
-		return Allowlist{}, fmt.Errorf("%s: %w", diagnosticRef(ref), err)
+		source := ref
+		if remote {
+			source = diagnosticRef(ref)
+		}
+		return Allowlist{}, fmt.Errorf("%s: %w", source, err)
 	}
 	if err := verifyAllowlistSignature(body, opts); err != nil {
 		return Allowlist{}, err
@@ -393,6 +397,10 @@ func diagnosticRef(ref string) string {
 		return ref
 	}
 	if u.Scheme == "" {
+		return ref
+	}
+	// url.Parse lowercases the scheme and reports "c" for C:\path and C:/path.
+	if len(u.Scheme) == 1 && u.Scheme[0] >= 'a' && u.Scheme[0] <= 'z' {
 		return ref
 	}
 	return u.Redacted()
